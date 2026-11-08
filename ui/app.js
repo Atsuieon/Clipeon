@@ -562,6 +562,7 @@ async function wczytajUstawienia() {
   $("skrot").dataset.wartosc = cfg.skrot;
   $("folder").textContent = cfg.folder_klipow;
   $("autostart").checked = u.autostart;
+  $("ikona-zegar").checked = cfg.ikona_przy_zegarze;
   $("komunikat").textContent = "";
   odswiezFormularz();
 }
@@ -637,6 +638,7 @@ $("zapisz-ustawienia").addEventListener("click", async () => {
     mikrofon: $("mikrofon").checked,
     skrot: $("skrot").dataset.wartosc,
     folder_klipow: $("folder").textContent,
+    ikona_przy_zegarze: $("ikona-zegar").checked,
   };
   const przycisk = $("zapisz-ustawienia");
   przycisk.disabled = true;

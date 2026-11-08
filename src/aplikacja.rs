@@ -79,6 +79,12 @@ fn ciemna_obwodka(okno: &tauri::WebviewWindow) {
     }
 }
 
+/// Ustawia widoczność ikony przy zegarze i zapamiętuje, że Clipper już to zrobił.
+fn ustaw_ikone(rdzen: &Rdzen, widoczna: bool) {
+    let r = rdzen.clone();
+    crate::zasobnik::ustaw_w_tle(widoczna, move || r.zmien_bez_restartu(|c| c.ikona_ustawiona = true));
+}
+
 /// Odświeża ikonę, podpowiedź i menu zasobnika według stanu rdzenia.
 fn pokaz_stan(app: &AppHandle, stan: &Stan) {
     let (kolor, opis) = if let Some(b) = stan.bledy.first() {
@@ -137,9 +143,17 @@ fn ustawienia(app: AppHandle, rdzen: State<'_, Rdzen>) -> Ustawienia {
 }
 
 #[tauri::command]
-fn zapisz_ustawienia(app: AppHandle, rdzen: State<'_, Rdzen>, cfg: Config, autostart: bool) -> Result<(), String> {
+fn zapisz_ustawienia(app: AppHandle, rdzen: State<'_, Rdzen>, mut cfg: Config, autostart: bool) -> Result<(), String> {
     let folder = cfg.folder_klipow.clone();
+    // Flaga „ikona już ustawiona” należy do rdzenia, nie do okna (okno mogło mieć starą wartość)
+    let stary = rdzen.config();
+    cfg.ikona_ustawiona = stary.ikona_ustawiona;
+    let zmiana_ikony = cfg.ikona_przy_zegarze != stary.ikona_przy_zegarze;
+    let widoczna = cfg.ikona_przy_zegarze;
     rdzen.zmien_config(cfg)?;
+    if zmiana_ikony {
+        ustaw_ikone(&rdzen, widoczna);
+    }
     pozwol_na_folder(&app, &folder);
     if let Some(m) = app.try_state::<PozycjeMenu>() {
         let _ = m.zapisz.set_text(tekst_zapisu(&rdzen.config()));
@@ -312,6 +326,12 @@ pub fn uruchom() {
             let rdzen = Rdzen::nowy(cfg, move |z| obsluz_zdarzenie(&uchwyt, z));
             app.manage(rdzen.clone());
             rdzen.uruchom();
+            // Raz (przy pierwszym starcie) wyciągamy ikonę z ukrytych przy zegarze; jeśli użytkownik
+            // potem schowa ją w Windows, już tego nie zmieniamy
+            let c = rdzen.config();
+            if c.ikona_przy_zegarze && !c.ikona_ustawiona {
+                ustaw_ikone(&rdzen, true);
+            }
             if let Some(e) = blad_cfg {
                 rdzen.blad_configu(e);
             }

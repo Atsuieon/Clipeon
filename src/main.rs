@@ -13,6 +13,7 @@ mod klipy;
 mod rdzen;
 mod skrot;
 mod wideo;
+mod zasobnik;
 mod zapis;
 
 fn main() {

@@ -25,6 +25,10 @@ pub struct Config {
     pub folder_klipow: PathBuf,
     /// Skrót zapisu klipu, np. "Alt+F10", "Ctrl+Shift+S"
     pub skrot: String,
+    /// Ikona w zasobniku zawsze widoczna przy zegarze (a nie w ukrytych ikonach pod ^)
+    pub ikona_przy_zegarze: bool,
+    /// Czy Clipper już raz ustawił widoczność ikony (później decyduje użytkownik w Windows)
+    pub ikona_ustawiona: bool,
 }
 
 impl Default for Config {
@@ -39,6 +43,8 @@ impl Default for Config {
             mikrofon: false,
             folder_klipow: profil.join("Videos").join("Clipper"),
             skrot: "Alt+F10".into(),
+            ikona_przy_zegarze: true,
+            ikona_ustawiona: false,
         }
     }
 }

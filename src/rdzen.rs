@@ -162,6 +162,15 @@ impl Rdzen {
         Ok(())
     }
 
+    /// Zmiana configu, która nie wymaga restartu nagrywania (zapis na dysk).
+    pub fn zmien_bez_restartu(&self, zmiana: impl FnOnce(&mut Config)) {
+        let mut w = self.w.lock().unwrap();
+        zmiana(&mut w.cfg);
+        if let Err(e) = w.cfg.zapisz() {
+            eprintln!("{e}");
+        }
+    }
+
     /// Błąd wczytania configu (aplikacja działa wtedy na domyślnych ustawieniach).
     pub fn blad_configu(&self, blad: String) {
         self.w.lock().unwrap().bledy.insert("config", blad);
