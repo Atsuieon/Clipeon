@@ -80,9 +80,17 @@ fn ciemna_obwodka(okno: &tauri::WebviewWindow) {
 }
 
 /// Ustawia widoczność ikony przy zegarze i zapamiętuje, że Clipper już to zrobił.
-fn ustaw_ikone(rdzen: &Rdzen, widoczna: bool) {
-    let r = rdzen.clone();
-    crate::zasobnik::ustaw_w_tle(widoczna, move || r.zmien_bez_restartu(|c| c.ikona_ustawiona = true));
+/// Windows czyta to ustawienie tylko przy dodawaniu ikony, więc po zapisie dodajemy ją ponownie.
+fn ustaw_ikone(app: &AppHandle, rdzen: &Rdzen, widoczna: bool) {
+    let (r, app) = (rdzen.clone(), app.clone());
+    crate::zasobnik::ustaw_w_tle(widoczna, move || {
+        r.zmien_bez_restartu(|c| c.ikona_ustawiona = true);
+        if let Some(t) = app.tray_by_id(ID_ZASOBNIKA) {
+            let _ = t.set_visible(false);
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            let _ = t.set_visible(true);
+        }
+    });
 }
 
 /// Odświeża ikonę, podpowiedź i menu zasobnika według stanu rdzenia.
@@ -152,7 +160,7 @@ fn zapisz_ustawienia(app: AppHandle, rdzen: State<'_, Rdzen>, mut cfg: Config, a
     let widoczna = cfg.ikona_przy_zegarze;
     rdzen.zmien_config(cfg)?;
     if zmiana_ikony {
-        ustaw_ikone(&rdzen, widoczna);
+        ustaw_ikone(&app, &rdzen, widoczna);
     }
     pozwol_na_folder(&app, &folder);
     if let Some(m) = app.try_state::<PozycjeMenu>() {
@@ -183,11 +191,27 @@ fn klipy(rdzen: State<'_, Rdzen>) -> Vec<klipy::Klip> {
     klipy::lista(&rdzen.config().folder_klipow)
 }
 
+/// Miniatura dla okna: obrazek jako data URL (bez protokołu asset:, którego zakres dla folderu
+/// miniatur działał zawodnie — część plików dostawała 403) i długość klipu.
+#[derive(Serialize)]
+struct MiniaturaOkna {
+    obraz: String,
+    dlugosc: f64,
+}
+
 #[tauri::command]
-async fn miniatura(app: AppHandle, sciezka: PathBuf) -> Result<klipy::Miniatura, String> {
+async fn miniatura(app: AppHandle, sciezka: PathBuf) -> Result<MiniaturaOkna, String> {
     let folder = app.state::<Rdzen>().config().folder_klipow;
     let klip = klipy::sprawdz_sciezke(&folder, &sciezka)?;
-    tauri::async_runtime::spawn_blocking(move || klipy::miniatura(&klip)).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        use base64::Engine as _;
+        let m = klipy::miniatura(&klip)?;
+        let bajty = std::fs::read(&m.obraz).map_err(|e| format!("Nie mogę odczytać miniatury: {e}"))?;
+        let obraz = format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(bajty));
+        Ok(MiniaturaOkna { obraz, dlugosc: m.dlugosc })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -320,7 +344,6 @@ pub fn uruchom() {
 
             // Okno może czytać klipy i miniatury przez protokół asset:
             pozwol_na_folder(app.handle(), &cfg.folder_klipow);
-            pozwol_na_folder(app.handle(), &klipy::folder_miniatur());
 
             let uchwyt = app.handle().clone();
             let rdzen = Rdzen::nowy(cfg, move |z| obsluz_zdarzenie(&uchwyt, z));
@@ -330,7 +353,7 @@ pub fn uruchom() {
             // potem schowa ją w Windows, już tego nie zmieniamy
             let c = rdzen.config();
             if c.ikona_przy_zegarze && !c.ikona_ustawiona {
-                ustaw_ikone(&rdzen, true);
+                ustaw_ikone(app.handle(), &rdzen, true);
             }
             if let Some(e) = blad_cfg {
                 rdzen.blad_configu(e);

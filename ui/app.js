@@ -100,7 +100,7 @@ function pompujMiniatury() {
       .then((m) => {
         const img = karta.querySelector("img");
         img.onload = () => img.classList.add("gotowa");
-        img.src = convertFileSrc(m.obraz);
+        img.src = m.obraz;
         if (m.dlugosc > 0) {
           klip.dlugosc = m.dlugosc;
           const d = karta.querySelector(".dlugosc");

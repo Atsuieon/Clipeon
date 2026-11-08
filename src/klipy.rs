@@ -54,7 +54,8 @@ pub fn miniatura(klip: &Path) -> Result<Miniatura, String> {
     let k = klucz(klip)?;
     let (obraz, plik_dlugosci) = (folder.join(format!("{k}.jpg")), folder.join(format!("{k}.txt")));
 
-    if obraz.is_file() {
+    // Pusty plik (np. po przerwanym generowaniu) traktujemy jak brak miniatury
+    if std::fs::metadata(&obraz).is_ok_and(|m| m.len() > 0) {
         let dlugosc = std::fs::read_to_string(&plik_dlugosci).ok().and_then(|t| t.trim().parse().ok()).unwrap_or(0.0);
         return Ok(Miniatura { obraz, dlugosc });
     }
@@ -66,7 +67,8 @@ pub fn miniatura(klip: &Path) -> Result<Miniatura, String> {
         .arg(&obraz)
         .output()
         .map_err(|e| format!("Nie udało się uruchomić ffmpeg: {e}"))?;
-    if !obraz.is_file() {
+    if !std::fs::metadata(&obraz).is_ok_and(|m| m.len() > 0) {
+        let _ = std::fs::remove_file(&obraz);
         return Err("Nie udało się wygenerować miniatury".into());
     }
     // Długość z linii "Duration: 00:00:30.18, ..." w opisie wejścia

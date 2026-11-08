@@ -171,6 +171,13 @@ h3, .tytul-karty { font-size: 18px; font-weight: 400; letter-spacing: -0.01em; c
   background: #0a0a0a;
   margin-bottom: 14px;
 }
+.klip .obraz:not(:has(img.gotowa))::after {
+  /* Delikatne „ładowanie” zamiast pustego pola */
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.04) 50%, transparent 70%);
+  background-size: 200% 100%; animation: ladowanie 1.4s linear infinite;
+}
+@keyframes ladowanie { from { background-position: 150% 0; } to { background-position: -50% 0; } }
 .klip img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity var(--czas); }
 .klip img.gotowa { opacity: 1; }
 .klip .dlugosc {
@@ -355,5 +362,5 @@ select option { background: #0a0a0a; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  * { transition: none !important; }
+  * { transition: none !important; animation: none !important; }
 }
