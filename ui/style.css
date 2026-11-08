@@ -276,7 +276,38 @@ select option { background: #0a0a0a; }
   width: min(1200px, 100%); border: 1px solid var(--ramka-karty); border-radius: 24px; background: #000; overflow: hidden;
 }
 .okno-odtwarzacza .pasek { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 16px 16px 16px 22px; }
-.okno-odtwarzacza video { display: block; width: 100%; max-height: calc(100vh - 200px); background: #000; }
+.okno-odtwarzacza { max-height: calc(100vh - 60px); overflow-y: auto; }
+.okno-odtwarzacza video { display: block; width: 100%; max-height: calc(100vh - 380px); min-height: 160px; background: #000; cursor: pointer; }
+
+/* Oś czasu z uchwytami przycinania */
+.sterowanie { display: flex; align-items: center; gap: 14px; padding: 14px 22px 6px; }
+.czas { color: var(--pomoc); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.zakres-tekst { min-width: 120px; text-align: right; }
+.os { position: relative; flex: 1; height: 36px; cursor: pointer; touch-action: none; }
+.os-tlo { position: absolute; left: 0; right: 0; top: 16px; height: 4px; border-radius: 4px; background: var(--ramka-pola); }
+.os-zakres { position: absolute; top: 10px; height: 16px; border-radius: 6px; background: rgba(255, 255, 255, 0.14); border: 1px solid rgba(255, 255, 255, 0.5); }
+.os-glowica { position: absolute; top: 4px; width: 2px; height: 28px; margin-left: -1px; background: #fff; border-radius: 2px; pointer-events: none; }
+.uchwyt {
+  position: absolute; top: 4px; width: 12px; height: 28px; margin-left: -6px; border-radius: 4px; background: #fff;
+  cursor: ew-resize; box-shadow: 0 0 0 3px #000; transition: transform var(--czas);
+}
+.uchwyt:hover, .uchwyt:focus-visible { transform: scaleY(1.12); }
+
+.eksport { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; flex-wrap: wrap; padding: 12px 22px 20px; }
+.eksport-opcje { display: flex; flex-direction: column; gap: 12px; }
+.grupa { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+.etykieta { color: var(--pomoc); min-width: 110px; }
+.eksport-akcja { display: flex; align-items: center; gap: 14px; margin-left: auto; }
+.postep { width: 140px; height: 4px; border-radius: 4px; background: var(--ramka-pola); overflow: hidden; }
+#postep-pasek { height: 100%; width: 0; background: #fff; transition: width var(--czas); }
+
+/* Wynik do przeciągnięcia */
+.wynik { display: flex; align-items: center; gap: 10px; margin: 0 22px 20px; padding: 12px; border: 1px dashed #3a3a3a; border-radius: 18px; }
+.wynik-plik { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; padding: 4px 8px; border-radius: 12px; transition: background var(--czas); }
+.wynik-plik:hover { background: var(--hover); }
+.wynik-plik .pomoc, .wynik-plik .tytul-karty { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.przeciagany { cursor: grab; }
+.przeciagany:active { cursor: grabbing; }
 
 /* Menu kontekstowe */
 .menu {

@@ -189,6 +189,40 @@ fn usun_klip(rdzen: State<'_, Rdzen>, sciezka: PathBuf) -> Result<(), String> {
     klipy::usun(&klip)
 }
 
+/// Przycięcie i/lub kompresja klipu. Postęp idzie zdarzeniem "postep" (0..1).
+#[tauri::command]
+async fn eksportuj(app: AppHandle, sciezka: PathBuf, zlecenie: crate::edycja::Zlecenie) -> Result<PathBuf, String> {
+    let cfg = app.state::<Rdzen>().config();
+    let klip = klipy::sprawdz_sciezke(&cfg.folder_klipow, &sciezka)?;
+    let wynik = tauri::async_runtime::spawn_blocking(move || {
+        let postep = |u: f64| {
+            let _ = app.emit("postep", u);
+        };
+        crate::edycja::eksportuj(&klip, &zlecenie, &cfg.enkoder, &postep)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    Ok(wynik)
+}
+
+/// Przeciąganie klipu jako prawdziwego pliku do innych aplikacji (Discord, Eksplorator, przeglądarka).
+/// Okno wywołuje to na początku przeciągania; dalej prowadzi system (OLE drag & drop).
+#[tauri::command]
+fn przeciagnij(okno: tauri::WebviewWindow, rdzen: State<'_, Rdzen>, sciezka: PathBuf) -> Result<(), String> {
+    let klip = klipy::sprawdz_sciezke(&rdzen.config().folder_klipow, &sciezka)?;
+    let obraz = klipy::obraz_przeciagania(&klip)
+        .map(drag::Image::File)
+        .unwrap_or_else(|| drag::Image::Raw(include_bytes!("../icons/icon.png").to_vec()));
+    let o = okno.clone();
+    okno.run_on_main_thread(move || {
+        let wynik = drag::start_drag(&o, drag::DragItem::Files(vec![klip]), obraz, |_, _| {}, Default::default());
+        if let Err(e) = wynik {
+            eprintln!("Nie udało się rozpocząć przeciągania: {e}");
+        }
+    })
+    .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn otworz_folder(rdzen: State<'_, Rdzen>) {
     let folder = rdzen.config().folder_klipow;
@@ -216,7 +250,9 @@ pub fn uruchom() {
             miniatura,
             pokaz_w_folderze,
             usun_klip,
-            otworz_folder
+            otworz_folder,
+            eksportuj,
+            przeciagnij
         ])
         .setup(|app| {
             let (cfg, blad_cfg) = match Config::wczytaj() {

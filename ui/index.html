@@ -124,7 +124,7 @@
     </main>
   </div>
 
-  <!-- Odtwarzacz -->
+  <!-- Edytor: odtwarzacz, przycinanie, kompresja -->
   <div class="nakladka" id="odtwarzacz" hidden>
     <div class="okno-odtwarzacza" role="dialog" aria-modal="true" aria-labelledby="odtw-tytul">
       <div class="pasek">
@@ -133,21 +133,64 @@
           <div class="pomoc" id="odtw-opis"></div>
         </div>
         <div class="naglowek-akcje">
+          <button class="przycisk drugorzedny przeciagany" id="odtw-przeciagnij" title="Przeciągnij plik do innej aplikacji"></button>
           <button class="przycisk drugorzedny" id="odtw-folder"></button>
           <button class="przycisk drugorzedny" id="odtw-usun"></button>
           <button class="przycisk ikonowy" id="odtw-zamknij" title="Zamknij"></button>
         </div>
       </div>
-      <video id="wideo" controls></video>
+      <video id="wideo"></video>
+      <div class="sterowanie">
+        <button class="przycisk ikonowy" id="graj"></button>
+        <span class="czas" id="czas">0:00 / 0:00</span>
+        <div class="os" id="os" title="Kliknij, żeby przewinąć">
+          <div class="os-tlo"></div>
+          <div class="os-zakres" id="os-zakres"></div>
+          <div class="os-glowica" id="os-glowica"></div>
+          <div class="uchwyt" id="uchwyt-start" role="slider" tabindex="0" aria-label="Początek klipu (strzałki przesuwają)"></div>
+          <div class="uchwyt" id="uchwyt-koniec" role="slider" tabindex="0" aria-label="Koniec klipu (strzałki przesuwają)"></div>
+        </div>
+        <span class="czas zakres-tekst" id="zakres-tekst"></span>
+      </div>
+      <div class="eksport">
+        <div class="eksport-opcje">
+          <div class="grupa">
+            <span class="etykieta">Przycinanie</span>
+            <button type="button" class="segment" id="ustaw-start">Początek tutaj</button>
+            <button type="button" class="segment" id="ustaw-koniec">Koniec tutaj</button>
+            <button type="button" class="segment" id="resetuj">Cały klip</button>
+          </div>
+          <div class="grupa">
+            <span class="etykieta">Rozmiar pliku</span>
+            <div class="segmenty" id="rozmiary"></div>
+          </div>
+          <div class="grupa">
+            <label class="przelacznik" id="dokladnie-wiersz" title="Bez tego cięcie jest natychmiastowe, ale zaczyna się od najbliższej klatki kluczowej (do 1 s wcześniej)"><input type="checkbox" id="dokladnie" checked><span class="suwak"></span>Dokładne cięcie</label>
+            <label class="przelacznik" id="zastap-wiersz"><input type="checkbox" id="zastap"><span class="suwak"></span>Zastąp oryginał</label>
+          </div>
+        </div>
+        <div class="eksport-akcja">
+          <div class="postep" id="postep" hidden><div id="postep-pasek"></div></div>
+          <span class="pomoc" id="eksport-info" role="status"></span>
+          <button class="przycisk glowny" id="eksportuj">Zapisz</button>
+        </div>
+      </div>
+      <div class="wynik" id="wynik" hidden>
+        <div class="przeciagany wynik-plik" id="wynik-przeciagnij" title="Przeciągnij do Discorda, Eksploratora lub przeglądarki">
+          <span id="wynik-ikona"></span>
+          <div>
+            <div class="tytul-karty" id="wynik-nazwa"></div>
+            <div class="pomoc" id="wynik-opis"></div>
+          </div>
+        </div>
+        <button class="przycisk drugorzedny" id="wynik-otworz">Otwórz</button>
+        <button class="przycisk drugorzedny" id="wynik-folder">Pokaż w folderze</button>
+      </div>
     </div>
   </div>
 
   <!-- Menu kontekstowe klipu -->
-  <div class="menu" id="menu" role="menu" hidden>
-    <button data-akcja="odtworz" role="menuitem"></button>
-    <button data-akcja="folder" role="menuitem"></button>
-    <button data-akcja="usun" role="menuitem"></button>
-  </div>
+  <div class="menu" id="menu" role="menu" hidden></div>
 
   <div class="dymek" id="dymek" role="status" hidden></div>
 

@@ -16,6 +16,9 @@ const IKONY = {
   minimalizuj: '<path d="M5 12h14"/>',
   maksymalizuj: '<rect width="16" height="16" x="4" y="4" rx="2"/>',
   przywroc: '<rect width="12" height="12" x="8" y="4" rx="2"/><path d="M16 16v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2"/>',
+  nozyczki: '<circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12"/><path d="M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/>',
+  kompresja: '<path d="m15 15 6 6"/><path d="m15 9 6-6"/><path d="M21 16v5h-5"/><path d="M21 8V3h-5"/><path d="M3 16v5h5"/><path d="m3 21 6-6"/><path d="M3 8V3h5"/><path d="M9 9 3 3"/>',
+  przeciagnij: '<circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/>',
   film: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/>',
 };
 const ikona = (n) => `<svg class="ikona" viewBox="0 0 24 24" aria-hidden="true">${IKONY[n]}</svg>`;
@@ -134,7 +137,8 @@ async function wczytajKlipy() {
       <div class="opis"><h3></h3><p class="pomoc"></p></div>`;
     karta.querySelector("h3").textContent = formatData(klip.czas_ms);
     karta.querySelector(".pomoc").textContent = `${formatMB(klip.rozmiar)} · ${klip.nazwa}`;
-    karta.addEventListener("click", () => odtworz(klip));
+    karta.addEventListener("click", () => !poPrzeciaganiu && odtworz(klip));
+    przeciagalny(karta, klip);
     karta.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       pokazMenu(e.clientX, e.clientY, klip);
@@ -153,13 +157,54 @@ function odmiana(n) {
 $("odswiez").addEventListener("click", wczytajKlipy);
 $("otworz-folder").addEventListener("click", () => invoke("otworz_folder"));
 
-// Odtwarzacz
+// ---------- Przeciąganie pliku do innych aplikacji ----------
+
+// Po przesunięciu myszy o kilka pikseli z wciśniętym przyciskiem system przejmuje przeciąganie
+// prawdziwego pliku (Discord, Eksplorator, przeglądarka). Zwykły klik działa jak dotąd.
+let poPrzeciaganiu = false;
+
+function przeciagalny(el, klip) {
+  el.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || !klip.sciezka) return;
+    const [x0, y0] = [e.clientX, e.clientY];
+    const ruch = (m) => {
+      if (Math.hypot(m.clientX - x0, m.clientY - y0) < 6) return;
+      koniec();
+      poPrzeciaganiu = true;
+      setTimeout(() => (poPrzeciaganiu = false), 400);
+      invoke("przeciagnij", { sciezka: klip.sciezka }).catch((err) => dymek(String(err)));
+    };
+    const koniec = () => {
+      removeEventListener("pointermove", ruch);
+      removeEventListener("pointerup", koniec);
+    };
+    addEventListener("pointermove", ruch);
+    addEventListener("pointerup", koniec);
+  });
+  // Bez obrazka przeciągania z przeglądarki
+  el.addEventListener("dragstart", (e) => e.preventDefault());
+}
+
+// ---------- Edytor: odtwarzacz, przycinanie, kompresja ----------
+
 let odtwarzany = null;
+let zakres = { start: 0, koniec: 0 };
+let dlugosc = 0;
+let rozmiarDocelowy = null; // null = bez zmian, inaczej MB
+let eksportTrwa = false;
+
+const ROZMIARY = [null, 10, 20, 50, 100];
 
 function odtworz(klip) {
   odtwarzany = klip;
   $("odtw-tytul").textContent = formatData(klip.czas_ms);
   $("odtw-opis").textContent = `${klip.nazwa} · ${formatMB(klip.rozmiar)}`;
+  $("wynik").hidden = true;
+  $("postep").hidden = true;
+  $("eksport-info").textContent = "";
+  $("zastap").checked = false;
+  rozmiarDocelowy = null;
+  dlugosc = 0;
   const v = $("wideo");
   v.src = convertFileSrc(klip.sciezka);
   $("odtwarzacz").hidden = false;
@@ -168,6 +213,7 @@ function odtworz(klip) {
 }
 
 function zamknijOdtwarzacz() {
+  if (eksportTrwa) return dymek("Poczekaj, aż skończy się zapisywanie");
   const v = $("wideo");
   v.pause();
   v.removeAttribute("src");
@@ -175,6 +221,211 @@ function zamknijOdtwarzacz() {
   $("odtwarzacz").hidden = true;
   odtwarzany = null;
 }
+
+$("wideo").addEventListener("loadedmetadata", () => {
+  dlugosc = $("wideo").duration || 0;
+  zakres = { start: 0, koniec: dlugosc };
+  odswiezEdytor();
+});
+
+// Odtwarzanie tylko w zaznaczonym zakresie (w pętli)
+$("wideo").addEventListener("timeupdate", () => {
+  const v = $("wideo");
+  if (v.currentTime >= zakres.koniec - 0.02 && !v.paused) v.currentTime = zakres.start;
+  odswiezGlowice();
+});
+$("wideo").addEventListener("play", odswiezPrzyciskGraj);
+$("wideo").addEventListener("pause", odswiezPrzyciskGraj);
+$("wideo").addEventListener("click", przelaczGraj);
+
+function przelaczGraj() {
+  const v = $("wideo");
+  if (v.paused) {
+    if (v.currentTime < zakres.start || v.currentTime >= zakres.koniec - 0.05) v.currentTime = zakres.start;
+    v.play().catch(() => {});
+  } else v.pause();
+}
+$("graj").addEventListener("click", przelaczGraj);
+
+function odswiezPrzyciskGraj() {
+  const p = $("wideo").paused;
+  $("graj").innerHTML = ikona(p ? "graj" : "pauza");
+  $("graj").title = p ? "Odtwórz (spacja)" : "Pauza (spacja)";
+}
+
+const procent = (t) => (dlugosc ? (t / dlugosc) * 100 : 0);
+
+function odswiezGlowice() {
+  const t = $("wideo").currentTime;
+  $("os-glowica").style.left = `${procent(t)}%`;
+  $("czas").textContent = `${formatCzas(t)} / ${formatCzas(dlugosc)}`;
+}
+
+function przyciete() {
+  return zakres.start > 0.05 || zakres.koniec < dlugosc - 0.05;
+}
+
+function odswiezEdytor() {
+  $("uchwyt-start").style.left = `${procent(zakres.start)}%`;
+  $("uchwyt-koniec").style.left = `${procent(zakres.koniec)}%`;
+  $("os-zakres").style.left = `${procent(zakres.start)}%`;
+  $("os-zakres").style.width = `${procent(zakres.koniec - zakres.start)}%`;
+  $("uchwyt-start").setAttribute("aria-valuetext", formatCzas(zakres.start));
+  $("uchwyt-koniec").setAttribute("aria-valuetext", formatCzas(zakres.koniec));
+  const dl = zakres.koniec - zakres.start;
+  $("zakres-tekst").textContent = przyciete() ? `Zaznaczono ${dl.toFixed(1)} s` : "Cały klip";
+  // Dokładne cięcie ma znaczenie tylko bez kompresji (kompresja i tak koduje od nowa)
+  $("dokladnie-wiersz").hidden = !przyciete() || rozmiarDocelowy !== null;
+  $("zastap-wiersz").hidden = !przyciete();
+  if (!przyciete()) $("zastap").checked = false;
+
+  // Rozmiary większe od (przyciętego) oryginału nie mają sensu
+  const szacunek = odtwarzany ? odtwarzany.rozmiar * (dlugosc ? dl / dlugosc : 1) : 0;
+  if (rozmiarDocelowy !== null && rozmiarDocelowy * 1e6 >= szacunek) rozmiarDocelowy = null;
+  const kontener = $("rozmiary");
+  kontener.replaceChildren();
+  for (const mb of ROZMIARY) {
+    if (mb !== null && mb * 1e6 >= szacunek) continue;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "segment" + (mb === rozmiarDocelowy ? " wybrany" : "");
+    b.textContent = mb === null ? "Bez zmian" : `${mb} MB`;
+    b.addEventListener("click", () => {
+      rozmiarDocelowy = mb;
+      odswiezEdytor();
+    });
+    kontener.append(b);
+  }
+
+  const b = $("eksportuj");
+  if (rozmiarDocelowy !== null) b.textContent = `Zapisz jako ${rozmiarDocelowy} MB`;
+  else if (przyciete()) b.textContent = "Zapisz przycięty";
+  else b.textContent = "Zapisz";
+  b.disabled = eksportTrwa || (!przyciete() && rozmiarDocelowy === null);
+  if (!eksportTrwa) {
+    $("eksport-info").textContent = b.disabled ? "Przesuń uchwyty na osi albo wybierz rozmiar." : "";
+  }
+  odswiezGlowice();
+}
+
+// Uchwyty i klikanie w oś
+function czasZPozycji(clientX) {
+  const r = $("os").getBoundingClientRect();
+  return Math.min(Math.max((clientX - r.left) / r.width, 0), 1) * dlugosc;
+}
+
+function przesun(ktory, t) {
+  const min = 0.5;
+  if (ktory === "start") zakres.start = Math.min(Math.max(t, 0), zakres.koniec - min);
+  else zakres.koniec = Math.max(Math.min(t, dlugosc), zakres.start + min);
+  $("wideo").currentTime = ktory === "start" ? zakres.start : Math.max(zakres.koniec - 0.05, zakres.start);
+  odswiezEdytor();
+}
+
+for (const [id, ktory] of [["uchwyt-start", "start"], ["uchwyt-koniec", "koniec"]]) {
+  const u = $(id);
+  u.addEventListener("pointerdown", (e) => {
+    e.stopPropagation();
+    u.setPointerCapture(e.pointerId);
+    $("wideo").pause();
+    const ruch = (m) => przesun(ktory, czasZPozycji(m.clientX));
+    u.addEventListener("pointermove", ruch);
+    u.addEventListener("pointerup", () => u.removeEventListener("pointermove", ruch), { once: true });
+  });
+  u.addEventListener("keydown", (e) => {
+    const krok = e.shiftKey ? 1 : 0.1;
+    if (e.key === "ArrowLeft") przesun(ktory, zakres[ktory] - krok);
+    else if (e.key === "ArrowRight") przesun(ktory, zakres[ktory] + krok);
+    else return;
+    e.preventDefault();
+  });
+}
+
+$("os").addEventListener("pointerdown", (e) => {
+  const os = $("os");
+  os.setPointerCapture(e.pointerId);
+  const idz = (m) => {
+    $("wideo").currentTime = Math.min(Math.max(czasZPozycji(m.clientX), zakres.start), zakres.koniec);
+    odswiezGlowice();
+  };
+  idz(e);
+  os.addEventListener("pointermove", idz);
+  os.addEventListener("pointerup", () => os.removeEventListener("pointermove", idz), { once: true });
+});
+
+$("ustaw-start").addEventListener("click", () => przesun("start", $("wideo").currentTime));
+$("ustaw-koniec").addEventListener("click", () => przesun("koniec", $("wideo").currentTime));
+$("resetuj").addEventListener("click", () => {
+  zakres = { start: 0, koniec: dlugosc };
+  odswiezEdytor();
+});
+
+// Zapis (przycięcie i/lub kompresja)
+listen("postep", (e) => {
+  if (!eksportTrwa || $("odtwarzacz").hidden) return;
+  const p = Math.round(e.payload * 100);
+  $("postep-pasek").style.width = `${p}%`;
+  $("eksport-info").textContent = `Zapisuję… ${p}%`;
+});
+
+$("eksportuj").addEventListener("click", async () => {
+  if (!odtwarzany || eksportTrwa) return;
+  const klip = odtwarzany;
+  const zlecenie = {
+    start: zakres.start,
+    koniec: zakres.koniec,
+    przyciete: przyciete(),
+    dokladnie: $("dokladnie").checked,
+    rozmiar_mb: rozmiarDocelowy,
+    zastap: przyciete() && $("zastap").checked,
+  };
+  if (zlecenie.zastap && !confirm("Zastąpić oryginał przyciętą wersją? Oryginał trafi do Kosza.")) return;
+  $("wideo").pause();
+  eksportTrwa = true;
+  $("postep").hidden = false;
+  $("postep-pasek").style.width = "0%";
+  $("wynik").hidden = true;
+  odswiezEdytor();
+  $("eksport-info").textContent = "Zapisuję…";
+  let blad = null;
+  try {
+    if (zlecenie.zastap) {
+      // Odtwarzacz musi puścić plik, zanim zastąpimy go nową wersją
+      $("wideo").removeAttribute("src");
+      $("wideo").load();
+    }
+    const sciezka = await invoke("eksportuj", { sciezka: klip.sciezka, zlecenie });
+    const lista = await invoke("klipy");
+    const nowy = lista.find((k) => k.sciezka === sciezka) || { ...klip, sciezka, nazwa: sciezka.split("\\").pop() };
+    if (zlecenie.zastap) {
+      eksportTrwa = false;
+      odtworz(nowy);
+    }
+    pokazWynik(nowy);
+    wczytajKlipy();
+  } catch (e) {
+    blad = String(e);
+  } finally {
+    eksportTrwa = false;
+    $("postep").hidden = true;
+    odswiezEdytor();
+    if (blad) $("eksport-info").textContent = blad;
+  }
+});
+
+let wynikKlip = null;
+
+function pokazWynik(klip) {
+  wynikKlip = klip;
+  $("wynik-nazwa").textContent = klip.nazwa;
+  $("wynik-opis").textContent = `${formatMB(klip.rozmiar)} · przeciągnij do Discorda, Eksploratora lub przeglądarki`;
+  $("wynik").hidden = false;
+}
+
+przeciagalny($("wynik-przeciagnij"), { get sciezka() { return wynikKlip && wynikKlip.sciezka; } });
+$("wynik-folder").addEventListener("click", () => wynikKlip && pokazWFolderze(wynikKlip));
+$("wynik-otworz").addEventListener("click", () => wynikKlip && odtworz(wynikKlip));
+przeciagalny($("odtw-przeciagnij"), { get sciezka() { return odtwarzany && odtwarzany.sciezka; } });
 
 $("odtw-zamknij").addEventListener("click", zamknijOdtwarzacz);
 $("odtwarzacz").addEventListener("click", (e) => {
@@ -203,12 +454,50 @@ async function usun(klip) {
   }
 }
 
+// Szybka kompresja całego klipu z menu karty; postęp w dymku
+async function kompresuj(klip, mb) {
+  if (eksportTrwa) return dymek("Poczekaj, aż skończy się poprzedni zapis");
+  eksportTrwa = true;
+  const sluchacz = await listen("postep", (e) => dymek(`Kompresja do ${mb} MB… ${Math.round(e.payload * 100)}%`));
+  dymek(`Kompresja do ${mb} MB…`);
+  try {
+    // koniec = 0 oznacza „do końca klipu” (długość ustala rdzeń)
+    const zlecenie = { start: 0, koniec: 0, przyciete: false, dokladnie: false, rozmiar_mb: mb, zastap: false };
+    const sciezka = await invoke("eksportuj", { sciezka: klip.sciezka, zlecenie });
+    sluchacz();
+    dymek(`Gotowe: ${sciezka.split("\\").pop()}`);
+    wczytajKlipy();
+  } catch (e) {
+    sluchacz();
+    dymek(String(e));
+  } finally {
+    eksportTrwa = false;
+  }
+}
+
 // Menu kontekstowe
 let klipMenu = null;
 
 function pokazMenu(x, y, klip) {
   klipMenu = klip;
   const m = $("menu");
+  m.replaceChildren();
+  const pozycja = (ikonaNazwa, tekst, akcja) => {
+    const b = document.createElement("button");
+    b.setAttribute("role", "menuitem");
+    b.innerHTML = zIkona(ikonaNazwa, tekst);
+    b.addEventListener("click", () => {
+      ukryjMenu();
+      akcja();
+    });
+    m.append(b);
+  };
+  pozycja("nozyczki", "Przytnij…", () => odtworz(klip));
+  for (const mb of ROZMIARY.slice(1)) {
+    if (mb * 1e6 < klip.rozmiar) pozycja("kompresja", `Kompresuj do ${mb} MB`, () => kompresuj(klip, mb));
+  }
+  pozycja("folder", "Pokaż w folderze", () => pokazWFolderze(klip));
+  pozycja("kosz", "Usuń", () => usun(klip));
   m.hidden = false;
   const { width, height } = m.getBoundingClientRect();
   m.style.left = `${Math.min(x, innerWidth - width - 8)}px`;
@@ -218,23 +507,18 @@ function pokazMenu(x, y, klip) {
 
 const ukryjMenu = () => ($("menu").hidden = true);
 
-$("menu").querySelector('[data-akcja="odtworz"]').innerHTML = zIkona("graj", "Odtwórz");
-$("menu").querySelector('[data-akcja="folder"]').innerHTML = zIkona("folder", "Pokaż w folderze");
-$("menu").querySelector('[data-akcja="usun"]').innerHTML = zIkona("kosz", "Usuń");
-$("menu").addEventListener("click", (e) => {
-  const b = e.target.closest("button");
-  if (!b || !klipMenu) return;
-  ukryjMenu();
-  const akcja = { odtworz, folder: pokazWFolderze, usun }[b.dataset.akcja];
-  akcja(klipMenu);
-});
 document.addEventListener("click", (e) => {
   if (!e.target.closest("#menu")) ukryjMenu();
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape" || nasluchSkrotu) return;
-  ukryjMenu();
-  if (!$("odtwarzacz").hidden) zamknijOdtwarzacz();
+  if (nasluchSkrotu) return;
+  if (e.key === "Escape") {
+    ukryjMenu();
+    if (!$("odtwarzacz").hidden) zamknijOdtwarzacz();
+  } else if (e.key === " " && !$("odtwarzacz").hidden && !e.target.closest("input, select, button, .uchwyt")) {
+    e.preventDefault();
+    przelaczGraj();
+  }
 });
 // Bez domyślnego menu przeglądarki
 document.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -401,6 +685,9 @@ $("odtw-folder").innerHTML = zIkona("folder", "Pokaż w folderze");
 $("odtw-usun").innerHTML = zIkona("kosz", "Usuń");
 $("odtw-zamknij").innerHTML = ikona("zamknij");
 $("pusto-ikona").innerHTML = ikona("film");
+$("odtw-przeciagnij").innerHTML = zIkona("przeciagnij", "Przeciągnij");
+$("wynik-ikona").innerHTML = ikona("przeciagnij");
+odswiezPrzyciskGraj();
 
 (async () => {
   const u = await invoke("ustawienia");

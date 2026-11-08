@@ -103,6 +103,7 @@ pub fn usun(klip: &Path) -> Result<(), String> {
         let folder = folder_miniatur();
         let _ = std::fs::remove_file(folder.join(format!("{k}.jpg")));
         let _ = std::fs::remove_file(folder.join(format!("{k}.txt")));
+        let _ = std::fs::remove_file(folder.join(format!("{k}.maly.png")));
     }
     trash::delete(klip).map_err(|e| format!("Nie udało się przenieść klipu do Kosza: {e}"))
 }
@@ -118,4 +119,19 @@ pub fn pokaz_w_eksploratorze(sciezka: &Path, zaznacz: bool) {
         cmd.arg(sciezka);
     }
     let _ = cmd.spawn();
+}
+
+/// Mały obrazek (160 px) pokazywany pod kursorem przy przeciąganiu klipu do innej aplikacji.
+pub fn obraz_przeciagania(klip: &Path) -> Option<PathBuf> {
+    let m = miniatura(klip).ok()?;
+    let maly = m.obraz.with_extension("maly.png");
+    if !maly.is_file() {
+        let _ = crate::ffmpeg::komenda()
+            .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
+            .arg(&m.obraz)
+            .args(["-vf", "scale=160:-2"])
+            .arg(&maly)
+            .status();
+    }
+    maly.is_file().then_some(maly)
 }

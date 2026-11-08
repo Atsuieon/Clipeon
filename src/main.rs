@@ -6,6 +6,7 @@ mod aplikacja;
 mod audio;
 mod bufor;
 mod config;
+mod edycja;
 mod ffmpeg;
 mod ikona;
 mod klipy;
