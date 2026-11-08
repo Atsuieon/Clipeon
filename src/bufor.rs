@@ -56,9 +56,4 @@ impl Bufor {
     pub fn migawka(&self) -> Vec<Pakiet> {
         self.pakiety.iter().cloned().collect()
     }
-
-    /// Rozmiar danych w bajtach (do logów).
-    pub fn bajty(&self) -> usize {
-        self.pakiety.iter().map(|p| p.dane.len()).sum()
-    }
 }

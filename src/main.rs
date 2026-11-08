@@ -1,39 +1,33 @@
 // Clipper: lekki "instant replay" — trzyma ostatnie N sekund gry w RAM i zapisuje je na skrót.
 mod bufor;
 mod config;
+mod skrot;
 mod wideo;
+mod zapis;
 
 use bufor::Bufor;
-use std::time::Duration;
 
 fn main() {
-    let cfg = match config::Config::wczytaj() {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("{e}");
-            std::process::exit(1);
-        }
-    };
+    if let Err(e) = uruchom() {
+        eprintln!("{e}");
+        std::process::exit(1);
+    }
+}
+
+fn uruchom() -> Result<(), String> {
+    let cfg = config::Config::wczytaj()?;
 
     let bufor_wideo = Bufor::nowy(cfg.bufor_sekundy);
-    let _wideo = wideo::uruchom(&cfg, bufor_wideo.clone()).unwrap_or_else(|e| {
-        eprintln!("Nie udało się uruchomić wideo: {e}");
-        std::process::exit(1);
-    });
+    let _wideo = wideo::uruchom(&cfg, bufor_wideo.clone()).map_err(|e| format!("Nie udało się uruchomić wideo: {e}"))?;
 
-    // Tymczasowo: co 5 s wypisz stan bufora
-    loop {
-        std::thread::sleep(Duration::from_secs(5));
-        let b = bufor_wideo.lock().unwrap();
-        let p = b.migawka();
-        if let (Some(a), Some(z)) = (p.first(), p.last()) {
-            println!(
-                "Bufor: {} klatek, {:.1} s, {:.1} MB, kluczowych {}",
-                p.len(),
-                (z.czas - a.czas) as f64 / 1e7,
-                b.bajty() as f64 / 1e6,
-                p.iter().filter(|x| x.klucz).count()
-            );
-        }
-    }
+    skrot::nasluchuj(&cfg.skrot, || {
+        // Migawka bufora trwa chwilę; zapis idzie w osobnym wątku, nagrywanie się nie zatrzymuje
+        let wideo = bufor_wideo.lock().unwrap().migawka();
+        let (folder, fps) = (cfg.folder_klipow.clone(), cfg.fps);
+        std::thread::spawn(move || {
+            if let Err(e) = zapis::zapisz(&folder, fps, wideo, Vec::new()) {
+                eprintln!("Nie udało się zapisać klipu: {e}");
+            }
+        });
+    })
 }
