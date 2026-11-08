@@ -50,6 +50,11 @@ fn pokaz_okno(app: &AppHandle, zakladka: &str) {
             .inner_size(1120.0, 740.0)
             .min_inner_size(760.0, 520.0)
             .background_color(Color(0, 0, 0, 255))
+            // Bez sprzętowych nakładek wideo: w oknach z przezroczystością (np. nieaktywne okna
+            // w GlazeWM) taka nakładka znika i podgląd klipu jest pusty
+            .additional_browser_args(
+                "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-direct-composition-video-overlays",
+            )
             // Bez systemowej ramki (pasek tytułu w kolorze akcentu Windows); własny pasek jest w UI.
             // Cień zostaje, więc Windows 11 nadal zaokrągla rogi i pozwala zmieniać rozmiar.
             .decorations(false)
@@ -97,7 +102,7 @@ fn pokaz_stan(app: &AppHandle, stan: &Stan) {
     let (kolor, opis) = if let Some(b) = stan.bledy.first() {
         (ikona::CZERWONY, format!("Clipper — błąd: {b}"))
     } else if stan.pauza {
-        (ikona::SZARY, "Clipper — bufor wstrzymany".to_string())
+        (ikona::SZARY, "Clipper — nagrywanie wstrzymane".to_string())
     } else {
         (ikona::ZIELONY, "Clipper — nagrywa".to_string())
     };
@@ -107,7 +112,7 @@ fn pokaz_stan(app: &AppHandle, stan: &Stan) {
         let _ = t.set_tooltip(Some(opis.chars().take(120).collect::<String>()));
     }
     if let Some(m) = app.try_state::<PozycjeMenu>() {
-        let _ = m.pauza.set_text(if stan.pauza { "Wznów bufor" } else { "Wstrzymaj bufor" });
+        let _ = m.pauza.set_text(if stan.pauza { "Wznów nagrywanie" } else { "Wstrzymaj nagrywanie" });
     }
     let _ = app.emit("stan", stan);
 }
@@ -347,7 +352,7 @@ pub fn uruchom() {
 
             // Menu zasobnika
             let zapisz = MenuItem::with_id(app, "zapisz", tekst_zapisu(&cfg), true, None::<&str>)?;
-            let pauza = MenuItem::with_id(app, "pauza", "Wstrzymaj bufor", true, None::<&str>)?;
+            let pauza = MenuItem::with_id(app, "pauza", "Wstrzymaj nagrywanie", true, None::<&str>)?;
             let folder = MenuItem::with_id(app, "folder", "Otwórz folder klipów", true, None::<&str>)?;
             let biblioteka = MenuItem::with_id(app, "biblioteka", "Biblioteka…", true, None::<&str>)?;
             let ustawienia = MenuItem::with_id(app, "ustawienia", "Ustawienia…", true, None::<&str>)?;

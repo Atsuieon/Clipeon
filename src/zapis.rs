@@ -15,10 +15,12 @@ pub fn zapisz(
     wideo: Vec<Pakiet>,
     audio: Vec<(&'static str, Vec<Pakiet>)>,
 ) -> Result<PathBuf, String> {
+    static ZAPIS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _kolejka = ZAPIS.lock().unwrap_or_else(|e| e.into_inner());
     let start = Instant::now();
 
     // Klip zaczyna się od klatki kluczowej
-    let pierwsza = wideo.iter().position(|p| p.klucz).ok_or("Bufor jest jeszcze pusty")?;
+    let pierwsza = wideo.iter().position(|p| p.klucz).ok_or("Nie ma jeszcze czego zapisać — poczekaj kilka sekund")?;
     let wideo = &wideo[pierwsza..];
     let (poczatek, koniec) = (wideo[0].czas, wideo[wideo.len() - 1].czas);
 

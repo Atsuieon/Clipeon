@@ -215,7 +215,7 @@ impl Rdzen {
         };
         let powiadom = self.powiadom.clone();
         let Some((wideo, audio, format_wideo)) = migawka else {
-            powiadom(Zdarzenie::BladZapisu("Bufor jest wstrzymany".into()));
+            powiadom(Zdarzenie::BladZapisu("Nagrywanie jest wstrzymane — wznów je, żeby zapisywać klipy".into()));
             return;
         };
         std::thread::spawn(move || match zapis::zapisz(&folder, fps, format_wideo, wideo, audio) {

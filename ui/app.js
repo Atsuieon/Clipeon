@@ -68,7 +68,7 @@ function pokazStan(s) {
   stan = s;
   const kropka = $("kropka");
   kropka.className = "kropka" + (s.bledy.length ? " blad" : s.nagrywa ? " nagrywa" : "");
-  const tekst = s.bledy.length ? s.bledy[0] : s.pauza ? "Bufor wstrzymany" : "Nagrywa";
+  const tekst = s.bledy.length ? s.bledy[0] : s.pauza ? "Nagrywanie wstrzymane" : "Nagrywa";
   $("status-tekst").textContent = tekst;
   $("status").title = s.bledy.join("\n");
   $("pauza").innerHTML = s.pauza ? zIkona("graj", "Wznów") : zIkona("pauza", "Wstrzymaj");
@@ -263,7 +263,9 @@ function odtworz(klip) {
   ostatniEksport = null;
   przygotujGlosnosc(klip);
   const v = $("wideo");
-  v.src = convertFileSrc(klip.sciezka);
+  // Znacznik w adresie omija pamięć podręczną WebView — po „Zastąp oryginał” plik ma tę samą nazwę,
+  // ale inną treść, a stary, zapamiętany rozmiar zostawiał pusty podgląd
+  v.src = `${convertFileSrc(klip.sciezka)}?v=${Date.now()}`;
   $("odtwarzacz").hidden = false;
   v.play().catch(() => {});
   $("odtw-zamknij").focus();
@@ -279,10 +281,15 @@ function zamknijOdtwarzacz() {
   odtwarzany = null;
 }
 
+// Komunikat tylko przy prawdziwym braku obsługi kodeka (nie przy celowym zwolnieniu pliku w trakcie zapisu)
+const BRAK_PODGLADU = "Ten klip nie odtwarza się w podglądzie (HEVC wymaga rozszerzenia HEVC z Microsoft Store). Przycinanie i kompresja nadal działają.";
 $("wideo").addEventListener("error", () => {
-  if (!odtwarzany || !$("wideo").getAttribute("src")) return;
-  $("eksport-info").textContent =
-    "Ten klip nie odtwarza się w podglądzie (HEVC wymaga rozszerzenia HEVC z Microsoft Store). Przycinanie i kompresja nadal działają.";
+  const v = $("wideo");
+  if (!odtwarzany || !v.getAttribute("src") || eksportTrwa || !v.error || v.error.code !== 4) return;
+  $("eksport-info").textContent = BRAK_PODGLADU;
+});
+$("wideo").addEventListener("loadeddata", () => {
+  if ($("eksport-info").textContent === BRAK_PODGLADU) $("eksport-info").textContent = "";
 });
 
 $("wideo").addEventListener("loadedmetadata", () => {
@@ -366,11 +373,12 @@ function odswiezEdytor() {
   const b = $("eksportuj");
   if (rozmiarDocelowy !== null) b.textContent = `Zapisz jako ${rozmiarDocelowy} MB`;
   else if (przyciete()) b.textContent = "Zapisz przycięty";
+  else if (maMikrofon && !zGlosem() && glosnosci()[0] === 1) b.textContent = "Zapisz bez mojego głosu";
   else if (glosnosciZmienione()) b.textContent = "Zapisz z nową głośnością";
   else b.textContent = "Zapisz";
   b.disabled = eksportTrwa || !zmiany();
   if (!eksportTrwa) {
-    $("eksport-info").textContent = b.disabled ? "Przytnij, wybierz rozmiar albo zmień głośność." : "";
+    $("eksport-info").textContent = b.disabled ? "Przytnij klip, wybierz rozmiar albo zmień dźwięk, żeby zapisać nową wersję." : "";
   }
   odswiezGlowice();
 }
@@ -454,7 +462,12 @@ async function przygotujGlosnosc(klip) {
     odswiezEdytor();
   }
   // Klip z osobnymi ścieżkami ma: miks, gra, mikrofon
-  const nazwy = info.sciezki_audio >= 3 ? ["Gra", "Mikrofon"] : info.sciezki_audio >= 1 ? ["Dźwięk"] : [];
+  maMikrofon = info.sciezki_audio >= 3;
+  const nazwy = maMikrofon ? ["Gra", "Mikrofon"] : info.sciezki_audio >= 1 ? ["Dźwięk"] : [];
+  $("mik-grupa").hidden = !nazwy.length;
+  $("z-mikrofonem").disabled = !maMikrofon;
+  $("z-mikrofonem").checked = maMikrofon && (!cfg || cfg.glos_w_edytorze);
+  $("mik-uwaga").textContent = maMikrofon ? "" : "Ten klip nagrano bez mikrofonu.";
   $("glos-wiersz").hidden = !nazwy.length;
   for (const nazwa of nazwy) {
     const wiersz = document.createElement("label");
@@ -488,10 +501,21 @@ async function przygotujGlosnosc(klip) {
     suwakiGlosu.push(suwak);
     odswiez();
   }
+  $("z-mikrofonem").dispatchEvent(new Event("input"));
 }
 
-const glosnosci = () => suwakiGlosu.map((s) => Number(s.value) / 100);
+// Bez głosu = ścieżka mikrofonu wyciszona przy zapisie
+let maMikrofon = false;
+const zGlosem = () => !maMikrofon || $("z-mikrofonem").checked;
+const glosnosci = () => suwakiGlosu.map((s, i) => (maMikrofon && i === 1 && !zGlosem() ? 0 : Number(s.value) / 100));
 const glosnosciZmienione = () => glosnosci().some((g) => g !== 1);
+
+$("z-mikrofonem").addEventListener("input", () => {
+  // Suwak głosu nie ma sensu, gdy głos jest wyłączony
+  if (suwakiGlosu[1]) suwakiGlosu[1].closest(".glos").classList.toggle("wylaczony", !zGlosem());
+  $("mik-opis").textContent = zGlosem() ? "Z moim głosem" : "Bez mojego głosu";
+  odswiezEdytor();
+});
 const zmiany = () => przyciete() || rozmiarDocelowy !== null || glosnosciZmienione();
 
 function biezaceZlecenie() {
@@ -683,16 +707,17 @@ document.addEventListener("contextmenu", (e) => e.preventDefault());
 // ---------- Ustawienia ----------
 
 const PRESETY = [
-  { nazwa: "Wydajność", fps: 30, bitrate: 10 },
-  { nazwa: "Zrównoważona", fps: 60, bitrate: 20 },
-  { nazwa: "Wysoka", fps: 60, bitrate: 40 },
+  { nazwa: "Lekka — mniejsze pliki", fps: 30, bitrate: 10 },
+  { nazwa: "Standard — płynnie (polecana)", fps: 60, bitrate: 20 },
+  { nazwa: "Najwyższa — duże pliki", fps: 60, bitrate: 40 },
 ];
 
 for (const p of PRESETY) {
   const b = document.createElement("button");
   b.type = "button";
   b.className = "segment";
-  b.textContent = `${p.nazwa} · ${p.fps} FPS · ${p.bitrate} Mb/s`;
+  b.textContent = p.nazwa;
+  b.title = `${p.fps} klatek na sekundę, ${p.bitrate} Mb/s`;
   b.addEventListener("click", () => {
     $("fps").value = p.fps;
     $("bitrate").value = p.bitrate;
@@ -714,6 +739,7 @@ async function wczytajUstawienia() {
     $("monitor").value = cfg.monitor;
   }
   $("dzwiek-zapisu").checked = cfg.dzwiek_zapisu;
+  $("glos-w-edytorze").checked = cfg.glos_w_edytorze;
   $("powiadomienie-zapisu").checked = cfg.powiadomienie_zapisu;
   $("sprz-dni-wl").checked = cfg.sprzatanie_dni > 0;
   $("sprz-dni").value = cfg.sprzatanie_dni || 30;
@@ -742,8 +768,8 @@ function odswiezFormularz() {
   $("sprz-dni").disabled = !$("sprz-dni-wl").checked;
   $("sprz-gb").disabled = !$("sprz-gb-wl").checked;
   const uwagi = {
-    hevc_amf: "Podgląd HEVC w oknie wymaga rozszerzenia HEVC z Microsoft Store; Discord w przeglądarce może go nie odtworzyć.",
-    av1_amf: "Karty Radeon RX 7000 kodują AV1 w 1920×1082 — na dole klipu są 2 czarne linie.",
+    hevc_amf: "Podgląd w Clipperze wymaga rozszerzenia HEVC z Microsoft Store, a Discord w przeglądarce może takiego klipu nie odtworzyć.",
+    av1_amf: "Karty Radeon RX 7000 zapisują ten format w 1920×1082 — na dole klipu są 2 czarne linie.",
   };
   $("enkoder-uwaga").textContent = uwagi[$("enkoder").value] || "";
   const s = Number($("bufor").value);
@@ -751,7 +777,7 @@ function odswiezFormularz() {
   const sciezki = Number($("dzwiek").checked) + Number($("mikrofon").checked);
   const bajty = s * (mbps * 1e6 + sciezki * 160e3) / 8;
   $("bufor-wartosc").textContent = s >= 60 ? `${Math.floor(s / 60)} min${s % 60 ? ` ${s % 60} s` : ""}` : `${s} s`;
-  $("ram").textContent = `Bufor zajmie ok. ${formatMB(bajty)} RAM.`;
+  $("ram").textContent = `Zajmuje to ok. ${formatMB(bajty)} pamięci RAM.`;
   for (const b of $("presety").children) {
     b.classList.toggle("wybrany", b.dataset.fps === $("fps").value && b.dataset.bitrate === $("bitrate").value);
   }
@@ -818,6 +844,7 @@ $("zapisz-ustawienia").addEventListener("click", async () => {
     ikona_przy_zegarze: $("ikona-zegar").checked,
     monitor: $("monitor").value,
     dzwiek_zapisu: $("dzwiek-zapisu").checked,
+    glos_w_edytorze: $("glos-w-edytorze").checked,
     powiadomienie_zapisu: $("powiadomienie-zapisu").checked,
     sprzatanie_dni: $("sprz-dni-wl").checked ? Number($("sprz-dni").value) || 30 : 0,
     sprzatanie_gb: $("sprz-gb-wl").checked ? Number($("sprz-gb").value) || 50 : 0,

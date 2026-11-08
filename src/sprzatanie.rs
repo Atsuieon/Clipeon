@@ -21,10 +21,15 @@ pub fn sprzataj(folder: &Path, dni: u32, gb: u32) -> usize {
     if dni == 0 && gb == 0 {
         return 0;
     }
+    // Sprzątanie po zapisie i cogodzinne nie mogą działać jednocześnie
+    static SPRZATANIE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _jedno = SPRZATANIE.lock().unwrap_or_else(|e| e.into_inner());
     let teraz = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
     let wiek = |k: &klipy::Klip| Duration::from_millis(teraz.saturating_sub(k.czas_ms));
     let chroniony = |k: &klipy::Klip| {
-        wiek(k) < Duration::from_secs(600) || (wynik_edycji(&k.nazwa) && wiek(k) < Duration::from_secs(86_400))
+        wiek(k) < Duration::from_secs(600)
+            || (wynik_edycji(&k.nazwa) && wiek(k) < Duration::from_secs(86_400))
+            || klipy::w_uzyciu(&k.sciezka)
     };
 
     // Od najstarszego

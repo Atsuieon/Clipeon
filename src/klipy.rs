@@ -89,8 +89,40 @@ pub fn sprawdz_sciezke(folder: &Path, klip: &Path) -> Result<PathBuf, String> {
     Ok(PathBuf::from(tekst.strip_prefix(r"\\?\").unwrap_or(&tekst)))
 }
 
+/// Pliki, na których trwa właśnie eksport (źródło); znormalizowane do małych liter.
+static W_UZYCIU: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+fn klucz_uzycia(p: &Path) -> String {
+    p.to_string_lossy().to_lowercase()
+}
+
+/// Oznacza plik jako używany do końca życia zwróconej blokady.
+pub struct Uzywany(String);
+
+impl Drop for Uzywany {
+    fn drop(&mut self) {
+        let mut l = W_UZYCIU.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(i) = l.iter().position(|x| *x == self.0) {
+            l.remove(i);
+        }
+    }
+}
+
+pub fn uzywaj(p: &Path) -> Uzywany {
+    let k = klucz_uzycia(p);
+    W_UZYCIU.lock().unwrap_or_else(|e| e.into_inner()).push(k.clone());
+    Uzywany(k)
+}
+
+pub fn w_uzyciu(p: &Path) -> bool {
+    W_UZYCIU.lock().unwrap_or_else(|e| e.into_inner()).contains(&klucz_uzycia(p))
+}
+
 /// Przenosi klip do Kosza (da się go przywrócić) i usuwa jego miniaturę.
 pub fn usun(klip: &Path) -> Result<(), String> {
+    if w_uzyciu(klip) {
+        return Err("Ten klip jest właśnie zapisywany w nowej wersji — spróbuj za chwilę".into());
+    }
     if let Ok(k) = klucz(klip) {
         let folder = folder_miniatur();
         let _ = std::fs::remove_file(folder.join(format!("{k}.jpg")));

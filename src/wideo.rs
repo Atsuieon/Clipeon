@@ -190,7 +190,18 @@ pub fn uruchom(cfg: &Config, bufor: WspolnyBufor, zglos: impl Fn(String) + Send 
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("Nie udało się uruchomić ffmpeg (czy jest w PATH?): {e}"))?;
-    let mut bledy_ffmpeg = ffmpeg.stderr.take().unwrap();
+    // Komunikaty ffmpeg czytamy na bieżąco (pełny potok zatrzymałby enkoder); zostaje ostatnia linia
+    let ostatni_blad = Arc::new(Mutex::new(String::new()));
+    {
+        let ostatni = ostatni_blad.clone();
+        let bledy = ffmpeg.stderr.take().unwrap();
+        std::thread::spawn(move || {
+            use std::io::BufRead;
+            for linia in std::io::BufReader::new(bledy).lines().map_while(Result::ok) {
+                *ostatni.lock().unwrap() = linia;
+            }
+        });
+    }
     let mut wejscie = ffmpeg.stdin.take().unwrap();
     let mut wyjscie = ffmpeg.stdout.take().unwrap();
 
@@ -238,9 +249,9 @@ pub fn uruchom(cfg: &Config, bufor: WspolnyBufor, zglos: impl Fn(String) + Send 
                 Ok(0) | Err(_) => {
                     let _ = ffmpeg.wait();
                     if !stop_czytania.load(Ordering::SeqCst) {
-                        let mut opis = String::new();
-                        let _ = bledy_ffmpeg.read_to_string(&mut opis);
-                        let opis = opis.lines().last().unwrap_or("brak szczegółów").to_string();
+                        std::thread::sleep(Duration::from_millis(100));
+                        let opis = ostatni_blad.lock().unwrap().clone();
+                        let opis = if opis.is_empty() { "brak szczegółów".to_string() } else { opis };
                         eprintln!("Wideo: ffmpeg przestał działać: {opis}");
                         zglos(format!("Enkoder wideo przestał działać: {opis}"));
                     }

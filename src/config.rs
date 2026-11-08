@@ -5,10 +5,10 @@ use std::path::PathBuf;
 
 /// Obsługiwane enkodery wideo: (nazwa ffmpeg, opis dla użytkownika)
 pub const ENKODERY: &[(&str, &str)] = &[
-    ("h264_amf", "H.264 — karta AMD (najlepsza zgodność)"),
-    ("hevc_amf", "HEVC — karta AMD (mniejsze pliki)"),
-    ("av1_amf", "AV1 — karta AMD (najmniejsze pliki)"),
-    ("libx264", "H.264 — procesor (x264)"),
+    ("h264_amf", "H.264 — działa wszędzie (polecany)"),
+    ("hevc_amf", "HEVC — mniejsze pliki"),
+    ("av1_amf", "AV1 — najmniejsze pliki"),
+    ("libx264", "H.264 na procesorze — gdy karta graficzna sprawia problemy"),
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +42,8 @@ pub struct Config {
     pub sprzatanie_dni: u32,
     /// Sprzątanie: folder klipów nie większy niż tyle GB (0 = wyłączone)
     pub sprzatanie_gb: u32,
+    /// Czy zapisywane wersje (przycięte, zmniejszone) mają domyślnie zawierać głos z mikrofonu
+    pub glos_w_edytorze: bool,
     /// Nagrywany monitor (nazwa urządzenia, np. \\.\DISPLAY2); pusty = główny
     pub monitor: String,
 }
@@ -55,7 +57,7 @@ impl Default for Config {
             bitrate_mbps: 20,
             enkoder: "h264_amf".into(),
             dzwiek_systemowy: true,
-            mikrofon: false,
+            mikrofon: true,
             folder_klipow: profil.join("Videos").join("Clipper"),
             skrot: "Alt+F10".into(),
             ikona_przy_zegarze: true,
@@ -65,6 +67,7 @@ impl Default for Config {
             sprzatanie_dni: 0,
             sprzatanie_gb: 0,
             monitor: String::new(),
+            glos_w_edytorze: true,
         }
     }
 }

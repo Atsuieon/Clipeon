@@ -133,6 +133,8 @@ pub fn eksportuj(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dyn
     if !z.przyciete && z.rozmiar_mb.is_none() && z.glosnosci.is_empty() {
         return Err("Nic do zrobienia — przytnij klip, wybierz rozmiar albo zmień głośność".into());
     }
+    // Do końca eksportu porządki i usuwanie nie ruszą źródła
+    let _uzywany = crate::klipy::uzywaj(zrodlo);
     let wynik = nazwa_wyniku(zrodlo, z);
     // Najpierw do pliku tymczasowego (bez .mp4, żeby nie pojawił się w bibliotece),
     // żeby przerwany eksport nie zostawił połowy klipu
@@ -211,9 +213,21 @@ pub fn eksportuj(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dyn
     }
 
     if z.zastap {
-        // Oryginał do Kosza (da się go przywrócić), wynik dostaje jego nazwę
-        crate::klipy::usun(zrodlo)?;
-        std::fs::rename(&tymczasowy, zrodlo).map_err(|e| format!("Nie udało się zastąpić oryginału: {e}"))?;
+        // Najpierw odsuwamy oryginał pod inną nazwę, potem nowa wersja dostaje jego nazwę, a dopiero
+        // na końcu oryginał idzie do Kosza — przy każdym błędzie po drodze nic nie ginie
+        let odsuniety = zrodlo.with_extension("mp4.oryginal");
+        if let Err(e) = std::fs::rename(zrodlo, &odsuniety) {
+            let _ = std::fs::remove_file(&tymczasowy);
+            return Err(format!("Nie udało się zastąpić oryginału (plik jest otwarty w innym programie?): {e}"));
+        }
+        if let Err(e) = std::fs::rename(&tymczasowy, zrodlo) {
+            let _ = std::fs::rename(&odsuniety, zrodlo);
+            let _ = std::fs::remove_file(&tymczasowy);
+            return Err(format!("Nie udało się zastąpić oryginału: {e}"));
+        }
+        if let Err(e) = trash::delete(&odsuniety) {
+            eprintln!("Oryginał zostaje jako {}: {e}", odsuniety.display());
+        }
         return Ok(zrodlo.to_path_buf());
     }
     std::fs::rename(&tymczasowy, &wynik).map_err(|e| format!("Nie udało się zapisać wyniku: {e}"))?;

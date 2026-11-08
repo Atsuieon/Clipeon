@@ -335,6 +335,9 @@ select option { background: #0a0a0a; }
 .glos { display: flex; align-items: center; gap: 12px; }
 .glos > span:first-child { min-width: 72px; color: var(--tytul); }
 .glos input[type="range"] { width: 180px; flex: none; }
+.glos.wylaczony { opacity: 0.35; pointer-events: none; }
+#formularz > h2.sekcja:first-child { margin-top: 4px; }
+#formularz .karty + h2.sekcja { margin-top: 32px; }
 .wartosc-glosu { min-width: 44px; color: var(--pomoc); font-variant-numeric: tabular-nums; }
 .przeciagany:active { cursor: grabbing; }
 
@@ -377,6 +380,59 @@ select option { background: #0a0a0a; }
   #pauza { padding: 9px; }
   h1 { font-size: 36px; }
 }
+
+/* ---------- Szlif: siatka 8 px, stany najechania i wciśnięcia, spójne zaokrąglenia ---------- */
+.przycisk, .segment, .zakladka {
+  transition: background var(--czas), border-color var(--czas), color var(--czas), opacity var(--czas), transform var(--czas);
+}
+.przycisk:active:not(:disabled), .segment:active:not(:disabled), .zakladka:active { transform: scale(0.97); }
+.przycisk.drugorzedny:hover, .segment:hover:not(:disabled) { border-color: #333; }
+
+/* Karty klipów: lekkie uniesienie po najechaniu */
+.klip {
+  transition: opacity 200ms, transform var(--czas), border-color var(--czas), background-color var(--czas), box-shadow var(--czas);
+}
+.klip:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(0, 0, 0, 0.55); }
+.klip:active { transform: translateY(0) scale(0.99); }
+.klip.ciagniety { transform: scale(0.94); box-shadow: none; }
+.klip .obraz { background: #0c0c0c; }
+
+/* Wyszarzone opcje: spokojniej niż półprzezroczystość */
+.segment:disabled { opacity: 1; color: #4d4d4d; border-color: #1a1a1a; }
+
+/* Edytor: tło pod nim ciemniejsze i rozmyte, równe odstępy, cienkie linie między sekcjami */
+.nakladka { background: rgba(0, 0, 0, 0.9); backdrop-filter: blur(6px); }
+.okno-odtwarzacza { background: #050505; }
+.okno-odtwarzacza .pasek { padding: 16px 16px 16px 24px; }
+.sterowanie { padding: 16px 24px 8px; gap: 16px; }
+.eksport { padding: 16px 24px 24px; margin-top: 8px; border-top: 1px solid #151515; }
+.eksport-opcje { gap: 16px; }
+.grupa { gap: 8px; }
+.etykieta { min-width: 120px; }
+.wynik { margin: 0 24px 24px; padding: 8px 8px 8px 16px; border-radius: 16px; border-color: #2a2a2a; }
+
+/* Uchwyty przycinania: większe, z uchwytem w środku i obwódką po najechaniu */
+.uchwyt {
+  width: 14px; height: 32px; top: 2px; margin-left: -7px; border-radius: 6px;
+  box-shadow: 0 0 0 3px #050505, 0 2px 8px rgba(0, 0, 0, 0.6);
+  transition: transform var(--czas), box-shadow var(--czas);
+}
+.uchwyt::after {
+  content: ""; position: absolute; left: 50%; top: 9px; bottom: 9px; width: 2px; margin-left: -1px;
+  border-radius: 2px; background: rgba(0, 0, 0, 0.35);
+}
+.uchwyt:hover, .uchwyt:focus-visible {
+  transform: scaleY(1.08); outline: none;
+  box-shadow: 0 0 0 3px #050505, 0 0 0 5px rgba(255, 255, 255, 0.2);
+}
+.os-zakres { border-radius: 8px; background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.35); }
+
+/* Pusta biblioteka */
+.pusto .ikona-duza {
+  width: 72px; height: 72px; display: grid; place-items: center; margin-bottom: 8px; border-radius: 50%;
+  border: 1px solid var(--ramka-karty); background: radial-gradient(circle at 50% 30%, rgba(255, 255, 255, 0.06), transparent 70%);
+}
+.pusto .ikona-duza svg { width: 30px; height: 30px; }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }

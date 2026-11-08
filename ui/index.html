@@ -61,83 +61,101 @@
         <div class="naglowek">
           <div>
             <h1>Ustawienia</h1>
-            <p class="pomoc">Zapisanie zmian uruchamia nagrywanie od nowa, więc bufor zaczyna się od zera.</p>
+            <p class="pomoc">Po zapisaniu zmian nagrywanie zaczyna się od nowa — wcześniejsze sekundy nie trafią do klipu.</p>
           </div>
         </div>
-        <form class="karty" id="formularz" autocomplete="off">
-          <div class="karta">
-            <h3>Długość bufora</h3>
-            <p class="pomoc">Ile ostatnich sekund trafi do klipu.</p>
-            <div class="wiersz">
-              <input type="range" id="bufor" min="5" max="300" step="5" aria-label="Długość bufora w sekundach">
-              <span class="wartosc" id="bufor-wartosc"></span>
+        <form id="formularz" autocomplete="off">
+          <h2 class="sekcja">Nagrywanie</h2>
+          <div class="karty">
+            <div class="karta">
+              <h3>Ile ostatnich sekund zapisywać</h3>
+              <p class="pomoc">Clipper cały czas pamięta tyle ostatnich sekund gry. Po wciśnięciu skrótu zapisuje je jako klip.</p>
+              <div class="wiersz">
+                <input type="range" id="bufor" min="5" max="300" step="5" aria-label="Ile ostatnich sekund zapisywać">
+                <span class="wartosc" id="bufor-wartosc"></span>
+              </div>
+              <p class="pomoc" id="ram"></p>
             </div>
-            <p class="pomoc" id="ram"></p>
-          </div>
 
-          <div class="karta">
-            <h3>Jakość</h3>
-            <p class="pomoc">Gotowe ustawienia albo własne wartości.</p>
-            <div class="segmenty" id="presety"></div>
-            <div class="pola">
-              <label>FPS<input type="number" id="fps" min="10" max="240" step="1"></label>
-              <label>Bitrate (Mb/s)<input type="number" id="bitrate" min="1" max="200" step="1"></label>
+            <div class="karta">
+              <h3>Jakość obrazu</h3>
+              <p class="pomoc">Wyższa jakość to ostrzejszy obraz, ale większe pliki.</p>
+              <div class="segmenty" id="presety"></div>
+              <div class="pola">
+                <label>Klatki na sekundę<input type="number" id="fps" min="10" max="240" step="1"></label>
+                <label>Jakość (Mb/s)<input type="number" id="bitrate" min="1" max="200" step="1"></label>
+              </div>
+            </div>
+
+            <div class="karta">
+              <h3>Format wideo</h3>
+              <p class="pomoc">Jak zapisywać obraz. Przycięte i zmniejszone wersje zawsze zapisują się w formacie, który działa wszędzie.</p>
+              <select id="enkoder" aria-label="Format wideo"></select>
+              <p class="pomoc" id="enkoder-uwaga"></p>
+            </div>
+
+            <div class="karta">
+              <h3>Który ekran nagrywać</h3>
+              <p class="pomoc">Wybierz monitor, na którym grasz.</p>
+              <select id="monitor" aria-label="Który ekran nagrywać"></select>
             </div>
           </div>
 
-          <div class="karta">
-            <h3>Kodek</h3>
-            <p class="pomoc">H.264 odtworzy każdy komunikator. HEVC i AV1 dają mniejsze pliki; wersje przycięte i skompresowane zawsze zapisują się w H.264.</p>
-            <select id="enkoder" aria-label="Kodek"></select>
-            <p class="pomoc" id="enkoder-uwaga"></p>
+          <h2 class="sekcja">Dźwięk</h2>
+          <div class="karty">
+            <div class="karta">
+              <h3>Co nagrywać</h3>
+              <p class="pomoc">Gra i Twój głos zapisują się osobno, więc w edytorze możesz potem ściszyć jedno albo drugie.</p>
+              <label class="przelacznik"><input type="checkbox" id="dzwiek"><span class="suwak"></span>Dźwięk z gry i komputera</label>
+              <label class="przelacznik"><input type="checkbox" id="mikrofon"><span class="suwak"></span>Mój mikrofon</label>
+            </div>
+
+            <div class="karta">
+              <h3>Mój głos w zapisywanych wersjach</h3>
+              <p class="pomoc">Czy przycięte i zmniejszone wersje mają domyślnie zawierać Twój głos. W edytorze zmienisz to dla każdego klipu osobno.</p>
+              <label class="przelacznik"><input type="checkbox" id="glos-w-edytorze"><span class="suwak"></span>Domyślnie z moim głosem</label>
+            </div>
           </div>
 
-          <div class="karta">
-            <h3>Monitor</h3>
-            <p class="pomoc">Który ekran nagrywać.</p>
-            <select id="monitor" aria-label="Nagrywany monitor"></select>
+          <h2 class="sekcja">Zapisywanie klipów</h2>
+          <div class="karty">
+            <div class="karta">
+              <h3>Skrót do zapisania klipu</h3>
+              <p class="pomoc">Działa także w trakcie gry. Kliknij pole i wciśnij nową kombinację klawiszy (Esc anuluje).</p>
+              <button type="button" class="pole-skrotu" id="skrot"></button>
+            </div>
+
+            <div class="karta">
+              <h3>Gdzie zapisywać klipy</h3>
+              <p class="pomoc sciezka" id="folder"></p>
+              <button type="button" class="przycisk drugorzedny" id="zmien-folder">Zmień folder…</button>
+            </div>
+
+            <div class="karta">
+              <h3>Po zapisaniu klipu</h3>
+              <p class="pomoc">Żebyś wiedział, że się udało, bez wychodzenia z gry (działa w trybie okna bez ramki).</p>
+              <label class="przelacznik"><input type="checkbox" id="dzwiek-zapisu"><span class="suwak"></span>Krótki dźwięk</label>
+              <label class="przelacznik"><input type="checkbox" id="powiadomienie-zapisu"><span class="suwak"></span>Powiadomienie w rogu ekranu</label>
+            </div>
+
+            <div class="karta">
+              <h3>Automatyczne porządki</h3>
+              <p class="pomoc">Clipper sam przenosi stare klipy do Kosza, żeby nie zapchały dysku (da się je przywrócić). Przycięte i zmniejszone wersje z ostatniej doby zostają.</p>
+              <label class="przelacznik"><input type="checkbox" id="sprz-dni-wl"><span class="suwak"></span>Usuwaj klipy starsze niż</label>
+              <div class="wiersz-liczby"><input type="number" id="sprz-dni" min="1" max="3650" aria-label="Liczba dni"><span class="pomoc">dni</span></div>
+              <label class="przelacznik"><input type="checkbox" id="sprz-gb-wl"><span class="suwak"></span>Nie pozwalaj, żeby klipy zajęły więcej niż</label>
+              <div class="wiersz-liczby"><input type="number" id="sprz-gb" min="1" max="100000" aria-label="Limit w GB"><span class="pomoc">GB</span></div>
+            </div>
           </div>
 
-          <div class="karta">
-            <h3>Dźwięk</h3>
-            <p class="pomoc">Gra i mikrofon trafiają do klipu jako osobne ścieżki (plus wspólny miks), więc głośność każdej zmienisz potem w edytorze.</p>
-            <label class="przelacznik"><input type="checkbox" id="dzwiek"><span class="suwak"></span>Dźwięk systemowy</label>
-            <label class="przelacznik"><input type="checkbox" id="mikrofon"><span class="suwak"></span>Mikrofon</label>
-          </div>
-
-          <div class="karta">
-            <h3>Skrót zapisu</h3>
-            <p class="pomoc">Kliknij i naciśnij nową kombinację (Esc anuluje).</p>
-            <button type="button" class="pole-skrotu" id="skrot"></button>
-          </div>
-
-          <div class="karta">
-            <h3>Folder klipów</h3>
-            <p class="pomoc sciezka" id="folder"></p>
-            <button type="button" class="przycisk drugorzedny" id="zmien-folder">Zmień…</button>
-          </div>
-
-          <div class="karta">
-            <h3>Po zapisie klipu</h3>
-            <p class="pomoc">Potwierdzenie widoczne i słyszalne w grze (w trybie okna bez ramki).</p>
-            <label class="przelacznik"><input type="checkbox" id="dzwiek-zapisu"><span class="suwak"></span>Dźwięk</label>
-            <label class="przelacznik"><input type="checkbox" id="powiadomienie-zapisu"><span class="suwak"></span>Dymek w prawym górnym rogu</label>
-          </div>
-
-          <div class="karta">
-            <h3>Automatyczne sprzątanie</h3>
-            <p class="pomoc">Stare klipy trafiają do Kosza (da się je przywrócić). Wersje przycięte i skompresowane w ostatniej dobie są nietykalne.</p>
-            <label class="przelacznik"><input type="checkbox" id="sprz-dni-wl"><span class="suwak"></span>Usuwaj klipy starsze niż</label>
-            <div class="wiersz-liczby"><input type="number" id="sprz-dni" min="1" max="3650" aria-label="Liczba dni"><span class="pomoc">dni</span></div>
-            <label class="przelacznik"><input type="checkbox" id="sprz-gb-wl"><span class="suwak"></span>Utrzymuj folder poniżej</label>
-            <div class="wiersz-liczby"><input type="number" id="sprz-gb" min="1" max="100000" aria-label="Limit w GB"><span class="pomoc">GB</span></div>
-          </div>
-
-          <div class="karta">
-            <h3>Uruchamianie</h3>
-            <p class="pomoc">Clipper działa w zasobniku obok zegara.</p>
-            <label class="przelacznik"><input type="checkbox" id="autostart"><span class="suwak"></span>Uruchamiaj z Windows</label>
-            <label class="przelacznik"><input type="checkbox" id="ikona-zegar"><span class="suwak"></span>Pokazuj ikonę zawsze przy zegarze</label>
+          <h2 class="sekcja">System</h2>
+          <div class="karty">
+            <div class="karta">
+              <h3>Uruchamianie</h3>
+              <p class="pomoc">Clipper działa w tle jako ikona przy zegarze.</p>
+              <label class="przelacznik"><input type="checkbox" id="autostart"><span class="suwak"></span>Uruchamiaj razem z Windows</label>
+              <label class="przelacznik"><input type="checkbox" id="ikona-zegar"><span class="suwak"></span>Ikona zawsze widoczna przy zegarze</label>
+            </div>
           </div>
         </form>
         <div class="stopka">
@@ -190,6 +208,11 @@
           <div class="grupa" id="glos-wiersz" hidden>
             <span class="etykieta">Głośność</span>
             <div class="glosnosci" id="glosnosci"></div>
+          </div>
+          <div class="grupa" id="mik-grupa" hidden>
+            <span class="etykieta">Mój głos</span>
+            <label class="przelacznik"><input type="checkbox" id="z-mikrofonem"><span class="suwak"></span><span id="mik-opis">Z moim głosem</span></label>
+            <span class="pomoc" id="mik-uwaga"></span>
           </div>
           <div class="grupa">
             <label class="przelacznik" id="dokladnie-wiersz" title="Bez tego cięcie jest natychmiastowe, ale zaczyna się od najbliższej klatki kluczowej (do 1 s wcześniej)"><input type="checkbox" id="dokladnie" checked><span class="suwak"></span>Dokładne cięcie</label>
