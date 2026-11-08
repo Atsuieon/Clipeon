@@ -86,14 +86,21 @@
           </div>
 
           <div class="karta">
-            <h3>Enkoder</h3>
-            <p class="pomoc">Kodowanie na karcie graficznej prawie nie obciąża procesora.</p>
-            <select id="enkoder" aria-label="Enkoder"></select>
+            <h3>Kodek</h3>
+            <p class="pomoc">H.264 odtworzy każdy komunikator. HEVC i AV1 dają mniejsze pliki; wersje przycięte i skompresowane zawsze zapisują się w H.264.</p>
+            <select id="enkoder" aria-label="Kodek"></select>
+            <p class="pomoc" id="enkoder-uwaga"></p>
+          </div>
+
+          <div class="karta">
+            <h3>Monitor</h3>
+            <p class="pomoc">Który ekran nagrywać.</p>
+            <select id="monitor" aria-label="Nagrywany monitor"></select>
           </div>
 
           <div class="karta">
             <h3>Dźwięk</h3>
-            <p class="pomoc">Mikrofon jest domieszany do dźwięku systemowego przy zapisie klipu.</p>
+            <p class="pomoc">Gra i mikrofon trafiają do klipu jako osobne ścieżki (plus wspólny miks), więc głośność każdej zmienisz potem w edytorze.</p>
             <label class="przelacznik"><input type="checkbox" id="dzwiek"><span class="suwak"></span>Dźwięk systemowy</label>
             <label class="przelacznik"><input type="checkbox" id="mikrofon"><span class="suwak"></span>Mikrofon</label>
           </div>
@@ -108,6 +115,22 @@
             <h3>Folder klipów</h3>
             <p class="pomoc sciezka" id="folder"></p>
             <button type="button" class="przycisk drugorzedny" id="zmien-folder">Zmień…</button>
+          </div>
+
+          <div class="karta">
+            <h3>Po zapisie klipu</h3>
+            <p class="pomoc">Potwierdzenie widoczne i słyszalne w grze (w trybie okna bez ramki).</p>
+            <label class="przelacznik"><input type="checkbox" id="dzwiek-zapisu"><span class="suwak"></span>Dźwięk</label>
+            <label class="przelacznik"><input type="checkbox" id="powiadomienie-zapisu"><span class="suwak"></span>Dymek w prawym górnym rogu</label>
+          </div>
+
+          <div class="karta">
+            <h3>Automatyczne sprzątanie</h3>
+            <p class="pomoc">Stare klipy trafiają do Kosza (da się je przywrócić). Wersje przycięte i skompresowane w ostatniej dobie są nietykalne.</p>
+            <label class="przelacznik"><input type="checkbox" id="sprz-dni-wl"><span class="suwak"></span>Usuwaj klipy starsze niż</label>
+            <div class="wiersz-liczby"><input type="number" id="sprz-dni" min="1" max="3650" aria-label="Liczba dni"><span class="pomoc">dni</span></div>
+            <label class="przelacznik"><input type="checkbox" id="sprz-gb-wl"><span class="suwak"></span>Utrzymuj folder poniżej</label>
+            <div class="wiersz-liczby"><input type="number" id="sprz-gb" min="1" max="100000" aria-label="Limit w GB"><span class="pomoc">GB</span></div>
           </div>
 
           <div class="karta">

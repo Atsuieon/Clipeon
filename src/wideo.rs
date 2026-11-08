@@ -75,6 +75,34 @@ impl Drop for Wideo {
     }
 }
 
+/// Monitor o danej nazwie urządzenia (pusta = główny).
+fn wybierz_monitor(nazwa: &str) -> Result<Monitor, Blad> {
+    if nazwa.is_empty() {
+        return Ok(Monitor::primary()?);
+    }
+    Monitor::enumerate()?
+        .into_iter()
+        .find(|m| m.device_name().is_ok_and(|n| n == nazwa))
+        .ok_or_else(|| format!("Nie znaleziono monitora {nazwa} — wybierz inny w Ustawieniach").into())
+}
+
+/// Monitory do wyboru w ustawieniach: (nazwa urządzenia, opis).
+pub fn monitory() -> Vec<(String, String)> {
+    let glowny = Monitor::primary().ok().and_then(|m| m.device_name().ok());
+    Monitor::enumerate()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|m| {
+            let id = m.device_name().ok()?;
+            let (w, h) = (m.width().ok()?, m.height().ok()?);
+            let hz = m.refresh_rate().map(|r| format!(", {r} Hz")).unwrap_or_default();
+            let nazwa = m.name().unwrap_or_else(|_| id.trim_start_matches(r"\.").to_string());
+            let dopisek = if glowny.as_deref() == Some(id.as_str()) { " (główny)" } else { "" };
+            Some((id, format!("{nazwa} — {w}×{h}{hz}{dopisek}")))
+        })
+        .collect()
+}
+
 /// Rodzina kodeka nagrania — od niej zależy format surowego strumienia i dzielenie go na klatki.
 #[derive(Clone, Copy, PartialEq)]
 enum Kodek {
@@ -130,10 +158,11 @@ fn argumenty_enkodera(cfg: &Config) -> Vec<String> {
 
 /// Startuje przechwytywanie. `zglos` dostaje opis błędu, gdy ffmpeg nieoczekiwanie przestanie działać.
 pub fn uruchom(cfg: &Config, bufor: WspolnyBufor, zglos: impl Fn(String) + Send + 'static) -> Result<Wideo, Blad> {
-    let monitor = Monitor::primary()?;
+    let monitor = wybierz_monitor(&cfg.monitor)?;
     let (w, h) = (monitor.width()?, monitor.height()?);
     let fps = cfg.fps;
-    println!("Wideo: główny monitor {w}x{h}, {fps} FPS, {} {} Mb/s", cfg.enkoder, cfg.bitrate_mbps);
+    let nazwa = if cfg.monitor.is_empty() { "główny".to_string() } else { cfg.monitor.clone() };
+    println!("Wideo: monitor {nazwa} {w}x{h}, {fps} FPS, {} {} Mb/s", cfg.enkoder, cfg.bitrate_mbps);
 
     let rozmiar_klatki = (w * h * 4) as usize;
     let wspolna = Arc::new(Mutex::new(OstatniaKlatka { piksele: vec![0; rozmiar_klatki], nowa: false }));

@@ -279,6 +279,12 @@ function zamknijOdtwarzacz() {
   odtwarzany = null;
 }
 
+$("wideo").addEventListener("error", () => {
+  if (!odtwarzany || !$("wideo").getAttribute("src")) return;
+  $("eksport-info").textContent =
+    "Ten klip nie odtwarza się w podglądzie (HEVC wymaga rozszerzenia HEVC z Microsoft Store). Przycinanie i kompresja nadal działają.";
+});
+
 $("wideo").addEventListener("loadedmetadata", () => {
   dlugosc = $("wideo").duration || 0;
   zakres = { start: 0, koniec: dlugosc };
@@ -441,6 +447,12 @@ async function przygotujGlosnosc(klip) {
     info = await invoke("info_klipu", { sciezka: klip.sciezka });
   } catch {}
   if (odtwarzany !== klip) return;
+  // Gdy podgląd nie zna długości (kodek nieobsługiwany przez WebView), bierzemy ją z pliku
+  if (!dlugosc && info.dlugosc) {
+    dlugosc = info.dlugosc;
+    zakres = { start: 0, koniec: dlugosc };
+    odswiezEdytor();
+  }
   // Klip z osobnymi ścieżkami ma: miks, gra, mikrofon
   const nazwy = info.sciezki_audio >= 3 ? ["Gra", "Mikrofon"] : info.sciezki_audio >= 1 ? ["Dźwięk"] : [];
   $("glos-wiersz").hidden = !nazwy.length;
@@ -692,8 +704,21 @@ for (const p of PRESETY) {
 }
 
 async function wczytajUstawienia() {
-  const u = await invoke("ustawienia");
+  const [u, monitory] = await Promise.all([invoke("ustawienia"), invoke("monitory")]);
   cfg = u.cfg;
+  $("monitor").replaceChildren(new Option("Główny monitor", ""), ...monitory.map(([id, opis]) => new Option(opis, id)));
+  $("monitor").value = cfg.monitor;
+  // Zapisany monitor odłączony — pokazujemy go, żeby wybór nie zmienił się po cichu
+  if ($("monitor").value !== cfg.monitor) {
+    $("monitor").append(new Option(`${cfg.monitor} (niepodłączony)`, cfg.monitor));
+    $("monitor").value = cfg.monitor;
+  }
+  $("dzwiek-zapisu").checked = cfg.dzwiek_zapisu;
+  $("powiadomienie-zapisu").checked = cfg.powiadomienie_zapisu;
+  $("sprz-dni-wl").checked = cfg.sprzatanie_dni > 0;
+  $("sprz-dni").value = cfg.sprzatanie_dni || 30;
+  $("sprz-gb-wl").checked = cfg.sprzatanie_gb > 0;
+  $("sprz-gb").value = cfg.sprzatanie_gb || 50;
   $("enkoder").replaceChildren(
     ...u.enkodery.map(([wartosc, opis]) => new Option(opis, wartosc))
   );
@@ -714,6 +739,13 @@ async function wczytajUstawienia() {
 
 // Szacunek RAM bufora: obraz (bitrate) + dźwięk (160 kb/s na ścieżkę)
 function odswiezFormularz() {
+  $("sprz-dni").disabled = !$("sprz-dni-wl").checked;
+  $("sprz-gb").disabled = !$("sprz-gb-wl").checked;
+  const uwagi = {
+    hevc_amf: "Podgląd HEVC w oknie wymaga rozszerzenia HEVC z Microsoft Store; Discord w przeglądarce może go nie odtworzyć.",
+    av1_amf: "Karty Radeon RX 7000 kodują AV1 w 1920×1082 — na dole klipu są 2 czarne linie.",
+  };
+  $("enkoder-uwaga").textContent = uwagi[$("enkoder").value] || "";
   const s = Number($("bufor").value);
   const mbps = Number($("bitrate").value) || 0;
   const sciezki = Number($("dzwiek").checked) + Number($("mikrofon").checked);
@@ -725,7 +757,7 @@ function odswiezFormularz() {
   }
 }
 
-for (const id of ["bufor", "fps", "bitrate", "dzwiek", "mikrofon"]) {
+for (const id of ["bufor", "fps", "bitrate", "dzwiek", "mikrofon", "sprz-dni-wl", "sprz-gb-wl", "enkoder"]) {
   $(id).addEventListener("input", odswiezFormularz);
 }
 
@@ -784,6 +816,11 @@ $("zapisz-ustawienia").addEventListener("click", async () => {
     skrot: $("skrot").dataset.wartosc,
     folder_klipow: $("folder").textContent,
     ikona_przy_zegarze: $("ikona-zegar").checked,
+    monitor: $("monitor").value,
+    dzwiek_zapisu: $("dzwiek-zapisu").checked,
+    powiadomienie_zapisu: $("powiadomienie-zapisu").checked,
+    sprzatanie_dni: $("sprz-dni-wl").checked ? Number($("sprz-dni").value) || 30 : 0,
+    sprzatanie_gb: $("sprz-gb-wl").checked ? Number($("sprz-gb").value) || 50 : 0,
   };
   const przycisk = $("zapisz-ustawienia");
   przycisk.disabled = true;

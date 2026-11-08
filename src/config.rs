@@ -34,6 +34,16 @@ pub struct Config {
     pub ikona_przy_zegarze: bool,
     /// Czy Clipper już raz ustawił widoczność ikony (później decyduje użytkownik w Windows)
     pub ikona_ustawiona: bool,
+    /// Dźwięk po zapisie klipu
+    pub dzwiek_zapisu: bool,
+    /// Dymek w prawym górnym rogu ekranu po zapisie klipu
+    pub powiadomienie_zapisu: bool,
+    /// Sprzątanie: klipy starsze niż tyle dni idą do Kosza (0 = wyłączone)
+    pub sprzatanie_dni: u32,
+    /// Sprzątanie: folder klipów nie większy niż tyle GB (0 = wyłączone)
+    pub sprzatanie_gb: u32,
+    /// Nagrywany monitor (nazwa urządzenia, np. \\.\DISPLAY2); pusty = główny
+    pub monitor: String,
 }
 
 impl Default for Config {
@@ -50,6 +60,11 @@ impl Default for Config {
             skrot: "Alt+F10".into(),
             ikona_przy_zegarze: true,
             ikona_ustawiona: false,
+            dzwiek_zapisu: true,
+            powiadomienie_zapisu: true,
+            sprzatanie_dni: 0,
+            sprzatanie_gb: 0,
+            monitor: String::new(),
         }
     }
 }
@@ -99,6 +114,9 @@ impl Config {
         }
         if !self.folder_klipow.is_absolute() {
             return Err("Folder klipów musi być pełną ścieżką".into());
+        }
+        if self.sprzatanie_dni > 3650 || self.sprzatanie_gb > 100_000 {
+            return Err("Nieprawidłowe ustawienia sprzątania".into());
         }
         crate::skrot::parsuj(&self.skrot).map(|_| ())
     }

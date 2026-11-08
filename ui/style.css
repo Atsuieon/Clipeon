@@ -270,6 +270,9 @@ select option { background: #0a0a0a; }
 .przelacznik input:checked + .suwak::after { background: #000; transform: translateX(16px); }
 .przelacznik input:focus-visible + .suwak { outline: 1.5px solid #fff; outline-offset: 2px; }
 
+.wiersz-liczby { display: flex; align-items: center; gap: 10px; margin: -6px 0 4px 50px; }
+.wiersz-liczby input { width: 110px; }
+.wiersz-liczby input:disabled { opacity: 0.4; }
 .sciezka { word-break: break-all; color: var(--tytul) !important; }
 .karta .przycisk { align-self: flex-start; }
 

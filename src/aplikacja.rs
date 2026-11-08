@@ -12,7 +12,6 @@ use tauri::window::Color;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WebviewUrl, WebviewWindowBuilder, Wry};
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_dialog::DialogExt;
-use tauri_plugin_notification::NotificationExt;
 
 const ID_ZASOBNIKA: &str = "glowna";
 
@@ -114,17 +113,41 @@ fn pokaz_stan(app: &AppHandle, stan: &Stan) {
 }
 
 fn obsluz_zdarzenie(app: &AppHandle, z: Zdarzenie) {
+    let cfg = app.try_state::<Rdzen>().map(|r| r.config()).unwrap_or_default();
     match z {
         Zdarzenie::Stan(s) => pokaz_stan(app, &s),
         Zdarzenie::Zapisano(plik) => {
-            let nazwa = plik.file_name().unwrap_or_default().to_string_lossy().into_owned();
-            let _ = app.notification().builder().title("Klip zapisany").body(&nazwa).show();
+            if cfg.dzwiek_zapisu {
+                crate::dzwiek::zagraj();
+            }
+            if cfg.powiadomienie_zapisu {
+                let nazwa = plik.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                pokaz_powiadomienie(app, &cfg.monitor, &format!("Zapisano ostatnie {} s", cfg.bufor_sekundy), &nazwa, false);
+            }
             let _ = app.emit("klip-zapisany", plik);
+            // Po zapisie pilnujemy limitów folderu (jeśli sprzątanie jest włączone)
+            std::thread::spawn(move || crate::sprzatanie::sprzataj(&cfg.folder_klipow, cfg.sprzatanie_dni, cfg.sprzatanie_gb));
         }
-        Zdarzenie::BladZapisu(e) => {
-            let _ = app.notification().builder().title("Nie udało się zapisać klipu").body(&e).show();
-        }
+        // Błąd pokazujemy zawsze — inaczej użytkownik myślałby, że klip jest zapisany
+        Zdarzenie::BladZapisu(e) => pokaz_powiadomienie(app, &cfg.monitor, "Nie udało się zapisać klipu", &e, true),
     }
+}
+
+/// Dymek w prawym górnym rogu monitora z grą (nagrywanego) na ~2 s — patrz powiadomienie.rs.
+fn pokaz_powiadomienie(app: &AppHandle, monitor: &str, tytul: &str, opis: &str, blad: bool) {
+    let m = app
+        .available_monitors()
+        .ok()
+        .and_then(|l| l.into_iter().find(|m| !monitor.is_empty() && m.name().is_some_and(|n| *n == monitor)))
+        .or_else(|| app.primary_monitor().ok().flatten());
+    let Some(m) = m else { return };
+    let miejsce = crate::powiadomienie::Miejsce {
+        prawa: m.position().x + m.size().width as i32,
+        gora: m.position().y,
+        skala: m.scale_factor() as f32,
+    };
+    let (tytul, opis) = (tytul.to_string(), opis.to_string());
+    std::thread::spawn(move || crate::powiadomienie::pokaz(miejsce, &tytul, &opis, blad));
 }
 
 // ---------- Komendy dla okna ----------
@@ -278,6 +301,12 @@ async fn info_klipu(app: AppHandle, sciezka: PathBuf) -> Result<klipy::Info, Str
     tauri::async_runtime::spawn_blocking(move || klipy::info(&klip)).await.map_err(|e| e.to_string())?
 }
 
+/// Monitory do wyboru w ustawieniach.
+#[tauri::command]
+fn monitory() -> Vec<(String, String)> {
+    crate::wideo::monitory()
+}
+
 #[tauri::command]
 fn otworz_folder(rdzen: State<'_, Rdzen>) {
     let folder = rdzen.config().folder_klipow;
@@ -291,7 +320,6 @@ pub fn uruchom() {
     tauri::Builder::default()
         // Druga kopia programu tylko pokazuje okno pierwszej (skrót i enkoder są jedne)
         .plugin(tauri_plugin_single_instance::init(|app, _, _| pokaz_okno(app, "klipy")))
-        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .invoke_handler(tauri::generate_handler![
@@ -308,7 +336,8 @@ pub fn uruchom() {
             otworz_folder,
             eksportuj,
             przeciagnij,
-            info_klipu
+            info_klipu,
+            monitory
         ])
         .setup(|app| {
             let (cfg, blad_cfg) = match Config::wczytaj() {
@@ -367,6 +396,13 @@ pub fn uruchom() {
             if c.ikona_przy_zegarze && !c.ikona_ustawiona {
                 ustaw_ikone(app.handle(), &rdzen, true);
             }
+            // Sprzątanie folderu przy starcie i potem co godzinę (jeśli włączone w ustawieniach)
+            let r = rdzen.clone();
+            std::thread::spawn(move || loop {
+                let c = r.config();
+                crate::sprzatanie::sprzataj(&c.folder_klipow, c.sprzatanie_dni, c.sprzatanie_gb);
+                std::thread::sleep(std::time::Duration::from_secs(3600));
+            });
             if let Some(e) = blad_cfg {
                 rdzen.blad_configu(e);
             }
