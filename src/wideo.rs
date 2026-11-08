@@ -24,34 +24,48 @@ struct OstatniaKlatka {
     nowa: bool,
 }
 
+/// Problem wykryty w trakcie nagrywania (np. zmiana rozdzielczości); strażnik w rdzeniu go odczytuje
+/// i uruchamia nagrywanie od nowa.
+type Problem = Arc<Mutex<Option<String>>>;
+
+fn zglos_problem(p: &Problem, opis: String) {
+    let mut g = p.lock().unwrap_or_else(|e| e.into_inner());
+    if g.is_none() {
+        crate::dziennik::blad(&format!("Wideo: {opis}"));
+        *g = Some(opis);
+    }
+}
+
 struct Przechwyt {
     wspolna: Arc<Mutex<OstatniaKlatka>>,
     rozmiar: (u32, u32),
     tymczasowy: Vec<u8>,
-    ostrzezono: bool,
+    problem: Problem,
 }
 
 impl GraphicsCaptureApiHandler for Przechwyt {
-    type Flags = (Arc<Mutex<OstatniaKlatka>>, (u32, u32));
+    type Flags = (Arc<Mutex<OstatniaKlatka>>, (u32, u32), Problem);
     type Error = Blad;
 
     fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {
-        let (wspolna, rozmiar) = ctx.flags;
-        Ok(Self { wspolna, rozmiar, tymczasowy: Vec::new(), ostrzezono: false })
+        let (wspolna, rozmiar, problem) = ctx.flags;
+        Ok(Self { wspolna, rozmiar, tymczasowy: Vec::new(), problem })
+    }
+
+    fn on_closed(&mut self) -> Result<(), Self::Error> {
+        zglos_problem(&self.problem, "przechwytywanie ekranu zostało przerwane przez system".into());
+        Ok(())
     }
 
     fn on_frame_arrived(&mut self, frame: &mut Frame, _: InternalCaptureControl) -> Result<(), Self::Error> {
         let bufor = frame.buffer()?;
-        // Zmiana rozdzielczości w trakcie: encoder ma stały rozmiar, więc pomijamy takie klatki
+        // Zmiana rozdzielczości: enkoder ma stały rozmiar — zgłaszamy, strażnik uruchomi nagrywanie od nowa
         if (bufor.width(), bufor.height()) != self.rozmiar {
-            if !self.ostrzezono {
-                eprintln!("Uwaga: rozdzielczość ekranu zmieniła się na {}x{}, klatki pomijane", bufor.width(), bufor.height());
-                self.ostrzezono = true;
-            }
+            zglos_problem(&self.problem, format!("rozdzielczość ekranu zmieniła się na {}x{}", bufor.width(), bufor.height()));
             return Ok(());
         }
         let piksele = bufor.as_nopadding_buffer(&mut self.tymczasowy);
-        let mut w = self.wspolna.lock().unwrap();
+        let mut w = self.wspolna.lock().unwrap_or_else(|e| e.into_inner());
         w.piksele.clear();
         w.piksele.extend_from_slice(piksele);
         w.nowa = true;
@@ -63,15 +77,25 @@ impl GraphicsCaptureApiHandler for Przechwyt {
 pub struct Wideo {
     sterowanie: Option<CaptureControl<Przechwyt, Blad>>,
     stop: Arc<AtomicBool>,
+    proces: Arc<Mutex<std::process::Child>>,
+    problem: Problem,
+}
+
+impl Wideo {
+    /// Problem zgłoszony przez przechwytywanie lub wątek taktujący (None = wszystko w porządku).
+    pub fn problem(&self) -> Option<String> {
+        self.problem.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
 }
 
 impl Drop for Wideo {
     fn drop(&mut self) {
-        // Wątek taktujący kończy pracę i zamyka wejście ffmpeg, a ten kończy się sam
         self.stop.store(true, Ordering::SeqCst);
         if let Some(s) = self.sterowanie.take() {
             let _ = s.stop();
         }
+        // Zabijamy ffmpeg od razu: zawieszony proces blokowałby wątek taktujący i restart
+        let _ = self.proces.lock().unwrap_or_else(|e| e.into_inner()).kill();
     }
 }
 
@@ -165,6 +189,7 @@ pub fn uruchom(cfg: &Config, bufor: WspolnyBufor, zglos: impl Fn(String) + Send 
     println!("Wideo: monitor {nazwa} {w}x{h}, {fps} FPS, {} {} Mb/s", cfg.enkoder, cfg.bitrate_mbps);
 
     let rozmiar_klatki = (w * h * 4) as usize;
+    let problem: Problem = Arc::new(Mutex::new(None));
     let wspolna = Arc::new(Mutex::new(OstatniaKlatka { piksele: vec![0; rozmiar_klatki], nowa: false }));
 
     let ustawienia = Settings::new(
@@ -176,11 +201,11 @@ pub fn uruchom(cfg: &Config, bufor: WspolnyBufor, zglos: impl Fn(String) + Send 
         MinimumUpdateIntervalSettings::Custom(Duration::from_secs_f64(1.0 / fps as f64)),
         DirtyRegionSettings::Default,
         ColorFormat::Bgra8,
-        (wspolna.clone(), (w, h)),
+        (wspolna.clone(), (w, h), problem.clone()),
     );
     let sterowanie = Przechwyt::start_free_threaded(ustawienia)?;
 
-    let mut ffmpeg = crate::ffmpeg::komenda()
+    let ffmpeg = crate::ffmpeg::komenda()
         .args(["-hide_banner", "-loglevel", "error"])
         .args(["-f", "rawvideo", "-pix_fmt", "bgra", "-s", &format!("{w}x{h}"), "-framerate", &fps.to_string(), "-i", "-"])
         .args(argumenty_enkodera(cfg))
@@ -188,8 +213,14 @@ pub fn uruchom(cfg: &Config, bufor: WspolnyBufor, zglos: impl Fn(String) + Send 
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Nie udało się uruchomić ffmpeg (czy jest w PATH?): {e}"))?;
+        .spawn();
+    let mut ffmpeg = match ffmpeg {
+        Ok(f) => f,
+        Err(e) => {
+            let _ = sterowanie.stop();
+            return Err(format!("Nie udało się uruchomić ffmpeg (czy jest w PATH?): {e}").into());
+        }
+    };
     // Komunikaty ffmpeg czytamy na bieżąco (pełny potok zatrzymałby enkoder); zostaje ostatnia linia
     let ostatni_blad = Arc::new(Mutex::new(String::new()));
     {
@@ -198,12 +229,13 @@ pub fn uruchom(cfg: &Config, bufor: WspolnyBufor, zglos: impl Fn(String) + Send 
         std::thread::spawn(move || {
             use std::io::BufRead;
             for linia in std::io::BufReader::new(bledy).lines().map_while(Result::ok) {
-                *ostatni.lock().unwrap() = linia;
+                *ostatni.lock().unwrap_or_else(|e| e.into_inner()) = linia;
             }
         });
     }
     let mut wejscie = ffmpeg.stdin.take().unwrap();
     let mut wyjscie = ffmpeg.stdout.take().unwrap();
+    let proces = Arc::new(Mutex::new(ffmpeg));
 
     // Początek osi czasu: klatka n ma czas t0 + n/fps
     let start = Instant::now();
@@ -213,12 +245,13 @@ pub fn uruchom(cfg: &Config, bufor: WspolnyBufor, zglos: impl Fn(String) + Send 
     // Wątek taktujący: co 1/fps wysyła najnowszą klatkę (albo powtarza poprzednią)
     let stop = Arc::new(AtomicBool::new(false));
     let stop_taktu = stop.clone();
-    std::thread::spawn(move || {
+    let problem_taktu = problem.clone();
+    std::thread::Builder::new().name("wideo-takt".into()).spawn(move || {
         let mut moja = vec![0u8; rozmiar_klatki];
         let mut n: u32 = 0;
         while !stop_taktu.load(Ordering::SeqCst) {
             {
-                let mut w = wspolna.lock().unwrap();
+                let mut w = wspolna.lock().unwrap_or_else(|e| e.into_inner());
                 if w.nowa {
                     std::mem::swap(&mut w.piksele, &mut moja);
                     w.nowa = false;
@@ -228,32 +261,41 @@ pub fn uruchom(cfg: &Config, bufor: WspolnyBufor, zglos: impl Fn(String) + Send 
                 return; // ffmpeg nie żyje; wątek czytający zgłosi błąd
             }
             n += 1;
-            // Czekamy do czasu następnej klatki; jeśli jesteśmy spóźnieni, nadrabiamy bez spania
+            // Czekamy do czasu następnej klatki; małe spóźnienie nadrabiamy bez spania
             let cel = start + okres * n;
             let teraz = Instant::now();
             if cel > teraz {
                 std::thread::sleep(cel - teraz);
+            } else if teraz - cel > Duration::from_secs(2) {
+                // Duża przerwa (uśpienie komputera, zawieszony enkoder): nadrabianie tysięcy klatek
+                // zalałoby enkoder, a znaczniki czasu by się rozjechały — lepiej zacząć od nowa
+                zglos_problem(&problem_taktu, "przerwa w nagrywaniu (uśpienie komputera lub zawieszony enkoder)".into());
+                return;
             }
         }
-    });
+    }).expect("wątek wideo-takt");
 
     // Wątek czytający: dzieli strumień H.264 na klatki i wrzuca je do bufora
     let stop_czytania = stop.clone();
     let kodek_strumienia = kodek(&cfg.enkoder);
-    std::thread::spawn(move || {
+    let proces_czytania = proces.clone();
+    std::thread::Builder::new().name("wideo-odczyt".into()).spawn(move || {
         let mut parser = Dzielnik::nowy(kodek_strumienia);
         let mut kawalek = vec![0u8; 1 << 16];
         let mut nr: i64 = 0;
         loop {
             let n = match wyjscie.read(&mut kawalek) {
                 Ok(0) | Err(_) => {
-                    let _ = ffmpeg.wait();
+                    let _ = proces_czytania.lock().unwrap_or_else(|e| e.into_inner()).wait();
                     if !stop_czytania.load(Ordering::SeqCst) {
                         std::thread::sleep(Duration::from_millis(100));
-                        let opis = ostatni_blad.lock().unwrap().clone();
-                        let opis = if opis.is_empty() { "brak szczegółów".to_string() } else { opis };
-                        eprintln!("Wideo: ffmpeg przestał działać: {opis}");
-                        zglos(format!("Enkoder wideo przestał działać: {opis}"));
+                        let opis = ostatni_blad.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                        crate::dziennik::blad(&format!("Wideo: ffmpeg przestał działać: {opis}"));
+                        zglos(if opis.is_empty() {
+                            "enkoder wideo nieoczekiwanie się zamknął".to_string()
+                        } else {
+                            format!("enkoder wideo przestał działać ({opis})")
+                        });
                     }
                     return;
                 }
@@ -262,12 +304,12 @@ pub fn uruchom(cfg: &Config, bufor: WspolnyBufor, zglos: impl Fn(String) + Send 
             for (dane, klucz) in parser.karm(&kawalek[..n]) {
                 let czas = t0 + nr * 10_000_000 / fps as i64;
                 nr += 1;
-                bufor.lock().unwrap().dodaj(Pakiet { czas, klucz, dane: dane.into() });
+                bufor.lock().unwrap_or_else(|e| e.into_inner()).dodaj(Pakiet { czas, klucz, dane: dane.into() });
             }
         }
-    });
+    }).expect("wątek wideo-odczyt");
 
-    Ok(Wideo { sterowanie: Some(sterowanie), stop })
+    Ok(Wideo { sterowanie: Some(sterowanie), stop, proces, problem })
 }
 
 /// Dzieli surowy strumień enkodera na klatki i rozpoznaje klatki kluczowe:

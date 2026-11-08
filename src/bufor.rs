@@ -52,6 +52,11 @@ impl Bufor {
         }
     }
 
+    /// Czas ostatniego pakietu (strażnik sprawdza nim, czy nagrywanie nie stoi).
+    pub fn ostatni_czas(&self) -> Option<i64> {
+        self.pakiety.back().map(|p| p.czas)
+    }
+
     /// Kopia zawartości (tanie klony Arc) do zapisu klipu.
     pub fn migawka(&self) -> Vec<Pakiet> {
         self.pakiety.iter().cloned().collect()

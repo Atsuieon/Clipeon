@@ -434,6 +434,44 @@ select option { background: #0a0a0a; }
 }
 .pusto .ikona-duza svg { width: 30px; height: 30px; }
 
+/* ---------- Szlif 2: stan nagrywania, pasek alarmu, typografia, fokus ---------- */
+:root { --zolty: #eab308; }
+.status {
+  padding: 7px 14px 7px 12px; border: 1px solid var(--ramka-karty); border-radius: 999px;
+  background: rgba(255, 255, 255, 0.02); font-size: 13px; color: var(--tytul); margin-right: 2px;
+  transition: border-color var(--czas), background var(--czas);
+}
+.status.blad { border-color: rgba(239, 68, 68, 0.35); background: rgba(239, 68, 68, 0.06); }
+.status.wznawianie { border-color: rgba(234, 179, 8, 0.35); background: rgba(234, 179, 8, 0.05); }
+.kropka.wznawianie { background: var(--zolty); box-shadow: 0 0 10px rgba(234, 179, 8, 0.5); animation: puls 1.2s ease-in-out infinite; }
+.kropka.nagrywa { animation: puls 2.4s ease-in-out infinite; }
+@keyframes puls { 50% { opacity: 0.45; } }
+
+.baner {
+  display: flex; align-items: center; gap: 14px; margin: 0 28px 8px; padding: 14px 16px 14px 20px;
+  border: 1px solid rgba(239, 68, 68, 0.28); border-radius: 18px;
+  background: linear-gradient(180deg, rgba(239, 68, 68, 0.07), rgba(239, 68, 68, 0.02));
+}
+.baner-tekst { flex: 1; min-width: 0; }
+.baner-tytul { color: var(--tytul); font-size: 15px; margin-bottom: 2px; }
+.baner .pomoc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.baner:has(.kropka.wznawianie) { border-color: rgba(234, 179, 8, 0.28); background: linear-gradient(180deg, rgba(234, 179, 8, 0.06), rgba(234, 179, 8, 0.015)); }
+
+/* Typografia: odrobinę ciaśniejsze nagłówki, spokojniejsza pomoc */
+h1 { font-weight: 300; letter-spacing: -0.025em; }
+h3, .tytul-karty { letter-spacing: -0.012em; }
+.pomoc { line-height: 1.5; }
+.karta { transition: border-color var(--czas); }
+.karty .karta:hover { border-color: #262626; }
+svg.ikona { width: 17px; height: 17px; }
+.przycisk.ikonowy svg.ikona { width: 18px; height: 18px; }
+:focus-visible { outline: 1.5px solid rgba(255, 255, 255, 0.85); outline-offset: 3px; border-radius: 12px; }
+input[type="number"]:focus-visible, select:focus-visible { outline: none; border-color: #fff; }
+
+@media (max-width: 760px) {
+  .baner { flex-wrap: wrap; margin: 0 20px 8px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }

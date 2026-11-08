@@ -21,6 +21,13 @@ use windows::core::w;
 
 /// Numer bieżącego dymka; starszy znika, gdy pojawi się nowszy.
 static NUMER: AtomicU64 = AtomicU64::new(0);
+/// Numer klikniętego dymka (0 = żaden)
+static KLIKNIETY: AtomicU64 = AtomicU64::new(0);
+
+/// Chowa bieżący dymek (np. alarm, gdy problem minął).
+pub fn ukryj() {
+    NUMER.fetch_add(1, Ordering::SeqCst);
+}
 
 /// Prawy górny róg monitora (piksele fizyczne) i skala DPI.
 pub struct Miejsce {
@@ -30,6 +37,15 @@ pub struct Miejsce {
 }
 
 unsafe extern "system" fn procedura(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
+    // Kliknięcie w dymek (tylko gdy dymek jest klikalny — inaczej mysz przechodzi do gry)
+    if msg == windows::Win32::UI::WindowsAndMessaging::WM_LBUTTONUP {
+        KLIKNIETY.store(NUMER.load(Ordering::SeqCst), Ordering::SeqCst);
+        return LRESULT(0);
+    }
+    // Kliknięcie nie aktywuje okna (gra nie traci fokusu, dopóki użytkownik sam nie otworzy Clippera)
+    if msg == windows::Win32::UI::WindowsAndMessaging::WM_MOUSEACTIVATE {
+        return LRESULT(windows::Win32::UI::WindowsAndMessaging::MA_NOACTIVATE as isize);
+    }
     unsafe { DefWindowProcW(hwnd, msg, w, l) }
 }
 
@@ -37,8 +53,10 @@ fn szeroki(t: &str) -> Vec<u16> {
     t.encode_utf16().collect()
 }
 
-/// Pokazuje dymek (blokuje bieżący wątek na ~2,5 s — wywoływać z osobnego wątku).
-pub fn pokaz(miejsce: Miejsce, tytul: &str, opis: &str, blad: bool) {
+/// Pokazuje dymek (blokuje bieżący wątek do jego zniknięcia — wywoływać z osobnego wątku).
+/// `trwale` = wisi, dopóki nie zastąpi go inny dymek, `ukryj()` albo kliknięcie;
+/// `klik` = co zrobić po kliknięciu (wtedy dymek przyjmuje kliknięcia zamiast przepuszczać je do gry).
+pub fn pokaz(miejsce: Miejsce, tytul: &str, opis: &str, blad: bool, trwale: bool, klik: Option<Box<dyn FnOnce() + Send>>) {
     let numer = NUMER.fetch_add(1, Ordering::SeqCst) + 1;
     let s = miejsce.skala;
     let px = |v: f32| (v * s).round() as i32;
@@ -52,7 +70,8 @@ pub fn pokaz(miejsce: Miejsce, tytul: &str, opis: &str, blad: bool) {
         let wc = WNDCLASSW { lpfnWndProc: Some(procedura), hInstance: instancja.into(), lpszClassName: klasa, ..Default::default() };
         RegisterClassW(&wc); // druga rejestracja tej samej klasy po prostu się nie udaje — to w porządku
         let Ok(hwnd) = CreateWindowExW(
-            WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT,
+            WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
+                | if klik.is_some() { Default::default() } else { WS_EX_TRANSPARENT },
             klasa,
             w!("Clipper"),
             WS_POPUP,
@@ -124,11 +143,25 @@ pub fn pokaz(miejsce: Miejsce, tytul: &str, opis: &str, blad: bool) {
         // Animacja: wjazd z prawej z pojawieniem się, ~2 s postoju, płynne zniknięcie
         let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         let start = Instant::now();
-        let (wejscie, postoj, wyjscie) = (0.22f32, 2.0f32, 0.3f32);
+        let (wejscie, wyjscie) = (0.22f32, 0.3f32);
+        let mut postoj = if trwale { f32::INFINITY } else { 2.0f32 };
+        let mut klik = klik;
         loop {
-            let t = start.elapsed().as_secs_f32();
+            let mut t = start.elapsed().as_secs_f32();
             // Nowszy dymek zastępuje ten od razu
-            if t > wejscie + postoj + wyjscie || NUMER.load(Ordering::SeqCst) != numer {
+            if NUMER.load(Ordering::SeqCst) != numer {
+                break;
+            }
+            // Kliknięcie: akcja i płynne zniknięcie
+            if KLIKNIETY.load(Ordering::SeqCst) == numer {
+                KLIKNIETY.store(0, Ordering::SeqCst);
+                if let Some(k) = klik.take() {
+                    k();
+                }
+                postoj = (t - wejscie).max(0.0);
+                t = start.elapsed().as_secs_f32();
+            }
+            if t > wejscie + postoj + wyjscie {
                 break;
             }
             let (alfa, przesuniecie) = if t < wejscie {

@@ -17,6 +17,7 @@ const ID_ZASOBNIKA: &str = "glowna";
 
 /// Pozycje menu, których tekst się zmienia.
 struct PozycjeMenu {
+    stan: MenuItem<Wry>,
     zapisz: MenuItem<Wry>,
     pauza: MenuItem<Wry>,
 }
@@ -100,18 +101,22 @@ fn ustaw_ikone(app: &AppHandle, rdzen: &Rdzen, widoczna: bool) {
 /// Odświeża ikonę, podpowiedź i menu zasobnika według stanu rdzenia.
 fn pokaz_stan(app: &AppHandle, stan: &Stan) {
     let (kolor, opis) = if let Some(b) = stan.bledy.first() {
-        (ikona::CZERWONY, format!("Clipper — błąd: {b}"))
+        (ikona::CZERWONY, b.clone())
+    } else if let Some(p) = &stan.wznawianie {
+        (ikona::ZOLTY, format!("Wznawiam nagrywanie ({p})…"))
     } else if stan.pauza {
-        (ikona::SZARY, "Clipper — nagrywanie wstrzymane".to_string())
+        (ikona::SZARY, "Nagrywanie wstrzymane".to_string())
     } else {
-        (ikona::ZIELONY, "Clipper — nagrywa".to_string())
+        (ikona::ZIELONY, "Nagrywa".to_string())
     };
     if let Some(t) = app.tray_by_id(ID_ZASOBNIKA) {
         let _ = t.set_icon(Some(ikona::ikona(kolor)));
         // Windows przycina podpowiedź do 127 znaków
-        let _ = t.set_tooltip(Some(opis.chars().take(120).collect::<String>()));
+        let _ = t.set_tooltip(Some(format!("Clipper — {opis}").chars().take(120).collect::<String>()));
     }
     if let Some(m) = app.try_state::<PozycjeMenu>() {
+        let znak = if kolor == ikona::ZIELONY { "●" } else { "○" };
+        let _ = m.stan.set_text(format!("{znak} {}", opis.chars().take(70).collect::<String>()));
         let _ = m.pauza.set_text(if stan.pauza { "Wznów nagrywanie" } else { "Wstrzymaj nagrywanie" });
     }
     let _ = app.emit("stan", stan);
@@ -127,19 +132,36 @@ fn obsluz_zdarzenie(app: &AppHandle, z: Zdarzenie) {
             }
             if cfg.powiadomienie_zapisu {
                 let nazwa = plik.file_name().unwrap_or_default().to_string_lossy().into_owned();
-                pokaz_powiadomienie(app, &cfg.monitor, &format!("Zapisano ostatnie {} s", cfg.bufor_sekundy), &nazwa, false);
+                pokaz_dymek(app, &cfg.monitor, &format!("Zapisano ostatnie {} s", cfg.bufor_sekundy), &nazwa, false, false);
             }
             let _ = app.emit("klip-zapisany", plik);
             // Po zapisie pilnujemy limitów folderu (jeśli sprzątanie jest włączone)
             std::thread::spawn(move || crate::sprzatanie::sprzataj(&cfg.folder_klipow, cfg.sprzatanie_dni, cfg.sprzatanie_gb));
         }
         // Błąd pokazujemy zawsze — inaczej użytkownik myślałby, że klip jest zapisany
-        Zdarzenie::BladZapisu(e) => pokaz_powiadomienie(app, &cfg.monitor, "Nie udało się zapisać klipu", &e, true),
+        Zdarzenie::BladZapisu(e) => {
+            if cfg.dzwiek_zapisu {
+                crate::dzwiek::zagraj_blad();
+            }
+            pokaz_dymek(app, &cfg.monitor, "Nie udało się zapisać klipu", &e, true, false);
+        }
+        // Clipper nie nagrywa: dymek wisi do czasu naprawy albo kliknięcia (kliknięcie otwiera okno)
+        Zdarzenie::Alarm(Some(opis)) => {
+            if cfg.dzwiek_zapisu {
+                crate::dzwiek::zagraj_blad();
+            }
+            pokaz_dymek(app, &cfg.monitor, "Clipper nie nagrywa", &opis, true, true);
+        }
+        Zdarzenie::Alarm(None) => {
+            crate::powiadomienie::ukryj();
+            pokaz_dymek(app, &cfg.monitor, "Nagrywanie znów działa", "Clipper sam wznowił nagrywanie", false, false);
+        }
     }
 }
 
-/// Dymek w prawym górnym rogu monitora z grą (nagrywanego) na ~2 s — patrz powiadomienie.rs.
-fn pokaz_powiadomienie(app: &AppHandle, monitor: &str, tytul: &str, opis: &str, blad: bool) {
+/// Dymek w prawym górnym rogu monitora z grą (nagrywanego) — patrz powiadomienie.rs.
+/// `trwaly` = wisi do naprawy problemu, a kliknięcie otwiera okno Clippera.
+fn pokaz_dymek(app: &AppHandle, monitor: &str, tytul: &str, opis: &str, blad: bool, trwaly: bool) {
     let m = app
         .available_monitors()
         .ok()
@@ -152,7 +174,13 @@ fn pokaz_powiadomienie(app: &AppHandle, monitor: &str, tytul: &str, opis: &str, 
         skala: m.scale_factor() as f32,
     };
     let (tytul, opis) = (tytul.to_string(), opis.to_string());
-    std::thread::spawn(move || crate::powiadomienie::pokaz(miejsce, &tytul, &opis, blad));
+    let klik: Option<Box<dyn FnOnce() + Send>> = if trwaly {
+        let app = app.clone();
+        Some(Box::new(move || pokaz_okno(&app, "klipy")))
+    } else {
+        None
+    };
+    std::thread::spawn(move || crate::powiadomienie::pokaz(miejsce, &tytul, &opis, blad, trwaly, klik));
 }
 
 // ---------- Komendy dla okna ----------
@@ -312,6 +340,25 @@ fn monitory() -> Vec<(String, String)> {
     crate::wideo::monitory()
 }
 
+/// Uruchamia nagrywanie od nowa (przycisk „Spróbuj ponownie”).
+#[tauri::command]
+fn uruchom_ponownie(rdzen: State<'_, Rdzen>) {
+    crate::dziennik::info("Ponowne uruchomienie nagrywania na prośbę użytkownika");
+    rdzen.uruchom();
+}
+
+/// Pokazuje plik dziennika w Eksploratorze.
+#[tauri::command]
+fn otworz_log() {
+    let plik = crate::dziennik::plik();
+    if plik.is_file() {
+        klipy::pokaz_w_eksploratorze(&plik, true);
+    } else {
+        let _ = std::fs::create_dir_all(crate::dziennik::folder());
+        klipy::pokaz_w_eksploratorze(&crate::dziennik::folder(), false);
+    }
+}
+
 #[tauri::command]
 fn otworz_folder(rdzen: State<'_, Rdzen>) {
     let folder = rdzen.config().folder_klipow;
@@ -322,6 +369,8 @@ fn otworz_folder(rdzen: State<'_, Rdzen>) {
 // ---------- Start ----------
 
 pub fn uruchom() {
+    crate::dziennik::przechwytuj_awarie();
+    crate::dziennik::info("Start Clippera");
     tauri::Builder::default()
         // Druga kopia programu tylko pokazuje okno pierwszej (skrót i enkoder są jedne)
         .plugin(tauri_plugin_single_instance::init(|app, _, _| pokaz_okno(app, "klipy")))
@@ -342,7 +391,9 @@ pub fn uruchom() {
             eksportuj,
             przeciagnij,
             info_klipu,
-            monitory
+            monitory,
+            uruchom_ponownie,
+            otworz_log
         ])
         .setup(|app| {
             let (cfg, blad_cfg) = match Config::wczytaj() {
@@ -351,7 +402,9 @@ pub fn uruchom() {
             };
 
             // Menu zasobnika
+            let stan = MenuItem::with_id(app, "stan", "○ Uruchamiam nagrywanie…", false, None::<&str>)?;
             let zapisz = MenuItem::with_id(app, "zapisz", tekst_zapisu(&cfg), true, None::<&str>)?;
+            let log = MenuItem::with_id(app, "log", "Pokaż dziennik zdarzeń", true, None::<&str>)?;
             let pauza = MenuItem::with_id(app, "pauza", "Wstrzymaj nagrywanie", true, None::<&str>)?;
             let folder = MenuItem::with_id(app, "folder", "Otwórz folder klipów", true, None::<&str>)?;
             let biblioteka = MenuItem::with_id(app, "biblioteka", "Biblioteka…", true, None::<&str>)?;
@@ -360,9 +413,9 @@ pub fn uruchom() {
             let sep = || PredefinedMenuItem::separator(app);
             let menu = Menu::with_items(
                 app,
-                &[&zapisz, &pauza, &sep()?, &folder, &biblioteka, &ustawienia, &sep()?, &zamknij],
+                &[&stan, &sep()?, &zapisz, &pauza, &sep()?, &folder, &biblioteka, &ustawienia, &log, &sep()?, &zamknij],
             )?;
-            app.manage(PozycjeMenu { zapisz, pauza });
+            app.manage(PozycjeMenu { stan, zapisz, pauza });
 
             TrayIconBuilder::with_id(ID_ZASOBNIKA)
                 .icon(ikona::ikona(ikona::ZIELONY))
@@ -377,6 +430,7 @@ pub fn uruchom() {
                         "folder" => klipy::pokaz_w_eksploratorze(&rdzen.config().folder_klipow, false),
                         "biblioteka" => pokaz_okno(app, "klipy"),
                         "ustawienia" => pokaz_okno(app, "ustawienia"),
+                        "log" => otworz_log(),
                         "zamknij" => app.exit(0),
                         _ => {}
                     }
@@ -395,6 +449,7 @@ pub fn uruchom() {
             let rdzen = Rdzen::nowy(cfg, move |z| obsluz_zdarzenie(&uchwyt, z));
             app.manage(rdzen.clone());
             rdzen.uruchom();
+            rdzen.uruchom_straznika();
             // Raz (przy pierwszym starcie) wyciągamy ikonę z ukrytych przy zegarze; jeśli użytkownik
             // potem schowa ją w Windows, już tego nie zmieniamy
             let c = rdzen.config();

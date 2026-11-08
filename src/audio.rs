@@ -63,7 +63,7 @@ pub fn uruchom(
         while !stop_watku.load(Ordering::SeqCst) {
             if let Err(e) = sesja(zrodlo, bitrate_kbps, &bufor, &stop_watku, &zglos) {
                 if !stop_watku.load(Ordering::SeqCst) {
-                    eprintln!("Dźwięk ({}): {e} — ponawiam za 1 s", zrodlo.nazwa());
+                    crate::dziennik::blad(&format!("Dźwięk ({}): {e} — ponawiam za 1 s", zrodlo.nazwa()));
                     zglos(Some(format!("Nie można nagrywać ({}): {e}", zrodlo.nazwa())));
                 }
             }
@@ -88,6 +88,14 @@ fn sesja(
             Zrodlo::Mikrofon => (eCapture, 0),
         };
         let urzadzenie = enumerator.GetDefaultAudioEndpoint(kierunek, eConsole)?;
+        // Identyfikator urządzenia: gdy użytkownik zmieni domyślne (np. na słuchawki), zaczynamy od nowa
+        let id_urzadzenia = |u: &windows::Win32::Media::Audio::IMMDevice| -> Option<String> {
+            let p = u.GetId().ok()?;
+            let s = p.to_string().ok();
+            CoTaskMemFree(Some(p.0 as *const _));
+            s
+        };
+        let id_start = id_urzadzenia(&urzadzenie);
         let klient: IAudioClient = urzadzenie.Activate(CLSCTX_ALL, None)?;
 
         let wsk = klient.GetMixFormat()?;
@@ -134,11 +142,24 @@ fn sesja(
             while let Ok(n @ 1..) = wyjscie.read(&mut kawalek) {
                 dane.extend_from_slice(&kawalek[..n]);
                 let mut poz = 0;
-                while let Some(dl) = dlugosc_adts(&dane[poz..]) {
+                loop {
+                    // Zgubiona synchronizacja: przeskakujemy do następnego znacznika ramki ADTS
+                    // (inaczej dźwięk po cichu by stanął, a bufor rósł bez końca)
+                    while dane.len() - poz >= 2 && !(dane[poz] == 0xFF && dane[poz + 1] & 0xF0 == 0xF0) {
+                        poz += 1;
+                    }
+                    let Some(dl) = dlugosc_adts(&dane[poz..]) else {
+                        // Znacznik bez sensownej długości ramki: pomijamy bajt i szukamy dalej
+                        if dane.len() - poz >= 7 && adts_dlugosc_pola(&dane[poz..]) < 7 {
+                            poz += 1;
+                            continue;
+                        }
+                        break;
+                    };
                     let czas = t0 + (k - 1) * RAMKA_AAC * 10_000_000 / czestotliwosc as i64;
                     k += 1;
                     let ramka: Box<[u8]> = dane[poz..poz + dl].into();
-                    bufor_watku.lock().unwrap().dodaj(Pakiet { czas, klucz: true, dane: ramka.into() });
+                    bufor_watku.lock().unwrap_or_else(|e| e.into_inner()).dodaj(Pakiet { czas, klucz: true, dane: ramka.into() });
                     poz += dl;
                 }
                 dane.drain(..poz);
@@ -147,8 +168,18 @@ fn sesja(
 
         let mut zegar = Zegar { t0, czestotliwosc: czestotliwosc as i64, wyslane: 0, bajtow_na_probke };
         let wynik = (|| -> Result<(), Blad> {
+            let mut obieg: u32 = 0;
             while !stop.load(Ordering::SeqCst) {
                 std::thread::sleep(Duration::from_millis(10));
+                obieg += 1;
+                // Co ~2 s: czy domyślne urządzenie się nie zmieniło
+                if obieg % 200 == 0 {
+                    let teraz = enumerator.GetDefaultAudioEndpoint(kierunek, eConsole).ok().and_then(|u| id_urzadzenia(&u));
+                    if teraz.is_some() && teraz != id_start {
+                        crate::dziennik::info(&format!("Dźwięk ({}): zmiana domyślnego urządzenia, przełączam", zrodlo.nazwa()));
+                        return Ok(());
+                    }
+                }
                 let mut byly_dane = false;
                 while przechwyt.GetNextPacketSize()? > 0 {
                     let (mut wsk_danych, mut ramek, mut flagi, mut qpc) = (std::ptr::null_mut(), 0u32, 0u32, 0u64);
@@ -230,13 +261,17 @@ impl Zegar {
     }
 }
 
+/// Pole długości z nagłówka ADTS (bez sprawdzania znacznika).
+fn adts_dlugosc_pola(d: &[u8]) -> usize {
+    ((d[3] as usize & 0x03) << 11) | ((d[4] as usize) << 3) | (d[5] as usize >> 5)
+}
+
 /// Długość pełnej ramki ADTS na początku danych (None, jeśli jeszcze niekompletna).
 fn dlugosc_adts(d: &[u8]) -> Option<usize> {
     if d.len() < 7 {
         return None;
     }
     if d[0] != 0xFF || d[1] & 0xF0 != 0xF0 {
-        // Nie powinno się zdarzyć przy wyjściu z ffmpeg; nie wiemy, jak się zsynchronizować
         return None;
     }
     let dl = ((d[3] as usize & 0x03) << 11) | ((d[4] as usize) << 3) | (d[5] as usize >> 5);

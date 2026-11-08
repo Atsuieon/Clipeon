@@ -4,20 +4,18 @@ use std::sync::OnceLock;
 use windows::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_MEMORY, SND_NODEFAULT};
 use windows::core::PCWSTR;
 
-/// Plik WAV (16 bit, mono, 44,1 kHz) z dźwiękiem; musi żyć, dopóki dźwięk gra, więc jest statyczny.
-fn wav() -> &'static [u8] {
-    static WAV: OnceLock<Vec<u8>> = OnceLock::new();
-    WAV.get_or_init(|| {
+/// Plik WAV (16 bit, mono, 44,1 kHz) z tonami (początek w s, wysokość w Hz).
+fn wav(tony: &[(f32, f32)]) -> Vec<u8> {
+    {
         const CZESTOTLIWOSC: u32 = 44_100;
-        // (początek w s, wysokość tonu w Hz)
-        let tony = [(0.0f32, 1046.5f32), (0.075, 1568.0)];
+        let tony = tony.to_vec();
         let dlugosc = 0.42;
         let n = (dlugosc * CZESTOTLIWOSC as f32) as usize;
         let mut probki = Vec::with_capacity(n);
         for i in 0..n {
             let t = i as f32 / CZESTOTLIWOSC as f32;
             let mut v = 0.0;
-            for (start, hz) in tony {
+            for &(start, hz) in &tony {
                 if t >= start {
                     let tt = t - start;
                     // Szybki atak (5 ms), wykładnicze wybrzmienie
@@ -45,12 +43,24 @@ fn wav() -> &'static [u8] {
             w.extend_from_slice(&p.to_le_bytes());
         }
         w
-    })
+    }
 }
 
-/// Odtwarza dźwięk zapisu bez czekania na jego koniec.
-pub fn zagraj() {
+/// Dźwięk musi żyć, dopóki gra (odtwarzanie asynchroniczne), więc jest statyczny.
+fn odtworz(wav: &'static [u8]) {
     unsafe {
-        let _ = PlaySoundW(PCWSTR(wav().as_ptr() as *const u16), None, SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
+        let _ = PlaySoundW(PCWSTR(wav.as_ptr() as *const u16), None, SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
     }
+}
+
+/// Dźwięk zapisu: dwa wznoszące się tony.
+pub fn zagraj() {
+    static WAV: OnceLock<Vec<u8>> = OnceLock::new();
+    odtworz(WAV.get_or_init(|| wav(&[(0.0, 1046.5), (0.075, 1568.0)])));
+}
+
+/// Dźwięk problemu: dwa opadające, niższe tony.
+pub fn zagraj_blad() {
+    static WAV: OnceLock<Vec<u8>> = OnceLock::new();
+    odtworz(WAV.get_or_init(|| wav(&[(0.0, 659.3), (0.11, 440.0)])));
 }

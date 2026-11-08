@@ -4,6 +4,7 @@ use tauri::image::Image;
 pub const ZIELONY: [u8; 3] = [34, 197, 94];
 pub const SZARY: [u8; 3] = [140, 140, 140];
 pub const CZERWONY: [u8; 3] = [239, 68, 68];
+pub const ZOLTY: [u8; 3] = [234, 179, 8];
 
 /// Pokrycie piksela przez obszar odległy o `d` od krawędzi (wygładzanie krawędzi na 1 px).
 fn pokrycie(d: f32) -> f32 {

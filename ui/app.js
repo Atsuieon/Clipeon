@@ -67,8 +67,24 @@ for (const b of document.querySelectorAll(".zakladka")) {
 function pokazStan(s) {
   stan = s;
   const kropka = $("kropka");
-  kropka.className = "kropka" + (s.bledy.length ? " blad" : s.nagrywa ? " nagrywa" : "");
-  const tekst = s.bledy.length ? s.bledy[0] : s.pauza ? "Nagrywanie wstrzymane" : "Nagrywa";
+  const klasa = s.bledy.length ? "blad" : s.wznawianie ? "wznawianie" : s.nagrywa ? "nagrywa" : "";
+  kropka.className = "kropka " + klasa;
+  $("status").className = "status " + klasa;
+  const tekst = s.bledy.length
+    ? "Nie nagrywa"
+    : s.wznawianie
+      ? "Wznawiam…"
+      : s.pauza
+        ? "Wstrzymane"
+        : "Nagrywa";
+  // Pasek z wyjaśnieniem i przyciskami, gdy coś nie działa
+  const problem = s.bledy[0] || (s.wznawianie && `Wznawiam nagrywanie: ${s.wznawianie}`);
+  $("baner").hidden = !problem;
+  if (problem) {
+    $("baner-tytul").textContent = s.bledy.length ? "Clipper ma problem" : "Clipper wznawia nagrywanie";
+    $("baner-opis").textContent = problem;
+    $("baner-kropka").className = "kropka " + (s.bledy.length ? "blad" : "wznawianie");
+  }
   $("status-tekst").textContent = tekst;
   $("status").title = s.bledy.join("\n");
   $("pauza").innerHTML = s.pauza ? zIkona("graj", "Wznów") : zIkona("pauza", "Wstrzymaj");
@@ -76,6 +92,11 @@ function pokazStan(s) {
 }
 
 $("pauza").addEventListener("click", () => invoke("przelacz_pauze"));
+$("baner-ponow").addEventListener("click", () => {
+  invoke("uruchom_ponownie");
+  dymek("Uruchamiam nagrywanie od nowa…");
+});
+$("baner-log").addEventListener("click", () => invoke("otworz_log"));
 $("zapisz-klip").addEventListener("click", () => {
   invoke("zapisz_klip");
   dymek("Zapisuję klip…");
