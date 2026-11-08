@@ -1,12 +1,14 @@
-// Dźwięk: WASAPI loopback (to, co słychać w głośnikach) -> ffmpeg AAC -> ramki ADTS w buforze RAM.
+// Dźwięk: WASAPI (loopback = to, co słychać w głośnikach, albo mikrofon) -> ffmpeg AAC -> ramki ADTS w buforze RAM.
 // Czas ramek liczony z zegara QPC, tak samo jak dla obrazu, więc synchronizacja wychodzi sama.
 use crate::bufor::{Pakiet, WspolnyBufor, teraz_100ns};
 use std::io::{Read, Write};
-use std::process::{ChildStdin, Command, Stdio};
+use std::process::{ChildStdin, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use windows::Win32::Media::Audio::{
     AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_LOOPBACK, IAudioCaptureClient,
-    IAudioClient, IMMDeviceEnumerator, MMDeviceEnumerator, eConsole, eRender,
+    IAudioClient, IMMDeviceEnumerator, MMDeviceEnumerator, eCapture, eConsole, eRender,
 };
 use windows::Win32::System::Com::{CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree};
 
@@ -15,34 +17,84 @@ type Blad = Box<dyn std::error::Error + Send + Sync>;
 /// Próbek na ramkę AAC
 const RAMKA_AAC: i64 = 1024;
 
-/// Uruchamia nagrywanie dźwięku w tle. Po błędzie (np. zmiana urządzenia wyjściowego) startuje od nowa.
-pub fn uruchom(bitrate_kbps: u32, bufor: WspolnyBufor) {
+#[derive(Clone, Copy, PartialEq)]
+pub enum Zrodlo {
+    /// Dźwięk systemowy (loopback domyślnego wyjścia)
+    System,
+    /// Domyślny mikrofon
+    Mikrofon,
+}
+
+impl Zrodlo {
+    fn nazwa(self) -> &'static str {
+        match self {
+            Zrodlo::System => "dźwięk systemowy",
+            Zrodlo::Mikrofon => "mikrofon",
+        }
+    }
+}
+
+/// Działające nagrywanie dźwięku; zniszczenie go kończy nagrywanie.
+pub struct Audio {
+    stop: Arc<AtomicBool>,
+}
+
+impl Drop for Audio {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+    }
+}
+
+/// Uruchamia nagrywanie dźwięku w tle. Po błędzie (np. zmiana urządzenia) startuje od nowa;
+/// `zglos` dostaje opis błędu albo None, gdy wszystko znów działa.
+pub fn uruchom(
+    zrodlo: Zrodlo,
+    bitrate_kbps: u32,
+    bufor: WspolnyBufor,
+    zglos: impl Fn(Option<String>) + Send + 'static,
+) -> Audio {
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_watku = stop.clone();
     std::thread::spawn(move || {
         if let Err(e) = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.ok() {
-            eprintln!("Dźwięk: CoInitializeEx nie powiodło się: {e}");
+            zglos(Some(format!("Dźwięk ({}): CoInitializeEx nie powiodło się: {e}", zrodlo.nazwa())));
             return;
         }
-        loop {
-            if let Err(e) = sesja(bitrate_kbps, &bufor) {
-                eprintln!("Dźwięk: {e} — ponawiam za 1 s");
+        while !stop_watku.load(Ordering::SeqCst) {
+            if let Err(e) = sesja(zrodlo, bitrate_kbps, &bufor, &stop_watku, &zglos) {
+                if !stop_watku.load(Ordering::SeqCst) {
+                    eprintln!("Dźwięk ({}): {e} — ponawiam za 1 s", zrodlo.nazwa());
+                    zglos(Some(format!("Nie można nagrywać ({}): {e}", zrodlo.nazwa())));
+                }
             }
             std::thread::sleep(Duration::from_secs(1));
         }
     });
+    Audio { stop }
 }
 
-/// Jedna sesja przechwytywania na bieżącym domyślnym urządzeniu wyjściowym.
-fn sesja(bitrate_kbps: u32, bufor: &WspolnyBufor) -> Result<(), Blad> {
+/// Jedna sesja przechwytywania na bieżącym domyślnym urządzeniu.
+fn sesja(
+    zrodlo: Zrodlo,
+    bitrate_kbps: u32,
+    bufor: &WspolnyBufor,
+    stop: &AtomicBool,
+    zglos: &impl Fn(Option<String>),
+) -> Result<(), Blad> {
     unsafe {
         let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
-        let urzadzenie = enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?;
+        let (kierunek, flagi) = match zrodlo {
+            Zrodlo::System => (eRender, AUDCLNT_STREAMFLAGS_LOOPBACK),
+            Zrodlo::Mikrofon => (eCapture, 0),
+        };
+        let urzadzenie = enumerator.GetDefaultAudioEndpoint(kierunek, eConsole)?;
         let klient: IAudioClient = urzadzenie.Activate(CLSCTX_ALL, None)?;
 
         let wsk = klient.GetMixFormat()?;
         let f = *wsk;
         let (czestotliwosc, kanaly, bity) = (f.nSamplesPerSec, f.nChannels as u32, f.wBitsPerSample);
         // Bufor 200 ms po stronie systemu
-        let wynik = klient.Initialize(AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_LOOPBACK, 2_000_000, 0, wsk, None);
+        let wynik = klient.Initialize(AUDCLNT_SHAREMODE_SHARED, flagi, 2_000_000, 0, wsk, None);
         CoTaskMemFree(Some(wsk as *const _));
         wynik?;
 
@@ -54,9 +106,9 @@ fn sesja(bitrate_kbps: u32, bufor: &WspolnyBufor) -> Result<(), Blad> {
             b => return Err(format!("nieobsługiwany format miksera: {b} bitów").into()),
         };
         let bajtow_na_probke = (bity as usize / 8) * kanaly as usize;
-        println!("Dźwięk: loopback {czestotliwosc} Hz, {kanaly} kan., {bity} bit -> AAC {bitrate_kbps} kb/s");
+        println!("Dźwięk ({}): {czestotliwosc} Hz, {kanaly} kan., {bity} bit -> AAC {bitrate_kbps} kb/s", zrodlo.nazwa());
 
-        let mut ffmpeg = Command::new("ffmpeg")
+        let mut ffmpeg = crate::ffmpeg::komenda()
             .args(["-hide_banner", "-loglevel", "error"])
             .args(["-f", format_ff, "-ar", &czestotliwosc.to_string(), "-ac", &kanaly.to_string(), "-i", "-"])
             .args(["-c:a", "aac", "-b:a", &format!("{bitrate_kbps}k"), "-ac", "2", "-f", "adts", "-"])
@@ -70,6 +122,7 @@ fn sesja(bitrate_kbps: u32, bufor: &WspolnyBufor) -> Result<(), Blad> {
         let przechwyt: IAudioCaptureClient = klient.GetService()?;
         let t0 = teraz_100ns();
         klient.Start()?;
+        zglos(None);
 
         // Wątek czytający ramki ADTS. Ramka k zaczyna się w próbce k*1024, ale enkoder AAC
         // dokleja na początku 1024 próbki rozbiegu, więc odejmujemy jedną ramkę.
@@ -94,7 +147,7 @@ fn sesja(bitrate_kbps: u32, bufor: &WspolnyBufor) -> Result<(), Blad> {
 
         let mut zegar = Zegar { t0, czestotliwosc: czestotliwosc as i64, wyslane: 0, bajtow_na_probke };
         let wynik = (|| -> Result<(), Blad> {
-            loop {
+            while !stop.load(Ordering::SeqCst) {
                 std::thread::sleep(Duration::from_millis(10));
                 let mut byly_dane = false;
                 while przechwyt.GetNextPacketSize()? > 0 {
@@ -117,6 +170,7 @@ fn sesja(bitrate_kbps: u32, bufor: &WspolnyBufor) -> Result<(), Blad> {
                     zegar.cisza_do(&mut wejscie, teraz_100ns() - 500_000)?;
                 }
             }
+            Ok(())
         })();
         let _ = klient.Stop();
         drop(wejscie);

@@ -1,11 +1,13 @@
-// Zapis klipu: pakiety z bufora -> MP4 (faststart) bez ponownego kodowania.
+// Zapis klipu: pakiety z bufora -> MP4 (faststart) bez ponownego kodowania obrazu.
 use crate::bufor::Pakiet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::Instant;
 
-pub fn zapisz(folder: &Path, fps: u32, wideo: Vec<Pakiet>, audio: Vec<Pakiet>) -> Result<(), String> {
+/// Zapisuje klip i zwraca ścieżkę pliku. `audio` to ścieżki dźwięku (system, mikrofon), które
+/// przy więcej niż jednej są miksowane do jednej (tylko dźwięk jest wtedy kodowany ponownie).
+pub fn zapisz(folder: &Path, fps: u32, wideo: Vec<Pakiet>, audio: Vec<Vec<Pakiet>>) -> Result<PathBuf, String> {
     let start = Instant::now();
 
     // Klip zaczyna się od klatki kluczowej
@@ -14,30 +16,44 @@ pub fn zapisz(folder: &Path, fps: u32, wideo: Vec<Pakiet>, audio: Vec<Pakiet>) -
     let (poczatek, koniec) = (wideo[0].czas, wideo[wideo.len() - 1].czas);
 
     // Dźwięk z tego samego przedziału czasu (pierwsza ramka nie wcześniej niż obraz)
-    let audio: Vec<&Pakiet> = audio.iter().filter(|p| p.czas >= poczatek && p.czas <= koniec).collect();
+    let sciezki: Vec<Vec<&Pakiet>> = audio
+        .iter()
+        .map(|a| a.iter().filter(|p| p.czas >= poczatek && p.czas <= koniec).collect::<Vec<_>>())
+        .filter(|a| !a.is_empty())
+        .collect();
 
     std::fs::create_dir_all(folder).map_err(|e| format!("Nie mogę utworzyć {}: {e}", folder.display()))?;
     let plik = nowa_nazwa(folder);
 
-    // Dźwięk idzie przez mały plik tymczasowy (ADTS), obraz przez stdin ffmpeg
-    let plik_audio = std::env::temp_dir().join(format!("clipper-{}-{}.aac", std::process::id(), poczatek));
-    let mut cmd = Command::new("ffmpeg");
+    // Dźwięk idzie przez małe pliki tymczasowe (ADTS), obraz przez stdin ffmpeg
+    let mut cmd = crate::ffmpeg::komenda();
     cmd.args(["-hide_banner", "-loglevel", "error", "-n"])
         .args(["-fflags", "+genpts", "-f", "h264", "-framerate", &fps.to_string(), "-i", "-"]);
-    if let Some(a) = audio.first() {
-        let mut dane = Vec::with_capacity(audio.iter().map(|p| p.dane.len()).sum());
-        for p in &audio {
-            dane.extend_from_slice(&p.dane);
-        }
-        std::fs::write(&plik_audio, dane).map_err(|e| format!("Nie mogę zapisać pliku tymczasowego: {e}"))?;
-        // Przesunięcie dźwięku względem pierwszej klatki obrazu (synchronizacja po QPC)
-        let przesuniecie = (a.czas - poczatek) as f64 / 1e7;
-        cmd.args(["-itsoffset", &format!("{przesuniecie:.6}"), "-f", "aac", "-i"]).arg(&plik_audio);
-        cmd.args(["-map", "0:v", "-map", "1:a"]);
-    }
-    cmd.args(["-c", "copy", "-movflags", "+faststart"]).arg(&plik).stdin(Stdio::piped());
-
+    let mut tymczasowe = Vec::new();
     let wynik = (|| {
+        for (i, sciezka) in sciezki.iter().enumerate() {
+            let tmp = std::env::temp_dir().join(format!("clipper-{}-{poczatek}-{i}.aac", std::process::id()));
+            let dane: Vec<u8> = sciezka.iter().flat_map(|p| p.dane.iter().copied()).collect();
+            std::fs::write(&tmp, dane).map_err(|e| format!("Nie mogę zapisać pliku tymczasowego: {e}"))?;
+            // Przesunięcie dźwięku względem pierwszej klatki obrazu (synchronizacja po QPC)
+            let przesuniecie = (sciezka[0].czas - poczatek) as f64 / 1e7;
+            cmd.args(["-itsoffset", &format!("{przesuniecie:.6}"), "-f", "aac", "-i"]).arg(&tmp);
+            tymczasowe.push(tmp);
+        }
+        cmd.args(["-map", "0:v", "-c:v", "copy"]);
+        match sciezki.len() {
+            0 => {}
+            1 => {
+                cmd.args(["-map", "1:a", "-c:a", "copy"]);
+            }
+            n => {
+                let wejscia: String = (1..=n).map(|i| format!("[{i}:a]")).collect();
+                cmd.args(["-filter_complex", &format!("{wejscia}amix=inputs={n}:duration=longest:normalize=0[a]")])
+                    .args(["-map", "[a]", "-c:a", "aac", "-b:a", "160k"]);
+            }
+        }
+        cmd.args(["-movflags", "+faststart"]).arg(&plik).stdin(Stdio::piped());
+
         let mut ffmpeg = cmd.spawn().map_err(|e| format!("Nie udało się uruchomić ffmpeg: {e}"))?;
         let mut wejscie = ffmpeg.stdin.take().unwrap();
         for p in wideo {
@@ -47,19 +63,21 @@ pub fn zapisz(folder: &Path, fps: u32, wideo: Vec<Pakiet>, audio: Vec<Pakiet>) -
         let status = ffmpeg.wait().map_err(|e| e.to_string())?;
         if status.success() { Ok(()) } else { Err(format!("ffmpeg zakończył się błędem: {status}")) }
     })();
-    let _ = std::fs::remove_file(&plik_audio);
+    for t in &tymczasowe {
+        let _ = std::fs::remove_file(t);
+    }
     wynik?;
 
     let rozmiar = std::fs::metadata(&plik).map(|m| m.len()).unwrap_or(0);
     println!(
-        "Zapisano klip: {} ({:.1} s, {:.1} MB, dźwięk: {}) w {:.2} s",
+        "Zapisano klip: {} ({:.1} s, {:.1} MB, ścieżek dźwięku: {}) w {:.2} s",
         plik.display(),
         (koniec - poczatek) as f64 / 1e7 + 1.0 / fps as f64,
         rozmiar as f64 / 1e6,
-        if audio.is_empty() { "brak" } else { "tak" },
+        sciezki.len(),
         start.elapsed().as_secs_f64()
     );
-    Ok(())
+    Ok(plik)
 }
 
 /// Lokalna data i godzina w formacie 2026-11-08_17-45-03.

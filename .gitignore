@@ -1,3 +1,5 @@
 /target
+/gen
 *.mp4
 *.png
+!icons/*.png

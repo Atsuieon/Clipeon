@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clipper</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="panel">
+    <header class="gora">
+      <div class="marka">Clipper</div>
+      <nav class="zakladki" role="tablist">
+        <button class="zakladka" data-zakladka="klipy" role="tab">Klipy</button>
+        <button class="zakladka" data-zakladka="ustawienia" role="tab">Ustawienia</button>
+      </nav>
+      <div class="akcje">
+        <div class="status" id="status" title="">
+          <span class="kropka" id="kropka"></span><span id="status-tekst">Łączenie…</span>
+        </div>
+        <button class="przycisk drugorzedny" id="pauza"></button>
+        <button class="przycisk glowny" id="zapisz-klip"></button>
+      </div>
+    </header>
+
+    <main>
+      <!-- Klipy -->
+      <section class="widok" id="widok-klipy" hidden>
+        <div class="naglowek">
+          <div>
+            <h1>Klipy</h1>
+            <p class="pomoc" id="podsumowanie"></p>
+          </div>
+          <div class="naglowek-akcje">
+            <button class="przycisk ikonowy" id="odswiez" title="Odśwież"></button>
+            <button class="przycisk drugorzedny" id="otworz-folder"></button>
+          </div>
+        </div>
+        <div class="siatka" id="siatka"></div>
+        <div class="pusto" id="pusto" hidden>
+          <span class="ikona-duza" id="pusto-ikona"></span>
+          <h2>Brak klipów</h2>
+          <p class="pomoc" id="pusto-tekst"></p>
+        </div>
+      </section>
+
+      <!-- Ustawienia -->
+      <section class="widok" id="widok-ustawienia" hidden>
+        <div class="naglowek">
+          <div>
+            <h1>Ustawienia</h1>
+            <p class="pomoc">Zapisanie zmian uruchamia nagrywanie od nowa, więc bufor zaczyna się od zera.</p>
+          </div>
+        </div>
+        <form class="karty" id="formularz" autocomplete="off">
+          <div class="karta">
+            <h3>Długość bufora</h3>
+            <p class="pomoc">Ile ostatnich sekund trafi do klipu.</p>
+            <div class="wiersz">
+              <input type="range" id="bufor" min="5" max="300" step="5" aria-label="Długość bufora w sekundach">
+              <span class="wartosc" id="bufor-wartosc"></span>
+            </div>
+            <p class="pomoc" id="ram"></p>
+          </div>
+
+          <div class="karta">
+            <h3>Jakość</h3>
+            <p class="pomoc">Gotowe ustawienia albo własne wartości.</p>
+            <div class="segmenty" id="presety"></div>
+            <div class="pola">
+              <label>FPS<input type="number" id="fps" min="10" max="240" step="1"></label>
+              <label>Bitrate (Mb/s)<input type="number" id="bitrate" min="1" max="200" step="1"></label>
+            </div>
+          </div>
+
+          <div class="karta">
+            <h3>Enkoder</h3>
+            <p class="pomoc">Kodowanie na karcie graficznej prawie nie obciąża procesora.</p>
+            <select id="enkoder" aria-label="Enkoder"></select>
+          </div>
+
+          <div class="karta">
+            <h3>Dźwięk</h3>
+            <p class="pomoc">Mikrofon jest domieszany do dźwięku systemowego przy zapisie klipu.</p>
+            <label class="przelacznik"><input type="checkbox" id="dzwiek"><span class="suwak"></span>Dźwięk systemowy</label>
+            <label class="przelacznik"><input type="checkbox" id="mikrofon"><span class="suwak"></span>Mikrofon</label>
+          </div>
+
+          <div class="karta">
+            <h3>Skrót zapisu</h3>
+            <p class="pomoc">Kliknij i naciśnij nową kombinację (Esc anuluje).</p>
+            <button type="button" class="pole-skrotu" id="skrot"></button>
+          </div>
+
+          <div class="karta">
+            <h3>Folder klipów</h3>
+            <p class="pomoc sciezka" id="folder"></p>
+            <button type="button" class="przycisk drugorzedny" id="zmien-folder">Zmień…</button>
+          </div>
+
+          <div class="karta">
+            <h3>Uruchamianie</h3>
+            <p class="pomoc">Clipper startuje w zasobniku po zalogowaniu.</p>
+            <label class="przelacznik"><input type="checkbox" id="autostart"><span class="suwak"></span>Uruchamiaj z Windows</label>
+          </div>
+        </form>
+        <div class="stopka">
+          <span class="pomoc" id="komunikat" role="status"></span>
+          <button class="przycisk glowny" id="zapisz-ustawienia">Zapisz zmiany</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Odtwarzacz -->
+  <div class="nakladka" id="odtwarzacz" hidden>
+    <div class="okno-odtwarzacza" role="dialog" aria-modal="true" aria-labelledby="odtw-tytul">
+      <div class="pasek">
+        <div>
+          <div class="tytul-karty" id="odtw-tytul"></div>
+          <div class="pomoc" id="odtw-opis"></div>
+        </div>
+        <div class="naglowek-akcje">
+          <button class="przycisk drugorzedny" id="odtw-folder"></button>
+          <button class="przycisk drugorzedny" id="odtw-usun"></button>
+          <button class="przycisk ikonowy" id="odtw-zamknij" title="Zamknij"></button>
+        </div>
+      </div>
+      <video id="wideo" controls></video>
+    </div>
+  </div>
+
+  <!-- Menu kontekstowe klipu -->
+  <div class="menu" id="menu" role="menu" hidden>
+    <button data-akcja="odtworz" role="menuitem"></button>
+    <button data-akcja="folder" role="menuitem"></button>
+    <button data-akcja="usun" role="menuitem"></button>
+  </div>
+
+  <div class="dymek" id="dymek" role="status" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
