@@ -215,7 +215,13 @@ fn przeciagnij(okno: tauri::WebviewWindow, rdzen: State<'_, Rdzen>, sciezka: Pat
         .unwrap_or_else(|| drag::Image::Raw(include_bytes!("../icons/icon.png").to_vec()));
     let o = okno.clone();
     okno.run_on_main_thread(move || {
-        let wynik = drag::start_drag(&o, drag::DragItem::Files(vec![klip]), obraz, |_, _| {}, Default::default());
+        let wynik = drag::start_drag(&o, drag::DragItem::Files(vec![klip]), obraz, |wynik, _| {
+            let opis = match wynik {
+                drag::DragResult::Dropped => "upuszczono",
+                drag::DragResult::Cancel => "anulowano",
+            };
+            println!("Przeciąganie klipu: {opis}");
+        }, Default::default());
         if let Err(e) = wynik {
             eprintln!("Nie udało się rozpocząć przeciągania: {e}");
         }

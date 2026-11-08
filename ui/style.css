@@ -270,13 +270,16 @@ select option { background: #0a0a0a; }
 
 /* Odtwarzacz */
 .nakladka {
-  position: fixed; inset: 40px 0 0; background: rgba(0, 0, 0, 0.82); display: grid; place-items: center; padding: 40px; z-index: 10;
+  position: fixed; inset: 40px 0 0; background: rgba(0, 0, 0, 0.82); display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; padding: 40px; z-index: 10;
 }
 .okno-odtwarzacza {
   width: min(1200px, 100%); border: 1px solid var(--ramka-karty); border-radius: 24px; background: #000; overflow: hidden;
 }
 .okno-odtwarzacza .pasek { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 16px 16px 16px 22px; }
-.okno-odtwarzacza { max-height: calc(100vh - 60px); overflow-y: auto; }
+.okno-odtwarzacza { max-height: calc(100vh - 60px); overflow-y: auto; overflow-x: hidden; }
+.okno-odtwarzacza .pasek { flex-wrap: wrap; }
+.okno-odtwarzacza .pasek > div:first-child { min-width: 0; flex: 1 1 200px; }
+.okno-odtwarzacza .pasek .pomoc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .okno-odtwarzacza video { display: block; width: 100%; max-height: calc(100vh - 380px); min-height: 160px; background: #000; cursor: pointer; }
 
 /* Oś czasu z uchwytami przycinania */
@@ -306,6 +309,8 @@ select option { background: #0a0a0a; }
 .wynik-plik { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; padding: 4px 8px; border-radius: 12px; transition: background var(--czas); }
 .wynik-plik:hover { background: var(--hover); }
 .wynik-plik .pomoc, .wynik-plik .tytul-karty { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wynik-plik > div { min-width: 0; }
+.wynik { flex-wrap: wrap; }
 .przeciagany { cursor: grab; }
 .przeciagany:active { cursor: grabbing; }
 
@@ -331,6 +336,15 @@ select option { background: #0a0a0a; }
   .marka { display: none; }
   .gora { gap: 14px; padding-left: 20px; }
   main { padding-left: 20px; padding-right: 20px; }
+}
+@media (max-width: 760px) {
+  .nakladka { padding: 12px; }
+  .okno-odtwarzacza .naglowek-akcje .przycisk span { display: none; }
+  .okno-odtwarzacza .naglowek-akcje .przycisk { padding: 9px; }
+  .sterowanie, .eksport { padding-left: 14px; padding-right: 14px; }
+  .wynik { margin-left: 14px; margin-right: 14px; }
+  .zakres-tekst { min-width: 0; }
+  .etykieta { min-width: 0; width: 100%; }
 }
 @media (max-width: 700px) {
   .status span:last-child { display: none; }
