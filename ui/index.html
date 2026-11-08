@@ -7,6 +7,18 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- Własny pasek tytułu (okno nie ma systemowej ramki) -->
+  <div class="belka" data-tauri-drag-region>
+    <div class="belka-tytul" data-tauri-drag-region>
+      <svg class="belka-logo" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5" class="pelne"/></svg>
+      <span data-tauri-drag-region>Clipper</span>
+    </div>
+    <div class="belka-przyciski">
+      <button class="okno-przycisk" id="okno-min" title="Minimalizuj" aria-label="Minimalizuj"></button>
+      <button class="okno-przycisk" id="okno-max" title="Maksymalizuj" aria-label="Maksymalizuj"></button>
+      <button class="okno-przycisk zamknij" id="okno-zamknij" title="Zamknij" aria-label="Zamknij"></button>
+    </div>
+  </div>
   <div class="panel">
     <header class="gora">
       <div class="marka">Clipper</div>

@@ -51,11 +51,32 @@ fn pokaz_okno(app: &AppHandle, zakladka: &str) {
             .inner_size(1120.0, 740.0)
             .min_inner_size(760.0, 520.0)
             .background_color(Color(0, 0, 0, 255))
+            // Bez systemowej ramki (pasek tytułu w kolorze akcentu Windows); własny pasek jest w UI.
+            // Cień zostaje, więc Windows 11 nadal zaokrągla rogi i pozwala zmieniać rozmiar.
+            .decorations(false)
+            .shadow(true)
             .build();
-        if let Err(e) = wynik {
-            eprintln!("Nie udało się otworzyć okna: {e}");
+        match wynik {
+            Ok(okno) => ciemna_obwodka(&okno),
+            Err(e) => eprintln!("Nie udało się otworzyć okna: {e}"),
         }
     });
+}
+
+/// Windows 11 rysuje wokół okna obwódkę w kolorze akcentu (u użytkownika zielonym) — ustawiamy ciemną.
+fn ciemna_obwodka(okno: &tauri::WebviewWindow) {
+    use windows::Win32::Foundation::{COLORREF, HWND};
+    use windows::Win32::Graphics::Dwm::{DWMWA_BORDER_COLOR, DwmSetWindowAttribute};
+    let Ok(uchwyt) = okno.hwnd() else { return };
+    let kolor = COLORREF(0x001A_1A1A); // 0x00BBGGRR
+    unsafe {
+        let _ = DwmSetWindowAttribute(
+            HWND(uchwyt.0 as _),
+            DWMWA_BORDER_COLOR,
+            &kolor as *const _ as *const _,
+            std::mem::size_of::<COLORREF>() as u32,
+        );
+    }
 }
 
 /// Odświeża ikonę, podpowiedź i menu zasobnika według stanu rdzenia.

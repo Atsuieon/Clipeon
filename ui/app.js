@@ -13,6 +13,9 @@ const IKONY = {
   kosz: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
   zamknij: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
   odswiez: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
+  minimalizuj: '<path d="M5 12h14"/>',
+  maksymalizuj: '<rect width="16" height="16" x="4" y="4" rx="2"/>',
+  przywroc: '<rect width="12" height="12" x="8" y="4" rx="2"/><path d="M16 16v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2"/>',
   film: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/>',
 };
 const ikona = (n) => `<svg class="ikona" viewBox="0 0 24 24" aria-hidden="true">${IKONY[n]}</svg>`;
@@ -370,6 +373,25 @@ function odswiezPrzyciskZapisu() {
   $("zapisz-klip").innerHTML = zIkona("zapisz", `Zapisz ${cfg ? cfg.bufor_sekundy : 30} s`);
   $("zapisz-klip").title = cfg ? `Skrót: ${cfg.skrot}` : "";
 }
+
+// ---------- Pasek tytułu ----------
+
+const okno = window.__TAURI__.window.getCurrentWindow();
+$("okno-min").innerHTML = ikona("minimalizuj");
+$("okno-zamknij").innerHTML = ikona("zamknij");
+$("okno-min").addEventListener("click", () => okno.minimize());
+$("okno-max").addEventListener("click", () => okno.toggleMaximize());
+// Zamknięcie niszczy okno (i WebView); nagrywanie działa dalej w zasobniku
+$("okno-zamknij").addEventListener("click", () => okno.close());
+
+async function odswiezMaksymalizacje() {
+  const max = await okno.isMaximized();
+  $("okno-max").innerHTML = ikona(max ? "przywroc" : "maksymalizuj");
+  $("okno-max").title = max ? "Przywróć" : "Maksymalizuj";
+  $("okno-max").setAttribute("aria-label", $("okno-max").title);
+}
+odswiezMaksymalizacje();
+okno.onResized(odswiezMaksymalizacje);
 
 // ---------- Start ----------
 
