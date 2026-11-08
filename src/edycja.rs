@@ -19,6 +19,10 @@ pub struct Zlecenie {
     pub rozmiar_mb: Option<u32>,
     /// Zastąp oryginał (stary plik trafia do Kosza)
     pub zastap: bool,
+    /// Głośność (1.0 = bez zmian): [gra, mikrofon] dla klipów z osobnymi ścieżkami albo [dźwięk];
+    /// pusta lista = bez zmian
+    #[serde(default)]
+    pub glosnosci: Vec<f64>,
 }
 
 /// Parametry kodowania wyliczone z docelowego rozmiaru.
@@ -71,6 +75,9 @@ fn nazwa_wyniku(zrodlo: &Path, z: &Zlecenie) -> PathBuf {
     if let Some(mb) = z.rozmiar_mb {
         baza.push_str(&format!("_{mb}MB"));
     }
+    if !z.przyciete && z.rozmiar_mb.is_none() {
+        baza.push_str("_audio");
+    }
     let folder = zrodlo.parent().unwrap();
     let mut plik = folder.join(format!("{baza}.mp4"));
     let mut i = 2;
@@ -114,15 +121,17 @@ fn ffmpeg_z_postepem(args: &[String], dlugosc: f64, postep: &dyn Fn(f64)) -> Res
 /// Wykonuje zlecenie i zwraca ścieżkę wyniku. `postep` dostaje wartości 0..1.
 pub fn eksportuj(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dyn Fn(f64)) -> Result<PathBuf, String> {
     // koniec = 0 oznacza „do końca klipu”; zakres przycinamy do prawdziwej długości pliku
-    let pelna = sekundy_klipu(zrodlo).ok_or("Nie udało się odczytać długości klipu")?;
+    let info = crate::klipy::info(zrodlo)?;
+    let pelna = info.dlugosc;
+    let audio = |kopiuj: bool, tylko_pierwsza: bool, kbps: u32| argumenty_audio(z, info.sciezki_audio, kopiuj, tylko_pierwsza, kbps);
     let start = z.start.clamp(0.0, pelna);
     let koniec = if z.koniec <= 0.0 { pelna } else { z.koniec.min(pelna) };
     let dlugosc = koniec - start;
     if !(dlugosc >= 0.5) {
         return Err("Zaznaczony fragment jest za krótki (minimum 0,5 s)".into());
     }
-    if !z.przyciete && z.rozmiar_mb.is_none() {
-        return Err("Nic do zrobienia — przytnij klip albo wybierz rozmiar".into());
+    if !z.przyciete && z.rozmiar_mb.is_none() && z.glosnosci.is_empty() {
+        return Err("Nic do zrobienia — przytnij klip, wybierz rozmiar albo zmień głośność".into());
     }
     let wynik = nazwa_wyniku(zrodlo, z);
     // Najpierw do pliku tymczasowego (bez .mp4, żeby nie pojawił się w bibliotece),
@@ -136,7 +145,7 @@ pub fn eksportuj(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dyn
         // -ss przed -i: szybkie przewinięcie; przy kodowaniu i tak dokładne co do klatki
         args.extend(["-ss".into(), format!("{start:.3}"), "-t".into(), format!("{dlugosc:.3}"), "-i".into()]);
         args.push(zrodlo.to_string_lossy().into_owned());
-        args.extend(["-map".into(), "0:v:0".into(), "-map".into(), "0:a?".into()]);
+        args.extend(["-map".into(), "0:v:0".into()]);
     };
 
     let rezultat = (|| {
@@ -145,7 +154,8 @@ pub fn eksportuj(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dyn
                 // Szybkie cięcie bez kodowania: zaczyna się od najbliższej wcześniejszej klatki kluczowej
                 let mut a = Vec::new();
                 zakres(&mut a);
-                a.extend(["-c".into(), "copy".into(), "-avoid_negative_ts".into(), "make_zero".into()]);
+                a.extend(["-c:v".into(), "copy".into(), "-avoid_negative_ts".into(), "make_zero".into()]);
+                a.extend(audio(true, false, 160));
                 wyjscie(&mut a);
                 ffmpeg_z_postepem(&a, dlugosc, postep)
             }
@@ -156,7 +166,7 @@ pub fn eksportuj(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dyn
                 let mut a = Vec::new();
                 zakres(&mut a);
                 a.extend(enkoder(nazwa_enkodera, bps.clamp(4_000_000, 60_000_000), false));
-                a.extend(["-c:a".into(), "aac".into(), "-b:a".into(), "160k".into()]);
+                a.extend(audio(false, false, 160));
                 wyjscie(&mut a);
                 ffmpeg_z_postepem(&a, dlugosc, postep)
             }
@@ -179,7 +189,8 @@ pub fn eksportuj(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dyn
                         a.extend(["-vf".into(), filtry.join(",")]);
                     }
                     a.extend(enkoder(nazwa_enkodera, k.wideo_bps, true));
-                    a.extend(["-c:a".into(), "aac".into(), "-b:a".into(), format!("{}k", k.audio_kbps)]);
+                    // Do małego pliku idzie tylko jedna ścieżka (miks)
+                    a.extend(audio(false, true, k.audio_kbps));
                     wyjscie(&mut a);
                     // Postęp kolejnych prób zaczyna się od nowa — tak uczciwiej niż udawać
                     ffmpeg_z_postepem(&a, dlugosc, postep)?;
@@ -209,7 +220,34 @@ pub fn eksportuj(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dyn
     Ok(wynik)
 }
 
-/// Długość pliku w sekundach (z opisu wejścia ffmpeg).
-fn sekundy_klipu(plik: &Path) -> Option<f64> {
-    crate::klipy::miniatura(plik).ok().map(|m| m.dlugosc).filter(|d| *d > 0.0)
+/// Argumenty dźwięku. Klip z osobnymi ścieżkami ma: 0 = miks, 1 = gra, 2 = mikrofon.
+/// Zmiana głośności składa nowy miks z gry i mikrofonu (jedna ścieżka w wyniku).
+fn argumenty_audio(z: &Zlecenie, sciezki: u32, kopiuj: bool, tylko_pierwsza: bool, kbps: u32) -> Vec<String> {
+    let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+    if sciezki == 0 {
+        return Vec::new();
+    }
+    let kodowanie = s(&["-c:a", "aac", "-b:a", &format!("{kbps}k")]);
+    if !z.glosnosci.is_empty() {
+        let g = |i: usize| z.glosnosci.get(i).copied().unwrap_or(1.0).clamp(0.0, 4.0);
+        let filtr = if sciezki >= 3 && z.glosnosci.len() >= 2 {
+            format!(
+                "[0:a:1]volume={:.2}[g];[0:a:2]volume={:.2}[m];[g][m]amix=inputs=2:duration=longest:normalize=0[a]",
+                g(0),
+                g(1)
+            )
+        } else {
+            format!("[0:a:0]volume={:.2}[a]", g(0))
+        };
+        let mut a = s(&["-filter_complex", &filtr, "-map", "[a]"]);
+        a.extend(kodowanie);
+        return a;
+    }
+    let mut a = if tylko_pierwsza { s(&["-map", "0:a:0"]) } else { s(&["-map", "0:a"]) };
+    if kopiuj {
+        a.extend(s(&["-c:a", "copy"]));
+    } else {
+        a.extend(kodowanie);
+    }
+    a
 }

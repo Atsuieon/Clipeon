@@ -71,17 +71,7 @@ pub fn miniatura(klip: &Path) -> Result<Miniatura, String> {
         let _ = std::fs::remove_file(&obraz);
         return Err("Nie udało się wygenerować miniatury".into());
     }
-    // Długość z linii "Duration: 00:00:30.18, ..." w opisie wejścia
-    let opis = String::from_utf8_lossy(&wynik.stderr);
-    let dlugosc = opis
-        .split("Duration: ")
-        .nth(1)
-        .and_then(|r| r.split(',').next())
-        .and_then(|t| {
-            let c: Vec<f64> = t.trim().split(':').filter_map(|x| x.parse().ok()).collect();
-            (c.len() == 3).then(|| c[0] * 3600.0 + c[1] * 60.0 + c[2])
-        })
-        .unwrap_or(0.0);
+    let dlugosc = dlugosc_z_opisu(&String::from_utf8_lossy(&wynik.stderr)).unwrap_or(0.0);
     let _ = std::fs::write(&plik_dlugosci, dlugosc.to_string());
     Ok(Miniatura { obraz, dlugosc })
 }
@@ -106,6 +96,7 @@ pub fn usun(klip: &Path) -> Result<(), String> {
         let _ = std::fs::remove_file(folder.join(format!("{k}.jpg")));
         let _ = std::fs::remove_file(folder.join(format!("{k}.txt")));
         let _ = std::fs::remove_file(folder.join(format!("{k}.maly.png")));
+        let _ = std::fs::remove_file(folder.join(format!("{k}.duch.png")));
     }
     trash::delete(klip).map_err(|e| format!("Nie udało się przenieść klipu do Kosza: {e}"))
 }
@@ -123,17 +114,45 @@ pub fn pokaz_w_eksploratorze(sciezka: &Path, zaznacz: bool) {
     let _ = cmd.spawn();
 }
 
-/// Mały obrazek (160 px) pokazywany pod kursorem przy przeciąganiu klipu do innej aplikacji.
+/// Mały, półprzezroczysty obrazek (180 px) pokazywany pod kursorem przy przeciąganiu klipu.
 pub fn obraz_przeciagania(klip: &Path) -> Option<PathBuf> {
     let m = miniatura(klip).ok()?;
-    let maly = m.obraz.with_extension("maly.png");
+    let maly = m.obraz.with_extension("duch.png");
     if !maly.is_file() {
         let _ = crate::ffmpeg::komenda()
             .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
             .arg(&m.obraz)
-            .args(["-vf", "scale=160:-2"])
+            .args(["-vf", "scale=180:-2,format=rgba,colorchannelmixer=aa=0.7"])
             .arg(&maly)
             .status();
     }
     maly.is_file().then_some(maly)
+}
+
+#[derive(Serialize)]
+pub struct Info {
+    pub dlugosc: f64,
+    /// Liczba ścieżek dźwięku (3 = miks, gra, mikrofon)
+    pub sciezki_audio: u32,
+}
+
+/// Długość i liczba ścieżek dźwięku z opisu wejścia ffmpeg.
+pub fn info(klip: &Path) -> Result<Info, String> {
+    let wynik = crate::ffmpeg::komenda()
+        .args(["-hide_banner", "-i"])
+        .arg(klip)
+        .output()
+        .map_err(|e| format!("Nie udało się uruchomić ffmpeg: {e}"))?;
+    let opis = String::from_utf8_lossy(&wynik.stderr);
+    let dlugosc = dlugosc_z_opisu(&opis).ok_or("Nie udało się odczytać długości klipu")?;
+    let sciezki_audio = opis.lines().filter(|l| l.contains("Stream #") && l.contains("Audio:")).count() as u32;
+    Ok(Info { dlugosc, sciezki_audio })
+}
+
+/// Długość z linii "Duration: 00:00:30.18, ..." w opisie wejścia.
+fn dlugosc_z_opisu(opis: &str) -> Option<f64> {
+    opis.split("Duration: ").nth(1).and_then(|r| r.split(',').next()).and_then(|t| {
+        let c: Vec<f64> = t.trim().split(':').filter_map(|x| x.parse().ok()).collect();
+        (c.len() == 3).then(|| c[0] * 3600.0 + c[1] * 60.0 + c[2])
+    })
 }

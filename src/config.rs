@@ -4,7 +4,12 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// Obsługiwane enkodery wideo: (nazwa ffmpeg, opis dla użytkownika)
-pub const ENKODERY: &[(&str, &str)] = &[("h264_amf", "AMD AMF H.264 (karta graficzna)"), ("libx264", "x264 (procesor)")];
+pub const ENKODERY: &[(&str, &str)] = &[
+    ("h264_amf", "H.264 — karta AMD (najlepsza zgodność)"),
+    ("hevc_amf", "HEVC — karta AMD (mniejsze pliki)"),
+    ("av1_amf", "AV1 — karta AMD (najmniejsze pliki)"),
+    ("libx264", "H.264 — procesor (x264)"),
+];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]

@@ -29,7 +29,9 @@ struct Sesja {
     _wideo: wideo::Wideo,
     _audio: Vec<audio::Audio>,
     bufor_wideo: WspolnyBufor,
-    bufory_audio: Vec<WspolnyBufor>,
+    bufory_audio: Vec<(&'static str, WspolnyBufor)>,
+    /// Format surowego strumienia wideo dla ffmpeg (h264 / hevc / obu)
+    format_wideo: &'static str,
 }
 
 struct Wnetrze {
@@ -137,16 +139,18 @@ impl Rdzen {
 
         // Dźwięk: AAC 160 kb/s; bufor dłuższy o 2 s, żeby na pewno pokrył początek obrazu
         let (mut audio_, mut bufory_audio) = (Vec::new(), Vec::new());
-        for (wlaczone, zrodlo, klucz) in
-            [(cfg.dzwiek_systemowy, Zrodlo::System, "system"), (cfg.mikrofon, Zrodlo::Mikrofon, "mikrofon")]
-        {
+        for (wlaczone, zrodlo, klucz, nazwa) in [
+            (cfg.dzwiek_systemowy, Zrodlo::System, "system", "Gra"),
+            (cfg.mikrofon, Zrodlo::Mikrofon, "mikrofon", "Mikrofon"),
+        ] {
             if wlaczone {
                 let b = Bufor::nowy(cfg.bufor_sekundy + 2);
                 audio_.push(audio::uruchom(zrodlo, 160, b.clone(), self.zglaszacz(pokolenie, klucz)));
-                bufory_audio.push(b);
+                bufory_audio.push((nazwa, b));
             }
         }
-        Ok(Sesja { _wideo: wideo, _audio: audio_, bufor_wideo, bufory_audio })
+        let format_wideo = wideo::format_strumienia(&cfg.enkoder);
+        Ok(Sesja { _wideo: wideo, _audio: audio_, bufor_wideo, bufory_audio, format_wideo })
     }
 
     /// Nowy config: zapis na dysk i restart nagrywania. Zawartość bufora przepada.
@@ -204,17 +208,17 @@ impl Rdzen {
             let w = self.w.lock().unwrap();
             let migawka = w.sesja.as_ref().map(|s| {
                 let wideo = s.bufor_wideo.lock().unwrap().migawka();
-                let audio: Vec<_> = s.bufory_audio.iter().map(|b| b.lock().unwrap().migawka()).collect();
-                (wideo, audio)
+                let audio: Vec<_> = s.bufory_audio.iter().map(|(n, b)| (*n, b.lock().unwrap().migawka())).collect();
+                (wideo, audio, s.format_wideo)
             });
             (migawka, w.cfg.folder_klipow.clone(), w.cfg.fps)
         };
         let powiadom = self.powiadom.clone();
-        let Some((wideo, audio)) = migawka else {
+        let Some((wideo, audio, format_wideo)) = migawka else {
             powiadom(Zdarzenie::BladZapisu("Bufor jest wstrzymany".into()));
             return;
         };
-        std::thread::spawn(move || match zapis::zapisz(&folder, fps, wideo, audio) {
+        std::thread::spawn(move || match zapis::zapisz(&folder, fps, format_wideo, wideo, audio) {
             Ok(plik) => powiadom(Zdarzenie::Zapisano(plik)),
             Err(e) => {
                 eprintln!("Nie udało się zapisać klipu: {e}");

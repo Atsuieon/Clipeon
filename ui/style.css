@@ -152,6 +152,10 @@ h3, .tytul-karty { font-size: 18px; font-weight: 400; letter-spacing: -0.01em; c
   pointer-events: none;
 }
 
+/* Sekcje dat w bibliotece */
+h2.sekcja { font-size: 26px; margin: 34px 0 16px; }
+#siatka > h2.sekcja:first-child { margin-top: 4px; }
+
 /* Siatka klipów */
 .siatka { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
 
@@ -319,6 +323,16 @@ select option { background: #0a0a0a; }
 .wynik-plik > div { min-width: 0; }
 .wynik { flex-wrap: wrap; }
 .przeciagany { cursor: grab; }
+/* Przeciągany podgląd/karta: maleje i blednie (pod kursorem jest miniatura pliku) */
+.okno-odtwarzacza video, .klip { transition: opacity 200ms, transform 200ms, border-color var(--czas), background-color var(--czas); }
+.ciagniety { opacity: 0.3; transform: scale(0.94); }
+.segment:disabled { opacity: 0.35; cursor: default; }
+.segment:disabled:hover { background: transparent; color: var(--pomoc); }
+.glosnosci { display: flex; flex-direction: column; gap: 8px; }
+.glos { display: flex; align-items: center; gap: 12px; }
+.glos > span:first-child { min-width: 72px; color: var(--tytul); }
+.glos input[type="range"] { width: 180px; flex: none; }
+.wartosc-glosu { min-width: 44px; color: var(--pomoc); font-variant-numeric: tabular-nums; }
 .przeciagany:active { cursor: grabbing; }
 
 /* Menu kontekstowe */

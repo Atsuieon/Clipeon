@@ -48,7 +48,7 @@
             <button class="przycisk drugorzedny" id="otworz-folder"></button>
           </div>
         </div>
-        <div class="siatka" id="siatka"></div>
+        <div id="siatka"></div>
         <div class="pusto" id="pusto" hidden>
           <span class="ikona-duza" id="pusto-ikona"></span>
           <h2>Brak klipów</h2>
@@ -134,13 +134,12 @@
           <div class="pomoc" id="odtw-opis"></div>
         </div>
         <div class="naglowek-akcje">
-          <button class="przycisk drugorzedny przeciagany" id="odtw-przeciagnij" title="Przeciągnij plik do innej aplikacji"></button>
           <button class="przycisk drugorzedny" id="odtw-folder"></button>
           <button class="przycisk drugorzedny" id="odtw-usun"></button>
           <button class="przycisk ikonowy" id="odtw-zamknij" title="Zamknij"></button>
         </div>
       </div>
-      <video id="wideo"></video>
+      <video id="wideo" title="Kliknij: odtwórz / pauza · Przeciągnij: wrzuć plik do Discorda, Eksploratora lub przeglądarki"></video>
       <div class="sterowanie">
         <button class="przycisk ikonowy" id="graj"></button>
         <span class="czas" id="czas">0:00 / 0:00</span>
@@ -164,6 +163,10 @@
           <div class="grupa">
             <span class="etykieta">Rozmiar pliku</span>
             <div class="segmenty" id="rozmiary"></div>
+          </div>
+          <div class="grupa" id="glos-wiersz" hidden>
+            <span class="etykieta">Głośność</span>
+            <div class="glosnosci" id="glosnosci"></div>
           </div>
           <div class="grupa">
             <label class="przelacznik" id="dokladnie-wiersz" title="Bez tego cięcie jest natychmiastowe, ale zaczyna się od najbliższej klatki kluczowej (do 1 s wcześniej)"><input type="checkbox" id="dokladnie" checked><span class="suwak"></span>Dokładne cięcie</label>

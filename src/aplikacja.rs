@@ -236,7 +236,9 @@ async fn eksportuj(app: AppHandle, sciezka: PathBuf, zlecenie: crate::edycja::Zl
         let postep = |u: f64| {
             let _ = app.emit("postep", u);
         };
-        crate::edycja::eksportuj(&klip, &zlecenie, &cfg.enkoder, &postep)
+        // Wynik edycji zawsze w H.264 — odtworzy go każdy komunikator i przeglądarka
+        let enkoder = if cfg.enkoder == "libx264" { "libx264" } else { "h264_amf" };
+        crate::edycja::eksportuj(&klip, &zlecenie, enkoder, &postep)
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -251,20 +253,29 @@ fn przeciagnij(okno: tauri::WebviewWindow, rdzen: State<'_, Rdzen>, sciezka: Pat
     let obraz = klipy::obraz_przeciagania(&klip)
         .map(drag::Image::File)
         .unwrap_or_else(|| drag::Image::Raw(include_bytes!("../icons/icon.png").to_vec()));
-    let o = okno.clone();
+    let (o, app) = (okno.clone(), okno.app_handle().clone());
     okno.run_on_main_thread(move || {
-        let wynik = drag::start_drag(&o, drag::DragItem::Files(vec![klip]), obraz, |wynik, _| {
+        let wynik = drag::start_drag(&o, drag::DragItem::Files(vec![klip]), obraz, move |wynik, _| {
             let opis = match wynik {
                 drag::DragResult::Dropped => "upuszczono",
                 drag::DragResult::Cancel => "anulowano",
             };
             println!("Przeciąganie klipu: {opis}");
+            let _ = app.emit("przeciaganie-koniec", opis);
         }, Default::default());
         if let Err(e) = wynik {
             eprintln!("Nie udało się rozpocząć przeciągania: {e}");
         }
     })
     .map_err(|e| e.to_string())
+}
+
+/// Długość i liczba ścieżek dźwięku (do suwaków głośności w edytorze).
+#[tauri::command]
+async fn info_klipu(app: AppHandle, sciezka: PathBuf) -> Result<klipy::Info, String> {
+    let folder = app.state::<Rdzen>().config().folder_klipow;
+    let klip = klipy::sprawdz_sciezke(&folder, &sciezka)?;
+    tauri::async_runtime::spawn_blocking(move || klipy::info(&klip)).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -296,7 +307,8 @@ pub fn uruchom() {
             usun_klip,
             otworz_folder,
             eksportuj,
-            przeciagnij
+            przeciagnij,
+            info_klipu
         ])
         .setup(|app| {
             let (cfg, blad_cfg) = match Config::wczytaj() {

@@ -120,8 +120,10 @@ async function wczytajKlipy() {
   const [klipy, u] = await Promise.all([invoke("klipy"), cfg ? Promise.resolve(null) : invoke("ustawienia")]);
   if (u) cfg = u.cfg;
   kolejkaMiniatur = [];
-  const siatka = $("siatka");
-  siatka.replaceChildren();
+  const kontener = $("siatka");
+  kontener.replaceChildren();
+  let siatka = null;
+  let sekcja = null;
   const suma = klipy.reduce((a, k) => a + k.rozmiar, 0);
   $("podsumowanie").textContent = klipy.length
     ? `${klipy.length} ${odmiana(klipy.length)} · ${formatMB(suma)}`
@@ -130,6 +132,17 @@ async function wczytajKlipy() {
   $("pusto-tekst").textContent = `Naciśnij ${cfg.skrot} w grze, aby zapisać ostatnie ${cfg.bufor_sekundy} s.`;
 
   for (const klip of klipy) {
+    // Nowa sekcja daty (klipy są posortowane od najnowszego)
+    const nazwaSekcji = sekcjaDaty(klip.czas_ms);
+    if (nazwaSekcji !== sekcja) {
+      sekcja = nazwaSekcji;
+      const naglowek = document.createElement("h2");
+      naglowek.className = "sekcja";
+      naglowek.textContent = sekcja;
+      siatka = document.createElement("div");
+      siatka.className = "siatka";
+      kontener.append(naglowek, siatka);
+    }
     const karta = document.createElement("button");
     karta.className = "karta klip";
     karta.innerHTML = `
@@ -138,7 +151,7 @@ async function wczytajKlipy() {
     karta.querySelector("h3").textContent = formatData(klip.czas_ms);
     karta.querySelector(".pomoc").textContent = `${formatMB(klip.rozmiar)} · ${klip.nazwa}`;
     karta.addEventListener("click", () => !poPrzeciaganiu && odtworz(klip));
-    przeciagalny(karta, klip);
+    przeciagalny(karta, () => klip.sciezka);
     karta.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       pokazMenu(e.clientX, e.clientY, klip);
@@ -146,6 +159,21 @@ async function wczytajKlipy() {
     siatka.append(karta);
     pobierzMiniature(klip, karta);
   }
+}
+
+// Nazwa sekcji dla daty klipu: Dzisiaj, Wczoraj, 2–6 dni temu, W tym miesiącu, potem miesiąc i rok
+const MIESIACE = ["Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec", "Lipiec", "Sierpień", "Wrzesień", "Październik", "Listopad", "Grudzień"];
+
+function sekcjaDaty(ms) {
+  const d = new Date(ms);
+  const dzis = new Date();
+  const poczatekDnia = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const dni = Math.round((poczatekDnia(dzis) - poczatekDnia(d)) / 86400000);
+  if (dni <= 0) return "Dzisiaj";
+  if (dni === 1) return "Wczoraj";
+  if (dni <= 6) return `${dni} dni temu`;
+  if (d.getFullYear() === dzis.getFullYear() && d.getMonth() === dzis.getMonth()) return "Wcześniej w tym miesiącu";
+  return d.getFullYear() === dzis.getFullYear() ? MIESIACE[d.getMonth()] : `${MIESIACE[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 function odmiana(n) {
@@ -161,18 +189,45 @@ $("otworz-folder").addEventListener("click", () => invoke("otworz_folder"));
 
 // Po przesunięciu myszy o kilka pikseli z wciśniętym przyciskiem system przejmuje przeciąganie
 // prawdziwego pliku (Discord, Eksplorator, przeglądarka). Zwykły klik działa jak dotąd.
+// `zrodlo` zwraca ścieżkę pliku (albo obietnicę — np. gdy trzeba najpierw zapisać przyciętą wersję).
 let poPrzeciaganiu = false;
+let myszWcisnieta = false;
+let przeciaganyEl = null;
+addEventListener("pointerdown", () => (myszWcisnieta = true), true);
+addEventListener("pointerup", () => (myszWcisnieta = false), true);
 
-function przeciagalny(el, klip) {
+function koniecPrzeciagania() {
+  myszWcisnieta = false;
+  if (przeciaganyEl) przeciaganyEl.classList.remove("ciagniety");
+  przeciaganyEl = null;
+}
+listen("przeciaganie-koniec", koniecPrzeciagania);
+
+function przeciagalny(el, zrodlo) {
   el.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0 || !klip.sciezka) return;
+    if (e.button !== 0) return;
     const [x0, y0] = [e.clientX, e.clientY];
-    const ruch = (m) => {
+    const ruch = async (m) => {
       if (Math.hypot(m.clientX - x0, m.clientY - y0) < 6) return;
       koniec();
       poPrzeciaganiu = true;
       setTimeout(() => (poPrzeciaganiu = false), 400);
-      invoke("przeciagnij", { sciezka: klip.sciezka }).catch((err) => dymek(String(err)));
+      // Podgląd maleje i blednie — pod kursorem jest już miniatura pliku
+      el.classList.add("ciagniety");
+      przeciaganyEl = el;
+      try {
+        const sciezka = await zrodlo();
+        if (!sciezka) return koniecPrzeciagania();
+        if (!myszWcisnieta) {
+          // Przygotowanie pliku trwało dłużej niż trzymanie myszy
+          koniecPrzeciagania();
+          return dymek("Plik gotowy — przeciągnij jeszcze raz");
+        }
+        await invoke("przeciagnij", { sciezka });
+      } catch (err) {
+        koniecPrzeciagania();
+        dymek(String(err));
+      }
     };
     const koniec = () => {
       removeEventListener("pointermove", ruch);
@@ -205,6 +260,8 @@ function odtworz(klip) {
   $("zastap").checked = false;
   rozmiarDocelowy = null;
   dlugosc = 0;
+  ostatniEksport = null;
+  przygotujGlosnosc(klip);
   const v = $("wideo");
   v.src = convertFileSrc(klip.sciezka);
   $("odtwarzacz").hidden = false;
@@ -236,7 +293,7 @@ $("wideo").addEventListener("timeupdate", () => {
 });
 $("wideo").addEventListener("play", odswiezPrzyciskGraj);
 $("wideo").addEventListener("pause", odswiezPrzyciskGraj);
-$("wideo").addEventListener("click", przelaczGraj);
+$("wideo").addEventListener("click", () => !poPrzeciaganiu && przelaczGraj());
 
 function przelaczGraj() {
   const v = $("wideo");
@@ -285,11 +342,14 @@ function odswiezEdytor() {
   const kontener = $("rozmiary");
   kontener.replaceChildren();
   for (const mb of ROZMIARY) {
-    if (mb !== null && mb * 1e6 >= szacunek) continue;
     const b = document.createElement("button");
     b.type = "button";
     b.className = "segment" + (mb === rozmiarDocelowy ? " wybrany" : "");
     b.textContent = mb === null ? "Bez zmian" : `${mb} MB`;
+    if (mb !== null && mb * 1e6 >= szacunek) {
+      b.disabled = true;
+      b.title = `Plik ma już ${formatMB(szacunek)}`;
+    }
     b.addEventListener("click", () => {
       rozmiarDocelowy = mb;
       odswiezEdytor();
@@ -300,10 +360,11 @@ function odswiezEdytor() {
   const b = $("eksportuj");
   if (rozmiarDocelowy !== null) b.textContent = `Zapisz jako ${rozmiarDocelowy} MB`;
   else if (przyciete()) b.textContent = "Zapisz przycięty";
+  else if (glosnosciZmienione()) b.textContent = "Zapisz z nową głośnością";
   else b.textContent = "Zapisz";
-  b.disabled = eksportTrwa || (!przyciete() && rozmiarDocelowy === null);
+  b.disabled = eksportTrwa || !zmiany();
   if (!eksportTrwa) {
-    $("eksport-info").textContent = b.disabled ? "Przesuń uchwyty na osi albo wybierz rozmiar." : "";
+    $("eksport-info").textContent = b.disabled ? "Przytnij, wybierz rozmiar albo zmień głośność." : "";
   }
   odswiezGlowice();
 }
@@ -368,18 +429,76 @@ listen("postep", (e) => {
   $("eksport-info").textContent = `Zapisuję… ${p}%`;
 });
 
-$("eksportuj").addEventListener("click", async () => {
-  if (!odtwarzany || eksportTrwa) return;
-  const klip = odtwarzany;
-  const zlecenie = {
+// Głośność ścieżek dźwięku (Gra / Mikrofon albo jedna ścieżka), 0–200%
+let suwakiGlosu = [];
+
+async function przygotujGlosnosc(klip) {
+  const kont = $("glosnosci");
+  kont.replaceChildren();
+  suwakiGlosu = [];
+  let info = { sciezki_audio: 1 };
+  try {
+    info = await invoke("info_klipu", { sciezka: klip.sciezka });
+  } catch {}
+  if (odtwarzany !== klip) return;
+  // Klip z osobnymi ścieżkami ma: miks, gra, mikrofon
+  const nazwy = info.sciezki_audio >= 3 ? ["Gra", "Mikrofon"] : info.sciezki_audio >= 1 ? ["Dźwięk"] : [];
+  $("glos-wiersz").hidden = !nazwy.length;
+  for (const nazwa of nazwy) {
+    const wiersz = document.createElement("label");
+    wiersz.className = "glos";
+    const opis = document.createElement("span");
+    opis.textContent = nazwa;
+    const suwak = document.createElement("input");
+    suwak.type = "range";
+    suwak.min = 0;
+    suwak.max = 200;
+    suwak.step = 5;
+    suwak.value = 100;
+    suwak.setAttribute("aria-label", `Głośność: ${nazwa}`);
+    const wartosc = document.createElement("span");
+    wartosc.className = "wartosc-glosu";
+    const wycisz = document.createElement("button");
+    wycisz.type = "button";
+    wycisz.className = "segment";
+    const odswiez = () => {
+      wartosc.textContent = `${suwak.value}%`;
+      wycisz.textContent = Number(suwak.value) === 0 ? "Przywróć" : "Wycisz";
+      odswiezEdytor();
+    };
+    suwak.addEventListener("input", odswiez);
+    wycisz.addEventListener("click", () => {
+      suwak.value = Number(suwak.value) === 0 ? 100 : 0;
+      odswiez();
+    });
+    wiersz.append(opis, suwak, wartosc, wycisz);
+    kont.append(wiersz);
+    suwakiGlosu.push(suwak);
+    odswiez();
+  }
+}
+
+const glosnosci = () => suwakiGlosu.map((s) => Number(s.value) / 100);
+const glosnosciZmienione = () => glosnosci().some((g) => g !== 1);
+const zmiany = () => przyciete() || rozmiarDocelowy !== null || glosnosciZmienione();
+
+function biezaceZlecenie() {
+  return {
     start: zakres.start,
     koniec: zakres.koniec,
     przyciete: przyciete(),
     dokladnie: $("dokladnie").checked,
     rozmiar_mb: rozmiarDocelowy,
     zastap: przyciete() && $("zastap").checked,
+    glosnosci: glosnosciZmienione() ? glosnosci() : [],
   };
-  if (zlecenie.zastap && !confirm("Zastąpić oryginał przyciętą wersją? Oryginał trafi do Kosza.")) return;
+}
+
+// Ostatni wynik, żeby przeciąganie tej samej wersji nie zapisywało jej drugi raz
+let ostatniEksport = null;
+
+// Zapisuje wersję według zlecenia (z paskiem postępu); zwraca nowy klip albo rzuca błąd
+async function eksportujTeraz(klip, zlecenie) {
   $("wideo").pause();
   eksportTrwa = true;
   $("postep").hidden = false;
@@ -396,22 +515,48 @@ $("eksportuj").addEventListener("click", async () => {
     }
     const sciezka = await invoke("eksportuj", { sciezka: klip.sciezka, zlecenie });
     const lista = await invoke("klipy");
-    const nowy = lista.find((k) => k.sciezka === sciezka) || { ...klip, sciezka, nazwa: sciezka.split("\\").pop() };
-    if (zlecenie.zastap) {
-      eksportTrwa = false;
-      odtworz(nowy);
-    }
-    pokazWynik(nowy);
-    wczytajKlipy();
+    return lista.find((k) => k.sciezka === sciezka) || { ...klip, sciezka, nazwa: sciezka.split("\\").pop() };
   } catch (e) {
     blad = String(e);
+    throw e;
   } finally {
     eksportTrwa = false;
     $("postep").hidden = true;
     odswiezEdytor();
     if (blad) $("eksport-info").textContent = blad;
   }
+}
+
+$("eksportuj").addEventListener("click", async () => {
+  if (!odtwarzany || eksportTrwa) return;
+  const klip = odtwarzany;
+  const zlecenie = biezaceZlecenie();
+  if (zlecenie.zastap && !confirm("Zastąpić oryginał przyciętą wersją? Oryginał trafi do Kosza.")) return;
+  try {
+    const nowy = await eksportujTeraz(klip, zlecenie);
+    if (zlecenie.zastap) odtworz(nowy);
+    else ostatniEksport = { klucz: klip.sciezka + JSON.stringify(zlecenie), sciezka: nowy.sciezka };
+    pokazWynik(nowy);
+    wczytajKlipy();
+  } catch {}
 });
+
+// Co przeciągamy z podglądu: oryginał albo (przy zmianach) najpierw zapisaną wersję
+async function plikDoPrzeciagniecia() {
+  if (!odtwarzany) return null;
+  if (!zmiany()) return odtwarzany.sciezka;
+  if (eksportTrwa) throw "Poczekaj, aż skończy się zapisywanie";
+  const klip = odtwarzany;
+  const zlecenie = { ...biezaceZlecenie(), zastap: false };
+  const klucz = klip.sciezka + JSON.stringify(zlecenie);
+  if (ostatniEksport && ostatniEksport.klucz === klucz) return ostatniEksport.sciezka;
+  dymek("Przygotowuję plik do przeciągnięcia…");
+  const nowy = await eksportujTeraz(klip, zlecenie);
+  ostatniEksport = { klucz, sciezka: nowy.sciezka };
+  pokazWynik(nowy);
+  wczytajKlipy();
+  return nowy.sciezka;
+}
 
 let wynikKlip = null;
 
@@ -422,10 +567,10 @@ function pokazWynik(klip) {
   $("wynik").hidden = false;
 }
 
-przeciagalny($("wynik-przeciagnij"), { get sciezka() { return wynikKlip && wynikKlip.sciezka; } });
+przeciagalny($("wynik-przeciagnij"), () => wynikKlip && wynikKlip.sciezka);
 $("wynik-folder").addEventListener("click", () => wynikKlip && pokazWFolderze(wynikKlip));
 $("wynik-otworz").addEventListener("click", () => wynikKlip && odtworz(wynikKlip));
-przeciagalny($("odtw-przeciagnij"), { get sciezka() { return odtwarzany && odtwarzany.sciezka; } });
+przeciagalny($("wideo"), plikDoPrzeciagniecia);
 
 $("odtw-zamknij").addEventListener("click", zamknijOdtwarzacz);
 $("odtwarzacz").addEventListener("click", (e) => {
@@ -462,7 +607,7 @@ async function kompresuj(klip, mb) {
   dymek(`Kompresja do ${mb} MB…`);
   try {
     // koniec = 0 oznacza „do końca klipu” (długość ustala rdzeń)
-    const zlecenie = { start: 0, koniec: 0, przyciete: false, dokladnie: false, rozmiar_mb: mb, zastap: false };
+    const zlecenie = { start: 0, koniec: 0, przyciete: false, dokladnie: false, rozmiar_mb: mb, zastap: false, glosnosci: [] };
     const sciezka = await invoke("eksportuj", { sciezka: klip.sciezka, zlecenie });
     sluchacz();
     dymek(`Gotowe: ${sciezka.split("\\").pop()}`);
@@ -687,7 +832,6 @@ $("odtw-folder").innerHTML = zIkona("folder", "Pokaż w folderze");
 $("odtw-usun").innerHTML = zIkona("kosz", "Usuń");
 $("odtw-zamknij").innerHTML = ikona("zamknij");
 $("pusto-ikona").innerHTML = ikona("film");
-$("odtw-przeciagnij").innerHTML = zIkona("przeciagnij", "Przeciągnij");
 $("wynik-ikona").innerHTML = ikona("przeciagnij");
 odswiezPrzyciskGraj();
 

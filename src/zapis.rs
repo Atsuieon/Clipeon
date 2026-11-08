@@ -5,9 +5,16 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Instant;
 
-/// Zapisuje klip i zwraca ścieżkę pliku. `audio` to ścieżki dźwięku (system, mikrofon), które
-/// przy więcej niż jednej są miksowane do jednej (tylko dźwięk jest wtedy kodowany ponownie).
-pub fn zapisz(folder: &Path, fps: u32, wideo: Vec<Pakiet>, audio: Vec<Vec<Pakiet>>) -> Result<PathBuf, String> {
+/// Zapisuje klip i zwraca ścieżkę pliku. `audio` to nazwane ścieżki dźwięku (Gra, Mikrofon).
+/// Przy dwóch klip dostaje trzy ścieżki: miks (pierwsza — odtwarzacze zwykle grają tylko ją),
+/// samą grę i sam mikrofon (do późniejszej zmiany głośności w edytorze).
+pub fn zapisz(
+    folder: &Path,
+    fps: u32,
+    format_wideo: &str,
+    wideo: Vec<Pakiet>,
+    audio: Vec<(&'static str, Vec<Pakiet>)>,
+) -> Result<PathBuf, String> {
     let start = Instant::now();
 
     // Klip zaczyna się od klatki kluczowej
@@ -16,10 +23,10 @@ pub fn zapisz(folder: &Path, fps: u32, wideo: Vec<Pakiet>, audio: Vec<Vec<Pakiet
     let (poczatek, koniec) = (wideo[0].czas, wideo[wideo.len() - 1].czas);
 
     // Dźwięk z tego samego przedziału czasu (pierwsza ramka nie wcześniej niż obraz)
-    let sciezki: Vec<Vec<&Pakiet>> = audio
+    let sciezki: Vec<(&str, Vec<&Pakiet>)> = audio
         .iter()
-        .map(|a| a.iter().filter(|p| p.czas >= poczatek && p.czas <= koniec).collect::<Vec<_>>())
-        .filter(|a| !a.is_empty())
+        .map(|(n, a)| (*n, a.iter().filter(|p| p.czas >= poczatek && p.czas <= koniec).collect::<Vec<_>>()))
+        .filter(|(_, a)| !a.is_empty())
         .collect();
 
     std::fs::create_dir_all(folder).map_err(|e| format!("Nie mogę utworzyć {}: {e}", folder.display()))?;
@@ -28,10 +35,10 @@ pub fn zapisz(folder: &Path, fps: u32, wideo: Vec<Pakiet>, audio: Vec<Vec<Pakiet
     // Dźwięk idzie przez małe pliki tymczasowe (ADTS), obraz przez stdin ffmpeg
     let mut cmd = crate::ffmpeg::komenda();
     cmd.args(["-hide_banner", "-loglevel", "error", "-n"])
-        .args(["-fflags", "+genpts", "-f", "h264", "-framerate", &fps.to_string(), "-i", "-"]);
+        .args(["-fflags", "+genpts", "-f", format_wideo, "-framerate", &fps.to_string(), "-i", "-"]);
     let mut tymczasowe = Vec::new();
     let wynik = (|| {
-        for (i, sciezka) in sciezki.iter().enumerate() {
+        for (i, (_, sciezka)) in sciezki.iter().enumerate() {
             let tmp = std::env::temp_dir().join(format!("clipper-{}-{poczatek}-{i}.aac", std::process::id()));
             let dane: Vec<u8> = sciezka.iter().flat_map(|p| p.dane.iter().copied()).collect();
             std::fs::write(&tmp, dane).map_err(|e| format!("Nie mogę zapisać pliku tymczasowego: {e}"))?;
@@ -47,9 +54,20 @@ pub fn zapisz(folder: &Path, fps: u32, wideo: Vec<Pakiet>, audio: Vec<Vec<Pakiet
                 cmd.args(["-map", "1:a", "-c:a", "copy"]);
             }
             n => {
+                // Ścieżka 0: miks (kodowany), dalej oryginalne ścieżki bez ponownego kodowania
                 let wejscia: String = (1..=n).map(|i| format!("[{i}:a]")).collect();
                 cmd.args(["-filter_complex", &format!("{wejscia}amix=inputs={n}:duration=longest:normalize=0[a]")])
-                    .args(["-map", "[a]", "-c:a", "aac", "-b:a", "160k"]);
+                    .args(["-map", "[a]", "-c:a:0", "aac", "-b:a:0", "160k"])
+                    .args(["-metadata:s:a:0", "title=Gra + mikrofon", "-metadata:s:a:0", "handler_name=Gra + mikrofon"])
+                    .args(["-disposition:a:0", "default"]);
+                for (i, (nazwa, _)) in sciezki.iter().enumerate() {
+                    let wyj = i + 1;
+                    cmd.args(["-map", &format!("{}:a", i + 1), &format!("-c:a:{wyj}"), "copy"])
+                        .args([format!("-metadata:s:a:{wyj}"), format!("title={nazwa}")])
+                        // MP4 trzyma nazwę ścieżki w handler_name
+                        .args([format!("-metadata:s:a:{wyj}"), format!("handler_name={nazwa}")])
+                        .args([format!("-disposition:a:{wyj}"), "0".to_string()]);
+                }
             }
         }
         cmd.args(["-movflags", "+faststart"]).arg(&plik).stdin(Stdio::piped());

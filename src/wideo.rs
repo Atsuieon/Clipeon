@@ -1,5 +1,5 @@
-// Wideo: przechwytywanie ekranu (Windows.Graphics.Capture) -> stałe FPS -> ffmpeg (H.264)
-// -> pakiety H.264 w buforze RAM.
+// Wideo: przechwytywanie ekranu (Windows.Graphics.Capture) -> stałe FPS -> ffmpeg (H.264 / HEVC / AV1)
+// -> zakodowane klatki w buforze RAM.
 use crate::bufor::{Pakiet, WspolnyBufor, teraz_100ns};
 use crate::config::Config;
 use std::io::{Read, Write};
@@ -75,6 +75,31 @@ impl Drop for Wideo {
     }
 }
 
+/// Rodzina kodeka nagrania — od niej zależy format surowego strumienia i dzielenie go na klatki.
+#[derive(Clone, Copy, PartialEq)]
+enum Kodek {
+    H264,
+    Hevc,
+    Av1,
+}
+
+fn kodek(enkoder: &str) -> Kodek {
+    match enkoder {
+        "hevc_amf" => Kodek::Hevc,
+        "av1_amf" => Kodek::Av1,
+        _ => Kodek::H264,
+    }
+}
+
+/// Format surowego strumienia dla ffmpeg (wyjście enkodera i wejście przy zapisie klipu).
+pub fn format_strumienia(enkoder: &str) -> &'static str {
+    match kodek(enkoder) {
+        Kodek::H264 => "h264",
+        Kodek::Hevc => "hevc",
+        Kodek::Av1 => "obu",
+    }
+}
+
 /// Argumenty enkodera: GOP = 1 s (każda klatka kluczowa to IDR z SPS/PPS), bez B-klatek,
 /// znacznik AUD przed każdą klatką, żeby łatwo dzielić strumień na pakiety.
 fn argumenty_enkodera(cfg: &Config) -> Vec<String> {
@@ -82,6 +107,13 @@ fn argumenty_enkodera(cfg: &Config) -> Vec<String> {
     let mut a: Vec<String> = match cfg.enkoder.as_str() {
         // Bez -pix_fmt: AMF przyjmuje BGRA i sam konwertuje kolory na GPU (mniej CPU)
         "h264_amf" => vec!["-c:v", "h264_amf", "-rc", "vbr_peak", "-forced_idr", "1", "-aud", "1", "-header_spacing", &g],
+        // Nagłówki (VPS/SPS/PPS) przy każdej klatce IDR, znacznik AUD przed każdą klatką
+        "hevc_amf" => vec![
+            "-c:v", "hevc_amf", "-rc", "vbr_peak", "-forced_idr", "1", "-aud", "1",
+            "-header_insertion_mode", "idr", "-gops_per_idr", "1",
+        ],
+        // Nagłówek sekwencji przy każdej klatce kluczowej (po nim rozpoznajemy klatki kluczowe)
+        "av1_amf" => vec!["-c:v", "av1_amf", "-rc", "vbr_peak", "-forced_idr", "1", "-header_insertion_mode", "gop"],
         _ => vec!["-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-sc_threshold", "0", "-keyint_min", &g]
             .into_iter()
             .chain(["-x264-params", "aud=1:repeat-headers=1"])
@@ -123,7 +155,7 @@ pub fn uruchom(cfg: &Config, bufor: WspolnyBufor, zglos: impl Fn(String) + Send 
         .args(["-hide_banner", "-loglevel", "error"])
         .args(["-f", "rawvideo", "-pix_fmt", "bgra", "-s", &format!("{w}x{h}"), "-framerate", &fps.to_string(), "-i", "-"])
         .args(argumenty_enkodera(cfg))
-        .args(["-f", "h264", "-"])
+        .args(["-f", format_strumienia(&cfg.enkoder), "-"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -167,8 +199,9 @@ pub fn uruchom(cfg: &Config, bufor: WspolnyBufor, zglos: impl Fn(String) + Send 
 
     // Wątek czytający: dzieli strumień H.264 na klatki i wrzuca je do bufora
     let stop_czytania = stop.clone();
+    let kodek_strumienia = kodek(&cfg.enkoder);
     std::thread::spawn(move || {
-        let mut parser = ParserH264::default();
+        let mut parser = Dzielnik::nowy(kodek_strumienia);
         let mut kawalek = vec![0u8; 1 << 16];
         let mut nr: i64 = 0;
         loop {
@@ -197,35 +230,97 @@ pub fn uruchom(cfg: &Config, bufor: WspolnyBufor, zglos: impl Fn(String) + Send 
     Ok(Wideo { sterowanie: Some(sterowanie), stop })
 }
 
-/// Dzieli strumień Annex B na jednostki dostępu (klatki) po znacznikach AUD (NAL typu 9).
-#[derive(Default)]
-struct ParserH264 {
+/// Dzieli surowy strumień enkodera na klatki i rozpoznaje klatki kluczowe:
+/// H.264 / HEVC (Annex B) po znacznikach AUD, AV1 (OBU) po ogranicznikach czasowych.
+struct Dzielnik {
+    kodek: Kodek,
     bufor: Vec<u8>,
     skan: usize,
 }
 
-impl ParserH264 {
+impl Dzielnik {
+    fn nowy(kodek: Kodek) -> Self {
+        Dzielnik { kodek, bufor: Vec::new(), skan: 0 }
+    }
+
     fn karm(&mut self, dane: &[u8]) -> Vec<(Vec<u8>, bool)> {
         self.bufor.extend_from_slice(dane);
+        match self.kodek {
+            Kodek::Av1 => self.karm_av1(),
+            k => self.karm_annex_b(k),
+        }
+    }
+
+    fn karm_annex_b(&mut self, k: Kodek) -> Vec<(Vec<u8>, bool)> {
+        // Typ jednostki NAL z pierwszego bajtu nagłówka
+        let typ = |b: u8| if k == Kodek::Hevc { (b >> 1) & 0x3f } else { b & 0x1f };
+        let aud = |b: u8| typ(b) == if k == Kodek::Hevc { 35 } else { 9 };
+        // Klatka kluczowa: IDR (H.264: 5; HEVC: 19/20, a także CRA 21)
+        let kluczowa = |b: u8| if k == Kodek::Hevc { (19..=21).contains(&typ(b)) } else { typ(b) == 5 };
         let mut klatki = Vec::new();
         // Pomijamy AUD na samym początku bufora (należy do bieżącej klatki)
-        while let Some(p) = znajdz_nal(&self.bufor, self.skan.max(4), 9) {
+        while let Some(p) = znajdz_nal(&self.bufor, self.skan.max(4), aud) {
             let klatka: Vec<u8> = self.bufor.drain(..p).collect();
-            let klucz = znajdz_nal(&klatka, 0, 5).is_some();
+            let klucz = znajdz_nal(&klatka, 0, kluczowa).is_some();
             klatki.push((klatka, klucz));
             self.skan = 0;
         }
         self.skan = self.bufor.len().saturating_sub(3);
         klatki
     }
+
+    /// AV1: każda klatka (temporal unit) zaczyna się OBU typu 2; klatka kluczowa ma nagłówek sekwencji (typ 1).
+    fn karm_av1(&mut self) -> Vec<(Vec<u8>, bool)> {
+        let mut klatki = Vec::new();
+        let mut poz = self.skan; // początek pierwszego nieprzeczytanego OBU
+        let mut poczatek_klatki = 0;
+        let mut klucz = false;
+        while let Some((typ, dl)) = obu(&self.bufor[poz..]) {
+            if typ == 2 && poz > poczatek_klatki {
+                klatki.push((self.bufor[poczatek_klatki..poz].to_vec(), klucz));
+                poczatek_klatki = poz;
+                klucz = false;
+            }
+            klucz |= typ == 1;
+            poz += dl;
+        }
+        // Zostawiamy niedokończoną klatkę; flaga klucza zostanie wyliczona ponownie
+        self.bufor.drain(..poczatek_klatki);
+        self.skan = 0;
+        klatki
+    }
 }
 
-/// Pozycja kodu startowego (00 00 01 lub 00 00 00 01) NAL danego typu, szukając od `od`.
-fn znajdz_nal(dane: &[u8], od: usize, typ: u8) -> Option<usize> {
+/// Typ i całkowita długość pierwszego OBU (None, jeśli jeszcze niekompletne).
+fn obu(d: &[u8]) -> Option<(u8, usize)> {
+    let naglowek = *d.first()?;
+    let typ = (naglowek >> 3) & 0x0f;
+    let rozszerzenie = ((naglowek >> 2) & 1) as usize;
+    // ffmpeg zapisuje OBU zawsze z polem rozmiaru (obu_has_size_field = 1)
+    let mut i = 1 + rozszerzenie;
+    let (mut rozmiar, mut przesuniecie) = (0usize, 0);
+    loop {
+        let b = *d.get(i)?;
+        rozmiar |= ((b & 0x7f) as usize) << przesuniecie;
+        i += 1;
+        if b & 0x80 == 0 {
+            break;
+        }
+        przesuniecie += 7;
+        if przesuniecie > 56 {
+            return None;
+        }
+    }
+    let calosc = i + rozmiar;
+    (d.len() >= calosc).then_some((typ, calosc))
+}
+
+/// Pozycja kodu startowego (00 00 01 lub 00 00 00 01) NAL, którego bajt nagłówka spełnia warunek.
+fn znajdz_nal(dane: &[u8], od: usize, warunek: impl Fn(u8) -> bool) -> Option<usize> {
     let mut i = od;
     while i + 3 < dane.len() {
         if dane[i] == 0 && dane[i + 1] == 0 && dane[i + 2] == 1 {
-            if dane[i + 3] & 0x1f == typ {
+            if warunek(dane[i + 3]) {
                 return Some(if i > 0 && dane[i - 1] == 0 { i - 1 } else { i });
             }
             i += 3;
