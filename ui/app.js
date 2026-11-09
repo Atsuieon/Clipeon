@@ -19,6 +19,8 @@ const IKONY = {
   nozyczki: '<circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12"/><path d="M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/>',
   kompresja: '<path d="m15 15 6 6"/><path d="m15 9 6-6"/><path d="M21 16v5h-5"/><path d="M21 8V3h-5"/><path d="M3 16v5h5"/><path d="m3 21 6-6"/><path d="M3 8V3h5"/><path d="M9 9 3 3"/>',
   przeciagnij: '<circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/>',
+  ptaszek: '<path d="M20 6 9 17l-5-5"/>',
+  pobierz: '<path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/>',
   film: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/>',
 };
 const ikona = (n) => `<svg class="ikona" viewBox="0 0 24 24" aria-hidden="true">${IKONY[n]}</svg>`;
@@ -141,6 +143,10 @@ async function wczytajKlipy() {
   const [klipy, u] = await Promise.all([invoke("klipy"), cfg ? Promise.resolve(null) : invoke("ustawienia")]);
   if (u) cfg = u.cfg;
   kolejkaMiniatur = [];
+  // Zaznaczenie przeżywa odświeżenie listy (bez klipów, których już nie ma)
+  kolejnosc = klipy;
+  const istniejace = new Set(klipy.map((k) => k.sciezka));
+  for (const s of [...zaznaczone]) if (!istniejace.has(s)) zaznaczone.delete(s);
   const kontener = $("siatka");
   kontener.replaceChildren();
   let siatka = null;
@@ -167,11 +173,21 @@ async function wczytajKlipy() {
     const karta = document.createElement("button");
     karta.className = "karta klip";
     karta.innerHTML = `
-      <div class="obraz"><img alt=""><span class="dlugosc" hidden></span><span class="graj">${ikona("graj")}</span></div>
+      <div class="obraz"><img alt=""><span class="dlugosc" hidden></span><span class="graj">${ikona("graj")}</span>
+        <span class="zaznacz" role="checkbox" aria-checked="false" aria-label="Zaznacz klip" tabindex="-1">${ikona("ptaszek")}</span></div>
       <div class="opis"><h3></h3><p class="pomoc"></p></div>`;
     karta.querySelector("h3").textContent = formatData(klip.czas_ms);
     karta.querySelector(".pomoc").textContent = `${formatMB(klip.rozmiar)} · ${klip.nazwa}`;
-    karta.addEventListener("click", () => !poPrzeciaganiu && odtworz(klip));
+    karta.dataset.sciezka = klip.sciezka;
+    karta.addEventListener("click", (e) => {
+      if (poPrzeciaganiu) return;
+      // Ctrl: przełącz, Shift: zakres od ostatnio klikniętego, a gdy coś jest zaznaczone — zwykły klik też zaznacza
+      if (e.ctrlKey || e.metaKey) przelaczZaznaczenie(klip);
+      else if (e.shiftKey && kotwica) zaznaczZakres(kotwica, klip);
+      else if (zaznaczone.size || e.target.closest(".zaznacz")) przelaczZaznaczenie(klip);
+      else return odtworz(klip);
+      kotwica = e.shiftKey ? kotwica : klip;
+    });
     przeciagalny(karta, () => klip.sciezka);
     karta.addEventListener("contextmenu", (e) => {
       e.preventDefault();
@@ -180,7 +196,75 @@ async function wczytajKlipy() {
     siatka.append(karta);
     pobierzMiniature(klip, karta);
   }
+  odswiezZaznaczenie();
 }
+
+// ---------- Zaznaczanie wielu klipów ----------
+
+const zaznaczone = new Set();
+let kolejnosc = [];
+let kotwica = null;
+
+function przelaczZaznaczenie(klip) {
+  if (zaznaczone.has(klip.sciezka)) zaznaczone.delete(klip.sciezka);
+  else zaznaczone.add(klip.sciezka);
+  odswiezZaznaczenie();
+}
+
+function zaznaczZakres(od, doKlipu) {
+  const a = kolejnosc.findIndex((k) => k.sciezka === od.sciezka);
+  const b = kolejnosc.findIndex((k) => k.sciezka === doKlipu.sciezka);
+  if (a < 0 || b < 0) return przelaczZaznaczenie(doKlipu);
+  for (const k of kolejnosc.slice(Math.min(a, b), Math.max(a, b) + 1)) zaznaczone.add(k.sciezka);
+  odswiezZaznaczenie();
+}
+
+function wyczyscZaznaczenie() {
+  zaznaczone.clear();
+  kotwica = null;
+  odswiezZaznaczenie();
+}
+
+function odmianaZaznaczonych(n) {
+  if (n === 1) return "1 klip zaznaczony";
+  const r = n % 10, s = n % 100;
+  return r >= 2 && r <= 4 && (s < 12 || s > 14) ? `${n} klipy zaznaczone` : `${n} klipów zaznaczonych`;
+}
+
+function odswiezZaznaczenie() {
+  for (const karta of document.querySelectorAll(".klip")) {
+    const tak = zaznaczone.has(karta.dataset.sciezka);
+    karta.classList.toggle("zaznaczony", tak);
+    karta.querySelector(".zaznacz").setAttribute("aria-checked", String(tak));
+  }
+  const n = zaznaczone.size;
+  $("siatka").classList.toggle("tryb-zaznaczania", n > 0);
+  $("pasek-zaznaczenia").hidden = n === 0;
+  $("ile-zaznaczonych").textContent = odmianaZaznaczonych(n);
+  $("usun-zaznaczone").innerHTML = zIkona("kosz", "Usuń zaznaczone");
+}
+
+$("zaznacz-wszystko").addEventListener("click", () => {
+  for (const k of kolejnosc) zaznaczone.add(k.sciezka);
+  odswiezZaznaczenie();
+});
+$("odznacz").addEventListener("click", wyczyscZaznaczenie);
+$("usun-zaznaczone").addEventListener("click", async () => {
+  const lista = [...zaznaczone];
+  if (!lista.length) return;
+  if (!confirm(`Przenieść do Kosza: ${odmianaZaznaczonych(lista.length).replace(/ zaznacz\S+$/, "")}? Da się je przywrócić z Kosza.`)) return;
+  let bledy = 0;
+  for (const sciezka of lista) {
+    try {
+      await invoke("usun_klip", { sciezka });
+      zaznaczone.delete(sciezka);
+    } catch {
+      bledy++;
+    }
+  }
+  dymek(bledy ? `Nie udało się usunąć ${bledy} z ${lista.length} (są w użyciu)` : "Przeniesiono do Kosza");
+  wczytajKlipy();
+});
 
 // Nazwa sekcji dla daty klipu: Dzisiaj, Wczoraj, 2–6 dni temu, W tym miesiącu, potem miesiąc i rok
 const MIESIACE = ["Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec", "Lipiec", "Sierpień", "Wrzesień", "Październik", "Listopad", "Grudzień"];
@@ -717,6 +801,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     ukryjMenu();
     if (!$("odtwarzacz").hidden) zamknijOdtwarzacz();
+    else if (zaznaczone.size) wyczyscZaznaczenie();
   } else if (e.key === " " && !$("odtwarzacz").hidden && !e.target.closest("input, select, button, .uchwyt")) {
     e.preventDefault();
     przelaczGraj();
@@ -780,6 +865,8 @@ async function wczytajUstawienia() {
   $("folder").textContent = cfg.folder_klipow;
   $("autostart").checked = u.autostart;
   $("ikona-zegar").checked = cfg.ikona_przy_zegarze;
+  $("aktualizacje").checked = cfg.sprawdzaj_aktualizacje;
+  $("wersja").textContent = u.wersja;
   $("komunikat").textContent = "";
   odswiezFormularz();
 }
@@ -792,7 +879,8 @@ function odswiezFormularz() {
     hevc_amf: "Podgląd w Clipperze wymaga rozszerzenia HEVC z Microsoft Store, a Discord w przeglądarce może takiego klipu nie odtworzyć.",
     av1_amf: "Karty Radeon RX 7000 zapisują ten format w 1920×1082 — na dole klipu są 2 czarne linie.",
   };
-  $("enkoder-uwaga").textContent = uwagi[$("enkoder").value] || "";
+  const wybrany = $("enkoder").value;
+  $("enkoder-uwaga").textContent = uwagi[wybrany] || (wybrany.startsWith("hevc") ? uwagi.hevc_amf : "");
   const s = Number($("bufor").value);
   const mbps = Number($("bitrate").value) || 0;
   const sciezki = Number($("dzwiek").checked) + Number($("mikrofon").checked);
@@ -863,6 +951,7 @@ $("zapisz-ustawienia").addEventListener("click", async () => {
     skrot: $("skrot").dataset.wartosc,
     folder_klipow: $("folder").textContent,
     ikona_przy_zegarze: $("ikona-zegar").checked,
+    sprawdzaj_aktualizacje: $("aktualizacje").checked,
     monitor: $("monitor").value,
     dzwiek_zapisu: $("dzwiek-zapisu").checked,
     glos_w_edytorze: $("glos-w-edytorze").checked,
@@ -927,6 +1016,38 @@ odswiezPrzyciskGraj();
   pokazStan(await invoke("stan"));
   pokazZakladke(location.hash.slice(1));
 })();
+
+// ---------- Aktualizacje ----------
+
+function pokazAktualizacje(w) {
+  const b = $("aktualizacja");
+  b.hidden = !w;
+  if (w) {
+    b.innerHTML = zIkona("pobierz", `Dostępna aktualizacja ${w.wersja}`);
+    b.title = "Otwórz stronę nowej wersji";
+  }
+}
+$("aktualizacja").addEventListener("click", () => invoke("otworz_aktualizacje"));
+$("autor").addEventListener("click", (e) => {
+  e.preventDefault();
+  invoke("otworz_repozytorium");
+});
+$("sprawdz-teraz").addEventListener("click", async () => {
+  const b = $("sprawdz-teraz");
+  b.disabled = true;
+  $("akt-wynik").textContent = "Sprawdzam…";
+  try {
+    const w = await invoke("sprawdz_aktualizacje");
+    $("akt-wynik").textContent = w ? `Dostępna wersja ${w.wersja}` : "Masz najnowszą wersję.";
+    pokazAktualizacje(w);
+  } catch (e) {
+    $("akt-wynik").textContent = String(e);
+  } finally {
+    b.disabled = false;
+  }
+});
+invoke("aktualizacja").then(pokazAktualizacje);
+listen("aktualizacja", (e) => pokazAktualizacje(e.payload));
 
 listen("stan", (e) => pokazStan(e.payload));
 listen("zakladka", (e) => pokazZakladke(e.payload));

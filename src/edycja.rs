@@ -53,19 +53,6 @@ fn kompresja(rozmiar_mb: u32, dlugosc: f64, zapas: f64) -> Result<Kompresja, Str
     Ok(Kompresja { wideo_bps: wideo as u64, audio_kbps, wysokosc, fps })
 }
 
-/// Argumenty enkodera wideo: AMF na karcie (szybko) albo x264 na procesorze.
-fn enkoder(nazwa: &str, bps: u64, sztywny_limit: bool) -> Vec<String> {
-    let b = bps.to_string();
-    // Przy celu rozmiaru szczyt = średnia, żeby plik na pewno się zmieścił
-    let max = if sztywny_limit { b.clone() } else { (bps * 3 / 2).to_string() };
-    let mut a: Vec<&str> = match nazwa {
-        "h264_amf" => vec!["-c:v", "h264_amf", "-rc", "vbr_peak", "-quality", "quality"],
-        _ => vec!["-c:v", "libx264", "-preset", "medium"],
-    };
-    a.extend(["-b:v", &b, "-maxrate", &max, "-bufsize", &b, "-pix_fmt", "yuv420p"]);
-    a.into_iter().map(String::from).collect()
-}
-
 /// Wolna nazwa: klip_cut.mp4, klip_10MB.mp4, klip_cut_10MB.mp4 (z numerem, jeśli zajęta).
 fn nazwa_wyniku(zrodlo: &Path, z: &Zlecenie) -> PathBuf {
     let mut baza = zrodlo.file_stem().unwrap_or_default().to_string_lossy().into_owned();
@@ -167,7 +154,7 @@ pub fn eksportuj(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dyn
                     / pelna.max(1.0)) as u64;
                 let mut a = Vec::new();
                 zakres(&mut a);
-                a.extend(enkoder(nazwa_enkodera, bps.clamp(4_000_000, 60_000_000), false));
+                a.extend(crate::enkodery::argumenty_eksportu(nazwa_enkodera, bps.clamp(4_000_000, 60_000_000), false));
                 a.extend(audio(false, false, 160));
                 wyjscie(&mut a);
                 ffmpeg_z_postepem(&a, dlugosc, postep)
@@ -190,7 +177,7 @@ pub fn eksportuj(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dyn
                     if !filtry.is_empty() {
                         a.extend(["-vf".into(), filtry.join(",")]);
                     }
-                    a.extend(enkoder(nazwa_enkodera, k.wideo_bps, true));
+                    a.extend(crate::enkodery::argumenty_eksportu(nazwa_enkodera, k.wideo_bps, true));
                     // Do małego pliku idzie tylko jedna ścieżka (miks)
                     a.extend(audio(false, true, k.audio_kbps));
                     wyjscie(&mut a);

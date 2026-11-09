@@ -3,14 +3,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-/// Obsługiwane enkodery wideo: (nazwa ffmpeg, opis dla użytkownika)
-pub const ENKODERY: &[(&str, &str)] = &[
-    ("h264_amf", "H.264 — działa wszędzie (polecany)"),
-    ("hevc_amf", "HEVC — mniejsze pliki"),
-    ("av1_amf", "AV1 — najmniejsze pliki"),
-    ("libx264", "H.264 na procesorze — gdy karta graficzna sprawia problemy"),
-];
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -20,7 +12,7 @@ pub struct Config {
     pub fps: u32,
     /// Bitrate wideo w Mb/s (VBR)
     pub bitrate_mbps: u32,
-    /// Enkoder wideo (jeden z ENKODERY)
+    /// Enkoder wideo („auto” albo nazwa z enkodery::KANDYDACI)
     pub enkoder: String,
     /// Nagrywanie dźwięku systemowego (to, co słychać w głośnikach)
     pub dzwiek_systemowy: bool,
@@ -44,6 +36,8 @@ pub struct Config {
     pub sprzatanie_gb: u32,
     /// Czy zapisywane wersje (przycięte, zmniejszone) mają domyślnie zawierać głos z mikrofonu
     pub glos_w_edytorze: bool,
+    /// Sprawdzanie przy starcie i raz na dobę, czy na GitHubie jest nowsza wersja
+    pub sprawdzaj_aktualizacje: bool,
     /// Nagrywany monitor (nazwa urządzenia, np. \\.\DISPLAY2); pusty = główny
     pub monitor: String,
 }
@@ -55,7 +49,7 @@ impl Default for Config {
             bufor_sekundy: 30,
             fps: 60,
             bitrate_mbps: 20,
-            enkoder: "h264_amf".into(),
+            enkoder: crate::enkodery::AUTO.into(),
             dzwiek_systemowy: true,
             mikrofon: true,
             folder_klipow: profil.join("Videos").join("Clipper"),
@@ -68,6 +62,7 @@ impl Default for Config {
             sprzatanie_gb: 0,
             monitor: String::new(),
             glos_w_edytorze: true,
+            sprawdzaj_aktualizacje: true,
         }
     }
 }
@@ -112,7 +107,7 @@ impl Config {
         if !(1..=200).contains(&self.bitrate_mbps) {
             return Err("Bitrate musi wynosić od 1 do 200 Mb/s".into());
         }
-        if !ENKODERY.iter().any(|(n, _)| *n == self.enkoder) {
+        if !crate::enkodery::poprawna_nazwa(&self.enkoder) {
             return Err(format!("Nieznany enkoder \"{}\"", self.enkoder));
         }
         if !self.folder_klipow.is_absolute() {

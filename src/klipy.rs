@@ -35,10 +35,30 @@ pub fn lista(folder: &Path) -> Vec<Klip> {
     klipy
 }
 
-/// Folder pamięci podręcznej miniatur: %LOCALAPPDATA%\Clipper\miniatury
+/// Folder pamięci podręcznej miniatur: %LOCALAPPDATA%\pl.clipper.app\miniatury (folder danych
+/// aplikacji — instalator może go wyczyścić przy odinstalowaniu; %LOCALAPPDATA%\Clipper to folder programu).
 pub fn folder_miniatur() -> PathBuf {
     let baza = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-    baza.join("Clipper").join("miniatury")
+    baza.join("pl.clipper.app").join("miniatury")
+}
+
+/// Usuwa starą pamięć podręczną miniatur z wersji sprzed 1.0 (same miniatury, odtworzą się same).
+pub fn usun_stara_pamiec_podreczna() {
+    if let Some(baza) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
+        let stara = baza.join("Clipper").join("miniatury");
+        if stara.is_dir() {
+            // Plik po pliku: remove_dir_all bywa odrzucany przez system (os error 4395) w AppData
+            if let Ok(wpisy) = std::fs::read_dir(&stara) {
+                for w in wpisy.flatten() {
+                    let _ = std::fs::remove_file(w.path());
+                }
+            }
+            match std::fs::remove_dir(&stara) {
+                Ok(()) => crate::dziennik::info("Usunięto starą pamięć podręczną miniatur"),
+                Err(e) => crate::dziennik::blad(&format!("Nie udało się usunąć starej pamięci miniatur: {e}")),
+            }
+        }
+    }
 }
 
 /// Klucz pamięci podręcznej: nazwa pliku + rozmiar (nowy plik o tej samej nazwie dostaje nową miniaturę).

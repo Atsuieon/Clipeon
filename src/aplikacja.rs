@@ -1,6 +1,6 @@
 // Warstwa Tauri: ikona w zasobniku z menu, okno (Klipy / Ustawienia) tworzone na żądanie
 // i niszczone po zamknięciu (w tle zostaje tylko rdzeń nagrywania), komendy dla UI, powiadomienia.
-use crate::config::{Config, ENKODERY};
+use crate::config::Config;
 use crate::ikona;
 use crate::klipy;
 use crate::rdzen::{Rdzen, Stan, Zdarzenie};
@@ -18,6 +18,7 @@ const ID_ZASOBNIKA: &str = "glowna";
 /// Pozycje menu, których tekst się zmienia.
 struct PozycjeMenu {
     stan: MenuItem<Wry>,
+    aktualizacja: MenuItem<Wry>,
     zapisz: MenuItem<Wry>,
     pauza: MenuItem<Wry>,
 }
@@ -195,15 +196,44 @@ struct Ustawienia {
     cfg: Config,
     autostart: bool,
     enkodery: Vec<(String, String)>,
+    wersja: &'static str,
+    repozytorium: &'static str,
 }
 
-#[tauri::command]
-fn ustawienia(app: AppHandle, rdzen: State<'_, Rdzen>) -> Ustawienia {
-    Ustawienia {
-        cfg: rdzen.config(),
-        autostart: app.autolaunch().is_enabled().unwrap_or(false),
-        enkodery: ENKODERY.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect(),
+/// Znalezione nowsze wydanie (None = brak albo jeszcze nie sprawdzono).
+#[derive(Default)]
+struct Aktualizacja(std::sync::Mutex<Option<crate::aktualizacje::Wydanie>>);
+
+/// Sprawdza aktualizacje i pokazuje wynik w oknie i menu zasobnika.
+fn sprawdz_aktualizacje_teraz(app: &AppHandle) -> Result<Option<crate::aktualizacje::Wydanie>, String> {
+    let wynik = crate::aktualizacje::sprawdz();
+    match &wynik {
+        Ok(Some(w)) => {
+            crate::dziennik::info(&format!("Dostępna aktualizacja {}", w.wersja));
+            *app.state::<Aktualizacja>().0.lock().unwrap_or_else(|e| e.into_inner()) = Some(w.clone());
+            if let Some(m) = app.try_state::<PozycjeMenu>() {
+                let _ = m.aktualizacja.set_text(format!("Dostępna aktualizacja {} — pobierz", w.wersja));
+            }
+            let _ = app.emit("aktualizacja", w);
+        }
+        Ok(None) => {}
+        Err(e) => crate::dziennik::blad(e),
     }
+    wynik
+}
+
+/// Asynchronicznie: przy pierwszym wywołaniu wykrywanie enkoderów może potrwać sekundę-dwie.
+#[tauri::command]
+async fn ustawienia(app: AppHandle) -> Result<Ustawienia, String> {
+    tauri::async_runtime::spawn_blocking(move || Ustawienia {
+        cfg: app.state::<Rdzen>().config(),
+        autostart: app.autolaunch().is_enabled().unwrap_or(false),
+        enkodery: crate::enkodery::do_ustawien(),
+        wersja: crate::aktualizacje::WERSJA,
+        repozytorium: crate::aktualizacje::REPOZYTORIUM,
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -293,7 +323,7 @@ async fn eksportuj(app: AppHandle, sciezka: PathBuf, zlecenie: crate::edycja::Zl
             let _ = app.emit("postep", u);
         };
         // Wynik edycji zawsze w H.264 — odtworzy go każdy komunikator i przeglądarka
-        let enkoder = if cfg.enkoder == "libx264" { "libx264" } else { "h264_amf" };
+        let enkoder = crate::enkodery::do_eksportu();
         crate::edycja::eksportuj(&klip, &zlecenie, enkoder, &postep)
     })
     .await
@@ -338,6 +368,30 @@ async fn info_klipu(app: AppHandle, sciezka: PathBuf) -> Result<klipy::Info, Str
 #[tauri::command]
 fn monitory() -> Vec<(String, String)> {
     crate::wideo::monitory()
+}
+
+/// Znalezione nowsze wydanie (okno pyta o nie przy otwarciu).
+#[tauri::command]
+fn aktualizacja(stan: State<'_, Aktualizacja>) -> Option<crate::aktualizacje::Wydanie> {
+    stan.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// Ręczne sprawdzenie z ustawień.
+#[tauri::command]
+async fn sprawdz_aktualizacje(app: AppHandle) -> Result<Option<crate::aktualizacje::Wydanie>, String> {
+    tauri::async_runtime::spawn_blocking(move || sprawdz_aktualizacje_teraz(&app)).await.map_err(|e| e.to_string())?
+}
+
+/// Otwiera stronę nowego wydania (albo listę wydań) w przeglądarce.
+#[tauri::command]
+fn otworz_aktualizacje(stan: State<'_, Aktualizacja>) {
+    let strona = stan.0.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|w| w.strona.clone());
+    crate::aktualizacje::otworz(&strona.unwrap_or_else(|| format!("{}/releases", crate::aktualizacje::REPOZYTORIUM)));
+}
+
+#[tauri::command]
+fn otworz_repozytorium() {
+    crate::aktualizacje::otworz(crate::aktualizacje::REPOZYTORIUM);
 }
 
 /// Uruchamia nagrywanie od nowa (przycisk „Spróbuj ponownie”).
@@ -393,7 +447,11 @@ pub fn uruchom() {
             info_klipu,
             monitory,
             uruchom_ponownie,
-            otworz_log
+            otworz_log,
+            aktualizacja,
+            sprawdz_aktualizacje,
+            otworz_aktualizacje,
+            otworz_repozytorium
         ])
         .setup(|app| {
             let (cfg, blad_cfg) = match Config::wczytaj() {
@@ -405,6 +463,7 @@ pub fn uruchom() {
             let stan = MenuItem::with_id(app, "stan", "○ Uruchamiam nagrywanie…", false, None::<&str>)?;
             let zapisz = MenuItem::with_id(app, "zapisz", tekst_zapisu(&cfg), true, None::<&str>)?;
             let log = MenuItem::with_id(app, "log", "Pokaż dziennik zdarzeń", true, None::<&str>)?;
+            let aktualizacja = MenuItem::with_id(app, "aktualizacja", "Sprawdź aktualizacje", true, None::<&str>)?;
             let pauza = MenuItem::with_id(app, "pauza", "Wstrzymaj nagrywanie", true, None::<&str>)?;
             let folder = MenuItem::with_id(app, "folder", "Otwórz folder klipów", true, None::<&str>)?;
             let biblioteka = MenuItem::with_id(app, "biblioteka", "Biblioteka…", true, None::<&str>)?;
@@ -413,9 +472,10 @@ pub fn uruchom() {
             let sep = || PredefinedMenuItem::separator(app);
             let menu = Menu::with_items(
                 app,
-                &[&stan, &sep()?, &zapisz, &pauza, &sep()?, &folder, &biblioteka, &ustawienia, &log, &sep()?, &zamknij],
+                &[&stan, &sep()?, &zapisz, &pauza, &sep()?, &folder, &biblioteka, &ustawienia, &log, &aktualizacja, &sep()?, &zamknij],
             )?;
-            app.manage(PozycjeMenu { stan, zapisz, pauza });
+            app.manage(PozycjeMenu { stan, aktualizacja, zapisz, pauza });
+            app.manage(Aktualizacja::default());
 
             TrayIconBuilder::with_id(ID_ZASOBNIKA)
                 .icon(ikona::ikona(ikona::ZIELONY))
@@ -431,6 +491,24 @@ pub fn uruchom() {
                         "biblioteka" => pokaz_okno(app, "klipy"),
                         "ustawienia" => pokaz_okno(app, "ustawienia"),
                         "log" => otworz_log(),
+                        "aktualizacja" => {
+                            let znana = app.state::<Aktualizacja>().0.lock().unwrap_or_else(|e| e.into_inner()).is_some();
+                            if znana {
+                                otworz_aktualizacje(app.state::<Aktualizacja>());
+                            } else {
+                                // Ręczne sprawdzenie; wynik pokazujemy dymkiem
+                                let app = app.clone();
+                                std::thread::spawn(move || {
+                                    let monitor = app.state::<Rdzen>().config().monitor;
+                                    let (tytul, opis) = match sprawdz_aktualizacje_teraz(&app) {
+                                        Ok(Some(w)) => (format!("Dostępna wersja {}", w.wersja), "Kliknij w menu ikony, żeby ją pobrać".to_string()),
+                                        Ok(None) => ("Masz najnowszą wersję".to_string(), format!("Clipper {}", crate::aktualizacje::WERSJA)),
+                                        Err(e) => ("Nie udało się sprawdzić".to_string(), e),
+                                    };
+                                    pokaz_dymek(&app, &monitor, &tytul, &opis, false, false);
+                                });
+                            }
+                        }
                         "zamknij" => app.exit(0),
                         _ => {}
                     }
@@ -450,6 +528,21 @@ pub fn uruchom() {
             app.manage(rdzen.clone());
             rdzen.uruchom();
             rdzen.uruchom_straznika();
+            std::thread::spawn(klipy::usun_stara_pamiec_podreczna);
+            // Pełna lista enkoderów do ustawień — w tle, po starcie nagrywania
+            std::thread::spawn(crate::enkodery::dostepne);
+
+            // Aktualizacje: chwilę po starcie, potem raz na dobę (jeśli włączone w ustawieniach)
+            let h = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(10));
+                loop {
+                    if h.state::<Rdzen>().config().sprawdzaj_aktualizacje {
+                        let _ = sprawdz_aktualizacje_teraz(&h);
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(24 * 3600));
+                }
+            });
             // Raz (przy pierwszym starcie) wyciągamy ikonę z ukrytych przy zegarze; jeśli użytkownik
             // potem schowa ją w Windows, już tego nie zmieniamy
             let c = rdzen.config();

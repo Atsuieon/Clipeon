@@ -27,6 +27,7 @@
         <button class="zakladka" data-zakladka="ustawienia" role="tab">Ustawienia</button>
       </nav>
       <div class="akcje">
+        <button class="przycisk aktualizacja" id="aktualizacja" hidden></button>
         <div class="status" id="status" title="">
           <span class="kropka" id="kropka"></span><span id="status-tekst">Łączenie…</span>
         </div>
@@ -60,6 +61,12 @@
           </div>
         </div>
         <div id="siatka"></div>
+        <div class="pasek-zaznaczenia" id="pasek-zaznaczenia" role="toolbar" aria-label="Zaznaczone klipy" hidden>
+          <span id="ile-zaznaczonych"></span>
+          <button class="przycisk drugorzedny" id="zaznacz-wszystko">Zaznacz wszystko</button>
+          <button class="przycisk drugorzedny" id="odznacz">Odznacz</button>
+          <button class="przycisk glowny" id="usun-zaznaczone"></button>
+        </div>
         <div class="pusto" id="pusto" hidden>
           <span class="ikona-duza" id="pusto-ikona"></span>
           <h2>Brak klipów</h2>
@@ -167,8 +174,19 @@
               <label class="przelacznik"><input type="checkbox" id="autostart"><span class="suwak"></span>Uruchamiaj razem z Windows</label>
               <label class="przelacznik"><input type="checkbox" id="ikona-zegar"><span class="suwak"></span>Ikona zawsze widoczna przy zegarze</label>
             </div>
+
+            <div class="karta">
+              <h3>Aktualizacje</h3>
+              <p class="pomoc">Clipper raz dziennie pyta GitHuba, czy jest nowa wersja. To jedyne połączenie z internetem — klipy nigdy nie opuszczają komputera.</p>
+              <label class="przelacznik"><input type="checkbox" id="aktualizacje"><span class="suwak"></span>Sprawdzaj, czy jest nowa wersja</label>
+              <div class="wiersz-akt">
+                <button type="button" class="przycisk drugorzedny" id="sprawdz-teraz">Sprawdź teraz</button>
+                <span class="pomoc" id="akt-wynik" role="status"></span>
+              </div>
+            </div>
           </div>
         </form>
+        <p class="o-programie">Clipper <span id="wersja"></span> · by <a href="#" id="autor">Atsuieon</a></p>
         <div class="stopka">
           <span class="pomoc" id="komunikat" role="status"></span>
           <button class="przycisk glowny" id="zapisz-ustawienia">Zapisz zmiany</button>

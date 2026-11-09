@@ -1,0 +1,7 @@
+{
+  "bundle": {
+    "resources": {
+      "zasoby/ffmpeg/": "ffmpeg/"
+    }
+  }
+}

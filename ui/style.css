@@ -472,6 +472,32 @@ input[type="number"]:focus-visible, select:focus-visible { outline: none; border
   .baner { flex-wrap: wrap; margin: 0 20px 8px; }
 }
 
+/* ---------- Zaznaczanie wielu klipów ---------- */
+.zaznacz {
+  position: absolute; top: 8px; left: 8px; width: 24px; height: 24px; display: grid; place-items: center;
+  border-radius: 8px; border: 1.5px solid rgba(255, 255, 255, 0.85); background: rgba(0, 0, 0, 0.45);
+  color: transparent; opacity: 0; transition: opacity var(--czas), background var(--czas), color var(--czas);
+}
+.zaznacz svg.ikona { width: 15px; height: 15px; stroke-width: 2.5; }
+.klip:hover .zaznacz, .tryb-zaznaczania .zaznacz, .klip.zaznaczony .zaznacz { opacity: 1; }
+.klip.zaznaczony .zaznacz { background: #fff; color: #000; border-color: #fff; }
+.klip.zaznaczony { border-color: rgba(255, 255, 255, 0.55); background-color: rgba(255, 255, 255, 0.04); }
+.tryb-zaznaczania .klip .graj { display: none; }
+.pasek-zaznaczenia {
+  position: sticky; bottom: 0; z-index: 5; display: flex; align-items: center; gap: 10px; margin: 24px auto 0;
+  width: fit-content; max-width: 100%; padding: 8px 8px 8px 20px; border: 1px solid var(--ramka-pola); border-radius: 999px;
+  background: rgba(10, 10, 10, 0.92); backdrop-filter: blur(8px); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+}
+#ile-zaznaczonych { margin-right: 6px; color: var(--tytul); white-space: nowrap; }
+
+/* ---------- Aktualizacja i stopka ---------- */
+.przycisk.aktualizacja { border-color: rgba(34, 197, 94, 0.4); background: rgba(34, 197, 94, 0.07); font-size: 13px; padding: 7px 14px; }
+.przycisk.aktualizacja:hover { background: rgba(34, 197, 94, 0.14); }
+.wiersz-akt { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.o-programie { margin: 32px 0 8px; text-align: center; color: #5c5c5c; font-size: 12px; letter-spacing: 0.01em; }
+.o-programie a { color: #7a7a7a; text-decoration: none; border-bottom: 1px solid #333; transition: color var(--czas); }
+.o-programie a:hover { color: var(--tytul); }
+
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }

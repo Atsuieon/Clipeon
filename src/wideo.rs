@@ -2,6 +2,7 @@
 // -> zakodowane klatki w buforze RAM.
 use crate::bufor::{Pakiet, WspolnyBufor, teraz_100ns};
 use crate::config::Config;
+use crate::enkodery::{self, Kodek};
 use std::io::{Read, Write};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -79,6 +80,8 @@ pub struct Wideo {
     stop: Arc<AtomicBool>,
     proces: Arc<Mutex<std::process::Child>>,
     problem: Problem,
+    /// Format surowego strumienia (h264 / hevc / obu) — potrzebny przy zapisie klipu
+    pub format: &'static str,
 }
 
 impl Wideo {
@@ -127,57 +130,16 @@ pub fn monitory() -> Vec<(String, String)> {
         .collect()
 }
 
-/// Rodzina kodeka nagrania — od niej zależy format surowego strumienia i dzielenie go na klatki.
-#[derive(Clone, Copy, PartialEq)]
-enum Kodek {
-    H264,
-    Hevc,
-    Av1,
-}
-
-fn kodek(enkoder: &str) -> Kodek {
-    match enkoder {
-        "hevc_amf" => Kodek::Hevc,
-        "av1_amf" => Kodek::Av1,
-        _ => Kodek::H264,
-    }
-}
-
-/// Format surowego strumienia dla ffmpeg (wyjście enkodera i wejście przy zapisie klipu).
-pub fn format_strumienia(enkoder: &str) -> &'static str {
-    match kodek(enkoder) {
-        Kodek::H264 => "h264",
-        Kodek::Hevc => "hevc",
-        Kodek::Av1 => "obu",
-    }
-}
-
-/// Argumenty enkodera: GOP = 1 s (każda klatka kluczowa to IDR z SPS/PPS), bez B-klatek,
-/// znacznik AUD przed każdą klatką, żeby łatwo dzielić strumień na pakiety.
-fn argumenty_enkodera(cfg: &Config) -> Vec<String> {
+/// Wspólne dla wszystkich enkoderów: bitrate (VBR ze szczytem 1,5×), klatka kluczowa co 1 s, bez B-klatek.
+fn argumenty_strumienia(cfg: &Config) -> Vec<String> {
     let (b, g) = (cfg.bitrate_mbps, cfg.fps.to_string());
-    let mut a: Vec<String> = match cfg.enkoder.as_str() {
-        // Bez -pix_fmt: AMF przyjmuje BGRA i sam konwertuje kolory na GPU (mniej CPU)
-        "h264_amf" => vec!["-c:v", "h264_amf", "-rc", "vbr_peak", "-forced_idr", "1", "-aud", "1", "-header_spacing", &g],
-        // Nagłówki (VPS/SPS/PPS) przy każdej klatce IDR, znacznik AUD przed każdą klatką
-        "hevc_amf" => vec![
-            "-c:v", "hevc_amf", "-rc", "vbr_peak", "-forced_idr", "1", "-aud", "1",
-            "-header_insertion_mode", "idr", "-gops_per_idr", "1",
-        ],
-        // Nagłówek sekwencji przy każdej klatce kluczowej (po nim rozpoznajemy klatki kluczowe)
-        "av1_amf" => vec!["-c:v", "av1_amf", "-rc", "vbr_peak", "-forced_idr", "1", "-header_insertion_mode", "gop"],
-        _ => vec!["-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-sc_threshold", "0", "-keyint_min", &g]
-            .into_iter()
-            .chain(["-x264-params", "aud=1:repeat-headers=1"])
-            .collect(),
-    }
-    .into_iter()
-    .map(String::from)
-    .collect();
-    let bitrate = [format!("{b}M"), format!("{}M", b * 3 / 2)];
-    a.extend(["-b:v".into(), bitrate[0].clone(), "-maxrate".into(), bitrate[1].clone(), "-bufsize".into(), bitrate[0].clone()]);
-    a.extend(["-g".into(), g, "-bf".into(), "0".into(), "-force_key_frames".into(), "expr:gte(t,n_forced)".into()]);
-    a
+    [
+        "-b:v", &format!("{b}M"), "-maxrate", &format!("{}M", b * 3 / 2), "-bufsize", &format!("{b}M"),
+        "-g", &g, "-bf", "0", "-force_key_frames", "expr:gte(t,n_forced)",
+    ]
+    .iter()
+    .map(|x| x.to_string())
+    .collect()
 }
 
 /// Startuje przechwytywanie. `zglos` dostaje opis błędu, gdy ffmpeg nieoczekiwanie przestanie działać.
@@ -186,7 +148,9 @@ pub fn uruchom(cfg: &Config, bufor: WspolnyBufor, zglos: impl Fn(String) + Send 
     let (w, h) = (monitor.width()?, monitor.height()?);
     let fps = cfg.fps;
     let nazwa = if cfg.monitor.is_empty() { "główny".to_string() } else { cfg.monitor.clone() };
-    println!("Wideo: monitor {nazwa} {w}x{h}, {fps} FPS, {} {} Mb/s", cfg.enkoder, cfg.bitrate_mbps);
+    let enkoder = enkodery::do_nagrywania(&cfg.enkoder);
+    let format = enkodery::format_strumienia(enkoder);
+    crate::dziennik::info(&format!("Wideo: monitor {nazwa} {w}x{h}, {fps} FPS, {enkoder} {} Mb/s", cfg.bitrate_mbps));
 
     let rozmiar_klatki = (w * h * 4) as usize;
     let problem: Problem = Arc::new(Mutex::new(None));
@@ -208,8 +172,9 @@ pub fn uruchom(cfg: &Config, bufor: WspolnyBufor, zglos: impl Fn(String) + Send 
     let ffmpeg = crate::ffmpeg::komenda()
         .args(["-hide_banner", "-loglevel", "error"])
         .args(["-f", "rawvideo", "-pix_fmt", "bgra", "-s", &format!("{w}x{h}"), "-framerate", &fps.to_string(), "-i", "-"])
-        .args(argumenty_enkodera(cfg))
-        .args(["-f", format_strumienia(&cfg.enkoder), "-"])
+        .args(enkodery::argumenty_nagrywania(enkoder, fps))
+        .args(argumenty_strumienia(cfg))
+        .args(["-f", format, "-"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -277,7 +242,7 @@ pub fn uruchom(cfg: &Config, bufor: WspolnyBufor, zglos: impl Fn(String) + Send 
 
     // Wątek czytający: dzieli strumień H.264 na klatki i wrzuca je do bufora
     let stop_czytania = stop.clone();
-    let kodek_strumienia = kodek(&cfg.enkoder);
+    let kodek_strumienia = enkodery::kodek(enkoder);
     let proces_czytania = proces.clone();
     std::thread::Builder::new().name("wideo-odczyt".into()).spawn(move || {
         let mut parser = Dzielnik::nowy(kodek_strumienia);
@@ -309,7 +274,7 @@ pub fn uruchom(cfg: &Config, bufor: WspolnyBufor, zglos: impl Fn(String) + Send 
         }
     }).expect("wątek wideo-odczyt");
 
-    Ok(Wideo { sterowanie: Some(sterowanie), stop, proces, problem })
+    Ok(Wideo { sterowanie: Some(sterowanie), stop, proces, problem, format })
 }
 
 /// Dzieli surowy strumień enkodera na klatki i rozpoznaje klatki kluczowe:

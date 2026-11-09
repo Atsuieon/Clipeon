@@ -195,7 +195,7 @@ impl Rdzen {
                 bufory_audio.push((nazwa, b));
             }
         }
-        let format_wideo = wideo::format_strumienia(&cfg.enkoder);
+        let format_wideo = wideo.format;
         Ok(Sesja { _wideo: wideo, _audio: audio_, bufor_wideo, bufory_audio, format_wideo })
     }
 

@@ -1,0 +1,42 @@
+name: Zgłoś błąd / Bug report
+description: Coś nie działa tak, jak powinno
+labels: ["błąd"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Dzięki za zgłoszenie! Najbardziej pomaga **dziennik zdarzeń**: prawy klik na ikonie Clippera przy zegarze →
+        „Pokaż dziennik zdarzeń” → załącz plik `clipper.log` (albo wklej jego koniec).
+        Przed wysłaniem przejrzyj go — zawiera ścieżki do plików na Twoim komputerze.
+  - type: textarea
+    id: opis
+    attributes:
+      label: Co się stało?
+      description: Co robiłeś, czego się spodziewałeś i co się stało zamiast tego.
+    validations:
+      required: true
+  - type: textarea
+    id: kroki
+    attributes:
+      label: Jak to powtórzyć?
+      placeholder: |
+        1. ...
+        2. ...
+  - type: input
+    id: wersja
+    attributes:
+      label: Wersja Clippera
+      description: Na dole Ustawień, np. 1.0.0
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Windows i karta graficzna
+      placeholder: np. Windows 11 24H2, AMD Radeon RX 7900 XTX
+  - type: textarea
+    id: dziennik
+    attributes:
+      label: Dziennik zdarzeń (clipper.log)
+      description: Wklej końcówkę pliku albo przeciągnij go tutaj.
+      render: text

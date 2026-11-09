@@ -1,0 +1,81 @@
+# Wydanie: po wypchnięciu tagu v* (np. v1.0.0) budujemy instalator z FFmpeg (LGPL) i dołączamy go do Release.
+name: Wydanie
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  instalator:
+    runs-on: windows-latest
+    env:
+      FFMPEG_ZIP: ffmpeg-n9.0-latest-win64-lgpl-9.0.zip
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Wersja z tagu zgadza się z Cargo.toml
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}".TrimStart('v')
+          $cargo = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          if ($tag -ne $cargo) { throw "Tag v$tag nie zgadza się z wersją w Cargo.toml ($cargo)" }
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: FFmpeg (LGPL) do instalatora
+        shell: pwsh
+        run: |
+          $url = "https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/latest/$env:FFMPEG_ZIP"
+          Invoke-WebRequest $url -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-zip
+          $bin = Get-ChildItem ffmpeg-zip -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+          $licencja = Get-ChildItem ffmpeg-zip -Recurse -Filter LICENSE.txt | Select-Object -First 1
+          New-Item -ItemType Directory -Force zasoby/ffmpeg | Out-Null
+          Copy-Item $bin.FullName zasoby/ffmpeg/ffmpeg.exe
+          Copy-Item $licencja.FullName zasoby/ffmpeg/LICENSE.txt
+          & zasoby/ffmpeg/ffmpeg.exe -hide_banner -version | Out-File -Encoding utf8 zasoby/ffmpeg/WERSJA.txt
+          "Źródło: $url" | Out-File -Append -Encoding utf8 zasoby/ffmpeg/WERSJA.txt
+          # Build musi być LGPL i mieć enkodery wszystkich producentów
+          $wersja = Get-Content zasoby/ffmpeg/WERSJA.txt -Raw
+          if ($wersja -match '--enable-gpl') { throw "To nie jest build LGPL" }
+          $enkodery = & zasoby/ffmpeg/ffmpeg.exe -hide_banner -encoders
+          foreach ($e in 'h264_amf','hevc_amf','av1_amf','h264_nvenc','hevc_nvenc','h264_qsv','hevc_qsv','h264_mf','aac') {
+            if (-not ($enkodery -match "\s$e\s")) { throw "Brak enkodera $e w buildzie FFmpeg" }
+          }
+          Get-Content zasoby/ffmpeg/WERSJA.txt -TotalCount 1
+
+      - name: Instalator
+        shell: pwsh
+        run: npx --yes @tauri-apps/cli@2 build --config instalator/tauri.ffmpeg.json
+
+      - name: Opis wydania
+        shell: pwsh
+        run: |
+          $ffmpeg = Get-Content zasoby/ffmpeg/WERSJA.txt -TotalCount 1
+          $zmiany = Get-Content CHANGELOG.md -Raw
+          @"
+          $zmiany
+
+          ---
+          **Instalacja:** pobierz plik ``Clipper_*_x64-setup.exe`` poniżej i uruchom go. Instalator nie jest podpisany,
+          więc Windows SmartScreen może pokazać ostrzeżenie — kliknij *Więcej informacji → Uruchom mimo to*.
+
+          W zestawie: $ffmpeg (LGPL, [FFmpeg-Builds](https://github.com/FFmpeg-Builds/FFmpeg-Builds),
+          źródła: https://github.com/FFmpeg/FFmpeg/tree/release/9.0).
+          "@ | Out-File -Encoding utf8 opis.md
+
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          name: Clipper ${{ github.ref_name }}
+          body_path: opis.md
+          files: target/release/bundle/nsis/*-setup.exe
