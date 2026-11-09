@@ -108,7 +108,7 @@ fn znacznik_czasu() -> String {
 
 /// Wolna nazwa pliku z datą; drugi zapis w tej samej sekundzie dostaje sufiks, żeby nie nadpisać klipu.
 fn nowa_nazwa(folder: &Path) -> PathBuf {
-    let baza = format!("Clipper_{}", znacznik_czasu());
+    let baza = format!("Clipeon_{}", znacznik_czasu());
     let mut plik = folder.join(format!("{baza}.mp4"));
     let mut i = 2;
     while plik.exists() {

@@ -1,4 +1,4 @@
-// Okno Clippera: zakładki Klipy i Ustawienia. Rozmawia z rdzeniem przez komendy Tauri.
+// Okno Clipeona: zakładki Klipy i Ustawienia. Rozmawia z rdzeniem przez komendy Tauri.
 const { invoke, convertFileSrc } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
@@ -83,7 +83,7 @@ function pokazStan(s) {
   const problem = s.bledy[0] || (s.wznawianie && `Wznawiam nagrywanie: ${s.wznawianie}`);
   $("baner").hidden = !problem;
   if (problem) {
-    $("baner-tytul").textContent = s.bledy.length ? "Clipper ma problem" : "Clipper wznawia nagrywanie";
+    $("baner-tytul").textContent = s.bledy.length ? "Clipeon ma problem" : "Clipeon wznawia nagrywanie";
     $("baner-opis").textContent = problem;
     $("baner-kropka").className = "kropka " + (s.bledy.length ? "blad" : "wznawianie");
   }
@@ -876,7 +876,7 @@ function odswiezFormularz() {
   $("sprz-dni").disabled = !$("sprz-dni-wl").checked;
   $("sprz-gb").disabled = !$("sprz-gb-wl").checked;
   const uwagi = {
-    hevc_amf: "Podgląd w Clipperze wymaga rozszerzenia HEVC z Microsoft Store, a Discord w przeglądarce może takiego klipu nie odtworzyć.",
+    hevc_amf: "Podgląd w Clipeonie wymaga rozszerzenia HEVC z Microsoft Store, a Discord w przeglądarce może takiego klipu nie odtworzyć.",
     av1_amf: "Karty Radeon RX 7000 zapisują ten format w 1920×1082 — na dole klipu są 2 czarne linie.",
   };
   const wybrany = $("enkoder").value;

@@ -5,8 +5,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        Dzięki za zgłoszenie! Najbardziej pomaga **dziennik zdarzeń**: prawy klik na ikonie Clippera przy zegarze →
-        „Pokaż dziennik zdarzeń” → załącz plik `clipper.log` (albo wklej jego koniec).
+        Dzięki za zgłoszenie! Najbardziej pomaga **dziennik zdarzeń**: prawy klik na ikonie Clipeona przy zegarze →
+        „Pokaż dziennik zdarzeń” → załącz plik `clipeon.log` (albo wklej jego koniec).
         Przed wysłaniem przejrzyj go — zawiera ścieżki do plików na Twoim komputerze.
   - type: textarea
     id: opis
@@ -25,7 +25,7 @@ body:
   - type: input
     id: wersja
     attributes:
-      label: Wersja Clippera
+      label: Wersja Clipeona
       description: Na dole Ustawień, np. 1.0.0
     validations:
       required: true
@@ -37,6 +37,6 @@ body:
   - type: textarea
     id: dziennik
     attributes:
-      label: Dziennik zdarzeń (clipper.log)
+      label: Dziennik zdarzeń (clipeon.log)
       description: Wklej końcówkę pliku albo przeciągnij go tutaj.
       render: text

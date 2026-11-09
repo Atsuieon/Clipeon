@@ -24,7 +24,7 @@ pub enum Zdarzenie {
     Stan(Stan),
     Zapisano(PathBuf),
     BladZapisu(String),
-    /// Trwały alarm „Clipper nie nagrywa” (Some) albo koniec problemu (None)
+    /// Trwały alarm „Clipeon nie nagrywa” (Some) albo koniec problemu (None)
     Alarm(Option<String>),
 }
 
@@ -266,7 +266,7 @@ impl Rdzen {
             let opis = if pauza {
                 "Nagrywanie jest wstrzymane — wznów je, żeby zapisywać klipy"
             } else {
-                "Nagrywanie teraz nie działa — Clipper próbuje je wznowić"
+                "Nagrywanie teraz nie działa — Clipeon próbuje je wznowić"
             };
             powiadom(Zdarzenie::BladZapisu(opis.into()));
             return;
@@ -367,7 +367,7 @@ impl Rdzen {
                 }
 
                 // Alarm: dowolny problem trwający ponad 5 s; zdejmujemy, gdy wszystko wróci do normy
-                // Pierwsza litera wielka — tytuł dymka mówi już „Clipper nie nagrywa”
+                // Pierwsza litera wielka — tytuł dymka mówi już „Clipeon nie nagrywa”
                 let wielka = |t: String| {
                     let mut z = t.chars();
                     z.next().map(|c| c.to_uppercase().chain(z).collect::<String>()).unwrap_or_default()

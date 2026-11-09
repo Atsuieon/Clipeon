@@ -1,5 +1,5 @@
 // Uruchamianie ffmpeg bez okna konsoli. Kolejność szukania: ffmpeg dostarczony z instalatorem
-// (folder „ffmpeg” obok Clipper.exe), potem ffmpeg z PATH (z pominięciem pośrednika chocolatey).
+// (folder „ffmpeg” obok Clipeon.exe), potem ffmpeg z PATH (z pominięciem pośrednika chocolatey).
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Command;
