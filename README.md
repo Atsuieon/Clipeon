@@ -89,25 +89,6 @@ Clipper działa wyłącznie na Twoim komputerze. Klipy, nagrania i ustawienia ni
 Nie ma telemetrii ani analityki. Jedyne połączenie z internetem to raz dziennie zapytanie do GitHuba, czy jest nowa
 wersja (Ustawienia → Aktualizacje — można wyłączyć).
 
-## Budowanie ze źródeł
-
-Potrzebne: [Rust](https://rustup.rs) (stable, MSVC), Visual Studio Build Tools, `ffmpeg` w PATH
-(do testów lokalnych) oraz Tauri CLI:
-
-```powershell
-cargo install tauri-cli --version "^2" --locked
-git clone https://github.com/Atsuieon/Clipper
-cd Clipper
-cargo run                 # wersja deweloperska (z konsolą)
-cargo tauri build         # instalator: target\release\bundle\nsis\
-```
-
-Żeby dołączyć FFmpeg do instalatora, wypakuj `ffmpeg.exe` (build LGPL, np. z
-[FFmpeg-Builds](https://github.com/FFmpeg-Builds/FFmpeg-Builds)) do `zasoby\ffmpeg\` i zbuduj z
-`cargo tauri build --config instalator/tauri.ffmpeg.json` — tak robi to workflow wydań.
-
-Struktura: `src/` — rdzeń w Rust (przechwytywanie WGC, enkodery, bufor, zapis, strażnik, edycja),
-`ui/` — okno (HTML/CSS/JS bez bundlera), `instalator/` — dodatki do instalatora NSIS.
 
 ## Znane ograniczenia
 
