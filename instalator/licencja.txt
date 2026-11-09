@@ -1,8 +1,8 @@
-﻿Clipper 1.0.0 — by Atsuieon
-https://github.com/Atsuieon/Clipper
+﻿Clipeon 1.1.0 — by Atsuieon
+https://github.com/Atsuieon/Clipeon
 
-Clipper jest darmowy i udostępniony na licencji MIT (treść poniżej).
-Clipper is free software released under the MIT License (text below).
+Clipeon jest darmowy i udostępniony na licencji MIT (treść poniżej).
+Clipeon is free software released under the MIT License (text below).
 
 W zestawie jest FFmpeg (https://ffmpeg.org) w wariancie LGPL 2.1+, zbudowany przez
 FFmpeg-Builds (https://github.com/FFmpeg-Builds/FFmpeg-Builds). Pełna licencja FFmpeg
@@ -12,6 +12,9 @@ Szczegóły: THIRD_PARTY_NOTICES.md w folderze instalacji i w repozytorium.
 
 Prywatność: klipy nigdy nie opuszczają komputera. Jedyne połączenie z internetem to
 sprawdzanie, czy na GitHubie jest nowa wersja (można je wyłączyć w Ustawieniach).
+
+Jeśli masz zainstalowanego Clippera 1.0 (poprzednia nazwa), instalator zastąpi go Clipeonem.
+Klipy i ustawienia zostaną.
 
 ------------------------------------------------------------------------------
 

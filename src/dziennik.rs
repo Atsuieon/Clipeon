@@ -1,4 +1,4 @@
-// Dziennik zdarzeń w %APPDATA%\Clipper\logs\clipper.log (z rotacją: najwyżej 3 pliki po 1 MB).
+// Dziennik zdarzeń w %APPDATA%\Clipeon\logs\clipeon.log (z rotacją: najwyżej 3 pliki po 1 MB).
 // Trafiają tu błędy, wznowienia nagrywania i awarie wątków — żeby dało się sprawdzić, co się stało.
 use std::io::Write;
 use std::path::PathBuf;
@@ -9,11 +9,11 @@ const PLIKOW: u32 = 3;
 
 pub fn folder() -> PathBuf {
     let baza = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-    baza.join("Clipper").join("logs")
+    baza.join("Clipeon").join("logs")
 }
 
 pub fn plik() -> PathBuf {
-    folder().join("clipper.log")
+    folder().join("clipeon.log")
 }
 
 fn znacznik_czasu() -> String {
@@ -28,11 +28,11 @@ pub fn zapisz(poziom: &str, tekst: &str) {
     eprintln!("[{poziom}] {tekst}");
     let sciezka = plik();
     let _ = std::fs::create_dir_all(folder());
-    // Rotacja: clipper.log -> clipper.1.log -> clipper.2.log
+    // Rotacja: clipeon.log -> clipeon.1.log -> clipeon.2.log
     if std::fs::metadata(&sciezka).is_ok_and(|m| m.len() > MAKS_ROZMIAR) {
         for i in (1..PLIKOW).rev() {
-            let z = if i == 1 { sciezka.clone() } else { folder().join(format!("clipper.{}.log", i - 1)) };
-            let _ = std::fs::rename(z, folder().join(format!("clipper.{i}.log")));
+            let z = if i == 1 { sciezka.clone() } else { folder().join(format!("clipeon.{}.log", i - 1)) };
+            let _ = std::fs::rename(z, folder().join(format!("clipeon.{i}.log")));
         }
     }
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&sciezka) {

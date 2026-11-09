@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Clipper",
-  "mainBinaryName": "Clipper",
-  "version": "1.0.0",
+  "productName": "Clipeon",
+  "mainBinaryName": "Clipeon",
+  "version": "1.1.0",
   "identifier": "pl.clipper.app",
   "build": {
     "frontendDist": "ui"
@@ -27,8 +27,8 @@
     "copyright": "© 2026 Atsuieon",
     "category": "Video",
     "shortDescription": "Lekkie nagrywanie powtórek z gier",
-    "longDescription": "Clipper nagrywa w tle ostatnie sekundy gry i zapisuje je jako klip jednym skrótem.",
-    "homepage": "https://github.com/Atsuieon/Clipper",
+    "longDescription": "Clipeon nagrywa w tle ostatnie sekundy gry i zapisuje je jako klip jednym skrótem.",
+    "homepage": "https://github.com/Atsuieon/Clipeon",
     "licenseFile": "instalator/licencja.txt",
     "icon": [
       "icons/32x32.png",
@@ -51,7 +51,7 @@
         "displayLanguageSelector": true,
         "installerIcon": "icons/icon.ico",
         "installerHooks": "instalator/hooks.nsh",
-        "startMenuFolder": "Clipper",
+        "startMenuFolder": "Clipeon",
         "customLanguageFiles": {
           "Polish": "instalator/Polish.nsh"
         }

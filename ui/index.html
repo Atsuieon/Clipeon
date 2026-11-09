@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Clipper</title>
+  <title>Clipeon</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -11,7 +11,7 @@
   <div class="belka" data-tauri-drag-region>
     <div class="belka-tytul" data-tauri-drag-region>
       <svg class="belka-logo" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5" class="pelne"/></svg>
-      <span data-tauri-drag-region>Clipper</span>
+      <span data-tauri-drag-region>Clipeon</span>
     </div>
     <div class="belka-przyciski">
       <button class="okno-przycisk" id="okno-min" title="Minimalizuj" aria-label="Minimalizuj"></button>
@@ -21,7 +21,7 @@
   </div>
   <div class="panel">
     <header class="gora">
-      <div class="marka">Clipper</div>
+      <div class="marka">Clipeon</div>
       <nav class="zakladki" role="tablist">
         <button class="zakladka" data-zakladka="klipy" role="tab">Klipy</button>
         <button class="zakladka" data-zakladka="ustawienia" role="tab">Ustawienia</button>
@@ -87,7 +87,7 @@
           <div class="karty">
             <div class="karta">
               <h3>Ile ostatnich sekund zapisywać</h3>
-              <p class="pomoc">Clipper cały czas pamięta tyle ostatnich sekund gry. Po wciśnięciu skrótu zapisuje je jako klip.</p>
+              <p class="pomoc">Clipeon cały czas pamięta tyle ostatnich sekund gry. Po wciśnięciu skrótu zapisuje je jako klip.</p>
               <div class="wiersz">
                 <input type="range" id="bufor" min="5" max="300" step="5" aria-label="Ile ostatnich sekund zapisywać">
                 <span class="wartosc" id="bufor-wartosc"></span>
@@ -158,7 +158,7 @@
 
             <div class="karta">
               <h3>Automatyczne porządki</h3>
-              <p class="pomoc">Clipper sam przenosi stare klipy do Kosza, żeby nie zapchały dysku (da się je przywrócić). Przycięte i zmniejszone wersje z ostatniej doby zostają.</p>
+              <p class="pomoc">Clipeon sam przenosi stare klipy do Kosza, żeby nie zapchały dysku (da się je przywrócić). Przycięte i zmniejszone wersje z ostatniej doby zostają.</p>
               <label class="przelacznik"><input type="checkbox" id="sprz-dni-wl"><span class="suwak"></span>Usuwaj klipy starsze niż</label>
               <div class="wiersz-liczby"><input type="number" id="sprz-dni" min="1" max="3650" aria-label="Liczba dni"><span class="pomoc">dni</span></div>
               <label class="przelacznik"><input type="checkbox" id="sprz-gb-wl"><span class="suwak"></span>Nie pozwalaj, żeby klipy zajęły więcej niż</label>
@@ -170,14 +170,14 @@
           <div class="karty">
             <div class="karta">
               <h3>Uruchamianie</h3>
-              <p class="pomoc">Clipper działa w tle jako ikona przy zegarze.</p>
+              <p class="pomoc">Clipeon działa w tle jako ikona przy zegarze.</p>
               <label class="przelacznik"><input type="checkbox" id="autostart"><span class="suwak"></span>Uruchamiaj razem z Windows</label>
               <label class="przelacznik"><input type="checkbox" id="ikona-zegar"><span class="suwak"></span>Ikona zawsze widoczna przy zegarze</label>
             </div>
 
             <div class="karta">
               <h3>Aktualizacje</h3>
-              <p class="pomoc">Clipper raz dziennie pyta GitHuba, czy jest nowa wersja. To jedyne połączenie z internetem — klipy nigdy nie opuszczają komputera.</p>
+              <p class="pomoc">Clipeon raz dziennie pyta GitHuba, czy jest nowa wersja. To jedyne połączenie z internetem — klipy nigdy nie opuszczają komputera.</p>
               <label class="przelacznik"><input type="checkbox" id="aktualizacje"><span class="suwak"></span>Sprawdzaj, czy jest nowa wersja</label>
               <div class="wiersz-akt">
                 <button type="button" class="przycisk drugorzedny" id="sprawdz-teraz">Sprawdź teraz</button>
@@ -186,7 +186,7 @@
             </div>
           </div>
         </form>
-        <p class="o-programie">Clipper <span id="wersja"></span> · by <a href="#" id="autor">Atsuieon</a></p>
+        <p class="o-programie">Clipeon <span id="wersja"></span> · by <a href="#" id="autor">Atsuieon</a></p>
         <div class="stopka">
           <span class="pomoc" id="komunikat" role="status"></span>
           <button class="przycisk glowny" id="zapisz-ustawienia">Zapisz zmiany</button>

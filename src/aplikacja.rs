@@ -48,7 +48,7 @@ fn pokaz_okno(app: &AppHandle, zakladka: &str) {
     let (app, url) = (app.clone(), format!("index.html#{zakladka}"));
     std::thread::spawn(move || {
         let wynik = WebviewWindowBuilder::new(&app, "main", WebviewUrl::App(url.into()))
-            .title("Clipper")
+            .title("Clipeon")
             .inner_size(1120.0, 740.0)
             .min_inner_size(760.0, 520.0)
             .background_color(Color(0, 0, 0, 255))
@@ -85,7 +85,7 @@ fn ciemna_obwodka(okno: &tauri::WebviewWindow) {
     }
 }
 
-/// Ustawia widoczność ikony przy zegarze i zapamiętuje, że Clipper już to zrobił.
+/// Ustawia widoczność ikony przy zegarze i zapamiętuje, że Clipeon już to zrobił.
 /// Windows czyta to ustawienie tylko przy dodawaniu ikony, więc po zapisie dodajemy ją ponownie.
 fn ustaw_ikone(app: &AppHandle, rdzen: &Rdzen, widoczna: bool) {
     let (r, app) = (rdzen.clone(), app.clone());
@@ -113,7 +113,7 @@ fn pokaz_stan(app: &AppHandle, stan: &Stan) {
     if let Some(t) = app.tray_by_id(ID_ZASOBNIKA) {
         let _ = t.set_icon(Some(ikona::ikona(kolor)));
         // Windows przycina podpowiedź do 127 znaków
-        let _ = t.set_tooltip(Some(format!("Clipper — {opis}").chars().take(120).collect::<String>()));
+        let _ = t.set_tooltip(Some(format!("Clipeon — {opis}").chars().take(120).collect::<String>()));
     }
     if let Some(m) = app.try_state::<PozycjeMenu>() {
         let znak = if kolor == ikona::ZIELONY { "●" } else { "○" };
@@ -146,22 +146,22 @@ fn obsluz_zdarzenie(app: &AppHandle, z: Zdarzenie) {
             }
             pokaz_dymek(app, &cfg.monitor, "Nie udało się zapisać klipu", &e, true, false);
         }
-        // Clipper nie nagrywa: dymek wisi do czasu naprawy albo kliknięcia (kliknięcie otwiera okno)
+        // Clipeon nie nagrywa: dymek wisi do czasu naprawy albo kliknięcia (kliknięcie otwiera okno)
         Zdarzenie::Alarm(Some(opis)) => {
             if cfg.dzwiek_zapisu {
                 crate::dzwiek::zagraj_blad();
             }
-            pokaz_dymek(app, &cfg.monitor, "Clipper nie nagrywa", &opis, true, true);
+            pokaz_dymek(app, &cfg.monitor, "Clipeon nie nagrywa", &opis, true, true);
         }
         Zdarzenie::Alarm(None) => {
             crate::powiadomienie::ukryj();
-            pokaz_dymek(app, &cfg.monitor, "Nagrywanie znów działa", "Clipper sam wznowił nagrywanie", false, false);
+            pokaz_dymek(app, &cfg.monitor, "Nagrywanie znów działa", "Clipeon sam wznowił nagrywanie", false, false);
         }
     }
 }
 
 /// Dymek w prawym górnym rogu monitora z grą (nagrywanego) — patrz powiadomienie.rs.
-/// `trwaly` = wisi do naprawy problemu, a kliknięcie otwiera okno Clippera.
+/// `trwaly` = wisi do naprawy problemu, a kliknięcie otwiera okno Clipeona.
 fn pokaz_dymek(app: &AppHandle, monitor: &str, tytul: &str, opis: &str, blad: bool, trwaly: bool) {
     let m = app
         .available_monitors()
@@ -364,6 +364,21 @@ async fn info_klipu(app: AppHandle, sciezka: PathBuf) -> Result<klipy::Info, Str
     tauri::async_runtime::spawn_blocking(move || klipy::info(&klip)).await.map_err(|e| e.to_string())?
 }
 
+/// Migracja z wersji 1.0 (nazwa „Clipper”): stary wpis autostartu wskazuje na stary program —
+/// usuwamy go i, jeśli był włączony, włączamy autostart Clipeona.
+fn przenies_autostart_z_clippera(app: &AppHandle) {
+    const RUN: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+    let Ok(klucz) = windows_registry::CURRENT_USER.options().read().write().open(RUN) else { return };
+    if klucz.get_string("Clipper").is_err() {
+        return;
+    }
+    let _ = klucz.remove_value("Clipper");
+    match app.autolaunch().enable() {
+        Ok(()) => crate::dziennik::info("Przeniesiono autostart z Clippera 1.0 na Clipeona"),
+        Err(e) => crate::dziennik::blad(&format!("Nie udało się przenieść autostartu: {e}")),
+    }
+}
+
 /// Monitory do wyboru w ustawieniach.
 #[tauri::command]
 fn monitory() -> Vec<(String, String)> {
@@ -424,7 +439,7 @@ fn otworz_folder(rdzen: State<'_, Rdzen>) {
 
 pub fn uruchom() {
     crate::dziennik::przechwytuj_awarie();
-    crate::dziennik::info("Start Clippera");
+    crate::dziennik::info("Start Clipeona");
     tauri::Builder::default()
         // Druga kopia programu tylko pokazuje okno pierwszej (skrót i enkoder są jedne)
         .plugin(tauri_plugin_single_instance::init(|app, _, _| pokaz_okno(app, "klipy")))
@@ -479,7 +494,7 @@ pub fn uruchom() {
 
             TrayIconBuilder::with_id(ID_ZASOBNIKA)
                 .icon(ikona::ikona(ikona::ZIELONY))
-                .tooltip("Clipper")
+                .tooltip("Clipeon")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, e| {
@@ -502,7 +517,7 @@ pub fn uruchom() {
                                     let monitor = app.state::<Rdzen>().config().monitor;
                                     let (tytul, opis) = match sprawdz_aktualizacje_teraz(&app) {
                                         Ok(Some(w)) => (format!("Dostępna wersja {}", w.wersja), "Kliknij w menu ikony, żeby ją pobrać".to_string()),
-                                        Ok(None) => ("Masz najnowszą wersję".to_string(), format!("Clipper {}", crate::aktualizacje::WERSJA)),
+                                        Ok(None) => ("Masz najnowszą wersję".to_string(), format!("Clipeon {}", crate::aktualizacje::WERSJA)),
                                         Err(e) => ("Nie udało się sprawdzić".to_string(), e),
                                     };
                                     pokaz_dymek(&app, &monitor, &tytul, &opis, false, false);
@@ -543,6 +558,9 @@ pub fn uruchom() {
                     std::thread::sleep(std::time::Duration::from_secs(24 * 3600));
                 }
             });
+            if crate::config::PRZENIESIONO.load(std::sync::atomic::Ordering::SeqCst) {
+                przenies_autostart_z_clippera(app.handle());
+            }
             // Raz (przy pierwszym starcie) wyciągamy ikonę z ukrytych przy zegarze; jeśli użytkownik
             // potem schowa ją w Windows, już tego nie zmieniamy
             let c = rdzen.config();
@@ -562,7 +580,7 @@ pub fn uruchom() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("Nie udało się uruchomić Clippera")
+        .expect("Nie udało się uruchomić Clipeona")
         .run(|_, e| {
             // Zamknięcie okna nie kończy programu — nagrywanie działa dalej w zasobniku
             if let RunEvent::ExitRequested { api, code: None, .. } = e {

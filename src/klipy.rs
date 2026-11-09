@@ -36,7 +36,7 @@ pub fn lista(folder: &Path) -> Vec<Klip> {
 }
 
 /// Folder pamięci podręcznej miniatur: %LOCALAPPDATA%\pl.clipper.app\miniatury (folder danych
-/// aplikacji — instalator może go wyczyścić przy odinstalowaniu; %LOCALAPPDATA%\Clipper to folder programu).
+/// aplikacji — instalator może go wyczyścić przy odinstalowaniu; %LOCALAPPDATA%\Clipeon to folder programu).
 pub fn folder_miniatur() -> PathBuf {
     let baza = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     baza.join("pl.clipper.app").join("miniatury")

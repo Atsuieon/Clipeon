@@ -67,12 +67,12 @@ mod testy {
 
     #[test]
     fn rozpoznaje_wyniki_edycji() {
-        assert!(wynik_edycji("Clipper_2026-11-08_18-21-33_cut.mp4"));
-        assert!(wynik_edycji("Clipper_2026-11-08_18-21-33_cut_2.mp4"));
-        assert!(wynik_edycji("Clipper_2026-11-08_18-21-33_10MB.mp4"));
-        assert!(wynik_edycji("Clipper_2026-11-08_18-21-33_cut_100MB.mp4"));
-        assert!(wynik_edycji("Clipper_2026-11-08_18-21-33_audio.mp4"));
-        assert!(!wynik_edycji("Clipper_2026-11-08_18-21-33.mp4"));
-        assert!(!wynik_edycji("Clipper_2026-11-08_18-21-33_2.mp4"));
+        assert!(wynik_edycji("Clipeon_2026-11-08_18-21-33_cut.mp4"));
+        assert!(wynik_edycji("Clipeon_2026-11-08_18-21-33_cut_2.mp4"));
+        assert!(wynik_edycji("Clipeon_2026-11-08_18-21-33_10MB.mp4"));
+        assert!(wynik_edycji("Clipeon_2026-11-08_18-21-33_cut_100MB.mp4"));
+        assert!(wynik_edycji("Clipeon_2026-11-08_18-21-33_audio.mp4"));
+        assert!(!wynik_edycji("Clipeon_2026-11-08_18-21-33.mp4"));
+        assert!(!wynik_edycji("Clipeon_2026-11-08_18-21-33_2.mp4"));
     }
 }

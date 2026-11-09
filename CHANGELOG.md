@@ -1,6 +1,13 @@
 # Zmiany
 
-## 1.0.0 — pierwsze wydanie
+## 1.1.0
+
+- Nowa nazwa: **Clipeon** (wcześniej Clipper). Instalator sam usuwa starą wersję, a Clipeon przejmuje
+  ustawienia, autostart i folder z klipami — nic nie trzeba robić ręcznie.
+- Nowe klipy mają nazwy `Clipeon_RRRR-MM-DD_GG-MM-SS.mp4`; dotychczasowe zostają bez zmian.
+- Repozytorium: https://github.com/Atsuieon/Clipeon (stary adres przekierowuje).
+
+## 1.0.0 — pierwsze wydanie (jako Clipper)
 
 - Nagrywanie w tle ostatnich 10–300 s gry (domyślnie 30 s) i zapis klipu jednym skrótem (domyślnie Alt+F10).
 - Kodowanie na karcie graficznej: AMD AMF, NVIDIA NVENC, Intel Quick Sync — wykrywane automatycznie;

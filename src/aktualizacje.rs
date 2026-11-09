@@ -1,10 +1,10 @@
-// Sprawdzanie aktualizacji: jedno zapytanie do GitHub Releases (Atsuieon/Clipper) przy starcie
-// i raz na dobę. To jedyne połączenie Clippera z internetem; można je wyłączyć w ustawieniach.
+// Sprawdzanie aktualizacji: jedno zapytanie do GitHub Releases (Atsuieon/Clipeon) przy starcie
+// i raz na dobę. To jedyne połączenie Clipeona z internetem; można je wyłączyć w ustawieniach.
 use serde::Serialize;
 use std::time::Duration;
 
-pub const REPOZYTORIUM: &str = "https://github.com/Atsuieon/Clipper";
-const API: &str = "https://api.github.com/repos/Atsuieon/Clipper/releases/latest";
+pub const REPOZYTORIUM: &str = "https://github.com/Atsuieon/Clipeon";
+const API: &str = "https://api.github.com/repos/Atsuieon/Clipeon/releases/latest";
 
 /// Wersja tego programu (z Cargo.toml).
 pub const WERSJA: &str = env!("CARGO_PKG_VERSION");
@@ -12,7 +12,7 @@ pub const WERSJA: &str = env!("CARGO_PKG_VERSION");
 #[derive(Clone, Serialize)]
 pub struct Wydanie {
     pub wersja: String,
-    /// Strona wydania na GitHubie (zawsze w obrębie repozytorium Clippera)
+    /// Strona wydania na GitHubie (zawsze w obrębie repozytorium Clipeona)
     pub strona: String,
 }
 
@@ -33,7 +33,7 @@ pub fn sprawdz() -> Result<Option<Wydanie>, String> {
     let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(15))).build().into();
     let tekst = agent
         .get(API)
-        .header("User-Agent", &format!("Clipper/{WERSJA}"))
+        .header("User-Agent", &format!("Clipeon/{WERSJA}"))
         .header("Accept", "application/vnd.github+json")
         .call()
         .map_err(|e| format!("Nie udało się sprawdzić aktualizacji: {e}"))?
@@ -51,7 +51,7 @@ pub fn sprawdz() -> Result<Option<Wydanie>, String> {
     Ok(nowsza(tag, WERSJA).then(|| Wydanie { wersja: tag.trim_start_matches(['v', 'V']).to_string(), strona }))
 }
 
-/// Otwiera stronę w domyślnej przeglądarce (tylko adresy repozytorium Clippera).
+/// Otwiera stronę w domyślnej przeglądarce (tylko adresy repozytorium Clipeona).
 pub fn otworz(adres: &str) {
     if adres.starts_with(REPOZYTORIUM) {
         let _ = std::process::Command::new("explorer").arg(adres).spawn();

@@ -1,4 +1,4 @@
-// Clipper: lekki "instant replay" — trzyma ostatnie N sekund gry w RAM i zapisuje je na skrót.
+// Clipeon: lekki "instant replay" — trzyma ostatnie N sekund gry w RAM i zapisuje je na skrót.
 // W wersji release bez okna konsoli (program żyje w zasobniku).
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 

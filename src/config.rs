@@ -1,4 +1,4 @@
-// Konfiguracja z %APPDATA%\Clipper\config.toml.
+// Konfiguracja z %APPDATA%\Clipeon\config.toml.
 // Jeśli pliku nie ma, tworzymy go z wartościami domyślnymi.
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -24,7 +24,7 @@ pub struct Config {
     pub skrot: String,
     /// Ikona w zasobniku zawsze widoczna przy zegarze (a nie w ukrytych ikonach pod ^)
     pub ikona_przy_zegarze: bool,
-    /// Czy Clipper już raz ustawił widoczność ikony (później decyduje użytkownik w Windows)
+    /// Czy Clipeon już raz ustawił widoczność ikony (później decyduje użytkownik w Windows)
     pub ikona_ustawiona: bool,
     /// Dźwięk po zapisie klipu
     pub dzwiek_zapisu: bool,
@@ -52,7 +52,7 @@ impl Default for Config {
             enkoder: crate::enkodery::AUTO.into(),
             dzwiek_systemowy: true,
             mikrofon: true,
-            folder_klipow: profil.join("Videos").join("Clipper"),
+            folder_klipow: profil.join("Videos").join("Clipeon"),
             skrot: "Alt+F10".into(),
             ikona_przy_zegarze: true,
             ikona_ustawiona: false,
@@ -67,15 +67,19 @@ impl Default for Config {
     }
 }
 
+/// Czy przy tym starcie przeniesiono ustawienia z Clippera 1.0 (wtedy też autostart trzeba przenieść).
+pub static PRZENIESIONO: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 impl Config {
     fn sciezka() -> Result<PathBuf, String> {
         let appdata = std::env::var_os("APPDATA").ok_or("Brak zmiennej APPDATA")?;
-        Ok(PathBuf::from(appdata).join("Clipper").join("config.toml"))
+        Ok(PathBuf::from(appdata).join("Clipeon").join("config.toml"))
     }
 
     /// Wczytuje config (albo tworzy domyślny). Błąd składni pliku jest zgłaszany, a nie ignorowany.
     pub fn wczytaj() -> Result<Self, String> {
         let sciezka = Self::sciezka()?;
+        Self::przenies_z_clippera(&sciezka);
         if !sciezka.exists() {
             let domyslny = Config::default();
             domyslny.zapisz()?;
@@ -87,6 +91,27 @@ impl Config {
         cfg.sprawdz().map_err(|e| format!("Błąd w {}: {e}", sciezka.display()))?;
         println!("Config: {}", sciezka.display());
         Ok(cfg)
+    }
+
+    /// Migracja z wersji 1.0 (nazwa „Clipper”): ustawienia z %APPDATA%\Clipper trafiają do
+    /// %APPDATA%\Clipeon. Folder klipów zostaje taki, jaki był (klipów nie ruszamy).
+    /// Ikonę przy zegarze trzeba wyciągnąć jeszcze raz, bo Windows pamięta ją po ścieżce programu.
+    fn przenies_z_clippera(nowa: &std::path::Path) {
+        if nowa.exists() {
+            return;
+        }
+        let Some(appdata) = std::env::var_os("APPDATA") else { return };
+        let stara = PathBuf::from(appdata).join("Clipper").join("config.toml");
+        let Ok(tekst) = std::fs::read_to_string(&stara) else { return };
+        let Ok(mut cfg) = toml::from_str::<Config>(&tekst) else { return };
+        cfg.ikona_ustawiona = false;
+        match cfg.zapisz() {
+            Ok(()) => {
+                PRZENIESIONO.store(true, std::sync::atomic::Ordering::SeqCst);
+                crate::dziennik::info("Przeniesiono ustawienia z Clippera 1.0 do Clipeona")
+            }
+            Err(e) => crate::dziennik::blad(&format!("Nie udało się przenieść ustawień z Clippera: {e}")),
+        }
     }
 
     pub fn zapisz(&self) -> Result<(), String> {

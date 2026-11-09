@@ -1,151 +1,92 @@
 <p align="center">
-  <img src="icons/128x128@2x.png" width="96" alt="Clipper">
+  <img src="icons/128x128@2x.png" width="88" alt="">
 </p>
 
-<h1 align="center">Clipper</h1>
+<h1 align="center">Clipeon</h1>
+
+<p align="center">Zapisuj najlepsze momenty z gier jednym skrótem — bez nagrywania wszystkiego na dysk.</p>
 
 <p align="center">
-  Lekkie nagrywanie powtórek z gier dla Windows. Clipper cały czas pamięta ostatnie sekundy gry,<br>
-  a po wciśnięciu skrótu zapisuje je jako klip — bez nagrywania wszystkiego na dysk.
+  <a href="https://github.com/Atsuieon/Clipeon/releases/latest"><img alt="Pobierz dla Windows" src="https://img.shields.io/badge/Pobierz-Windows-ffffff?style=for-the-badge&labelColor=000000"></a>
+  <a href="https://github.com/Atsuieon/Clipeon/releases/latest"><img alt="Wersja" src="https://img.shields.io/github/v/release/Atsuieon/Clipeon?style=for-the-badge&label=wersja&labelColor=000000&color=1f1f1f"></a>
 </p>
 
-<p align="center">
-  <a href="https://github.com/Atsuieon/Clipper/releases/latest"><b>Pobierz instalator</b></a> ·
-  <a href="#english">English</a>
-</p>
+<p align="center"><img src="docs/screenshots/biblioteka.png" width="860" alt="Biblioteka klipów Clipeona"></p>
 
-![Biblioteka klipów](docs/screenshots/biblioteka.png)
+## Funkcje
 
-## Co potrafi
-
-- **Powtórka jednym skrótem** — ostatnie 10–300 s (domyślnie 30 s) zapisuje się po wciśnięciu **Alt+F10**, w ~0,3 s,
-  bez przerywania nagrywania. Ostatnie sekundy są trzymane w pamięci RAM (np. 30 s ≈ 80 MB), nie na dysku.
-- **Kodowanie na karcie graficznej** — AMD (AMF), NVIDIA (NVENC) i Intel (Quick Sync) wykrywane automatycznie;
-  gdy karta nie działa, awaryjnie procesor. Formaty H.264, HEVC i AV1. Obciążenie procesora ~2%.
-- **Dźwięk z gry i mikrofon** na osobnych ścieżkach (plus wspólny miks), więc w edytorze możesz ściszyć jedno albo drugie
-  albo wyciąć swój głos.
-- **Biblioteka** z podziałem na dni, miniaturami, zaznaczaniem wielu klipów (Ctrl / Shift) i usuwaniem do Kosza.
-- **Edytor** — przycinanie, zmniejszanie do **10 / 20 / 50 / 100 MB** (np. pod Discorda), głośność gry i mikrofonu.
-  Gotowy klip przeciągasz prosto do Discorda, Eksploratora albo przeglądarki.
-- **Potwierdzenie w grze** — krótki dźwięk i dymek w rogu ekranu, który nie zabiera fokusu z gry.
-- **Nie przestaje nagrywać po cichu** — strażnik sam wznawia nagrywanie po awarii sterownika, zmianie rozdzielczości
-  czy uśpieniu komputera, a gdy to się nie uda, pokazuje alarm. Wszystko trafia do dziennika zdarzeń.
-- **Automatyczne porządki** (opcjonalnie) — stare klipy trafiają do Kosza po X dniach albo po przekroczeniu X GB.
-
-| Edytor | Ustawienia |
-| --- | --- |
-| ![Edytor](docs/screenshots/edytor.png) | ![Ustawienia](docs/screenshots/ustawienia.png) |
-
-![Zaznaczanie wielu klipów](docs/screenshots/zaznaczanie.png)
+- **Ostatnie sekundy gry jednym skrótem** — wciśnij **Alt+F10**, a ostatnie 30 s (do ustawienia 10–300 s) zapisze się jako MP4.
+- **Lekki** — kodowanie na karcie graficznej (AMD, NVIDIA, Intel), ok. 2% procesora; nic nie trafia na dysk, dopóki nie zapiszesz.
+- **Dźwięk gry i mikrofon osobno** — w edytorze ściszysz jedno albo drugie albo zapiszesz klip bez swojego głosu.
+- **Edytor** — przycinanie i zmniejszanie do 10 / 20 / 50 / 100 MB, np. pod Discorda.
+- **Przeciągnij i upuść** — gotowy klip przeciągasz prosto do Discorda, przeglądarki albo folderu.
+- **Biblioteka** — klipy pogrupowane według dni, zaznaczanie wielu naraz, usuwanie do Kosza.
+- **Nie przestaje nagrywać po cichu** — sam wznawia nagrywanie po problemie ze sterownikiem i ostrzega, gdy coś nie działa.
 
 ## Wymagania
 
-- Windows 10 (2004 lub nowszy) albo Windows 11, 64-bit.
-- Karta graficzna ze sprzętowym kodowaniem wideo (AMD Radeon RX 400 lub nowsza, NVIDIA GTX 600 lub nowsza,
-  Intel HD Graphics 500 lub nowsza) — bez niej Clipper koduje procesorem, co mocniej obciąża komputer.
-- Gra w trybie **okna bez ramki** (borderless) — wtedy widać też dymek po zapisie. Pełny ekran wyłączny też jest nagrywany.
+- Windows 10 (wersja 2004 lub nowsza) albo Windows 11, 64-bit
+- Zalecana karta graficzna AMD Radeon RX 400+, NVIDIA GTX 600+ lub grafika Intel HD 500+ (bez niej Clipeon koduje procesorem)
 
-## Instalacja
+## Szybki start
 
-1. Pobierz `Clipper_x.y.z_x64-setup.exe` z [Releases](https://github.com/Atsuieon/Clipper/releases/latest).
-2. Uruchom instalator i przejdź przez kolejne kroki (nie wymaga uprawnień administratora).
-3. Clipper startuje w zasobniku obok zegara. Lewy klik na ikonie otwiera bibliotekę, prawy — menu.
+1. Pobierz `Clipeon_x.y.z_x64-setup.exe` z [najnowszego wydania](https://github.com/Atsuieon/Clipeon/releases/latest) i zainstaluj.
+2. Clipeon działa w tle — ikona przy zegarze. Kropka jest zielona, gdy nagrywa.
+3. Graj i wciśnij **Alt+F10**, gdy wydarzy się coś wartego zapisania. Klik w ikonę otwiera bibliotekę klipów.
 
-> **Ostrzeżenie SmartScreen:** instalator nie jest podpisany certyfikatem (to płatna usługa), więc Windows może
-> pokazać „System Windows ochronił ten komputer”. Kliknij **Więcej informacji → Uruchom mimo to**.
-> Kod jest otwarty, a instalator budowany automatycznie przez GitHub Actions z tego repozytorium.
+## Pytania
 
-FFmpeg jest w zestawie — nie trzeba niczego doinstalowywać.
+<details>
+<summary><b>Windows pokazuje „System Windows ochronił ten komputer”.</b></summary>
 
-## Skróty i obsługa
+Instalator nie jest podpisany płatnym certyfikatem, więc SmartScreen go nie zna. Kliknij **Więcej informacji → Uruchom mimo to**.
+Instalator jest budowany automatycznie z kodu w tym repozytorium.
+</details>
 
-| Co | Jak |
-| --- | --- |
-| Zapisz ostatnie sekundy | **Alt+F10** (do zmiany w Ustawieniach) |
-| Otwórz bibliotekę | lewy klik na ikonie przy zegarze |
-| Wstrzymaj nagrywanie, ustawienia, dziennik | prawy klik na ikonie |
-| Zaznacz kilka klipów | Ctrl + klik, Shift + klik (zakres), Esc — odznacz |
-| Przeciągnij klip do innego programu | złap kartę albo podgląd w edytorze |
-| Odtwórz / pauza w edytorze | spacja albo klik w podgląd |
+<details>
+<summary><b>Gdzie są moje klipy?</b></summary>
 
-Kolor kropki przy zegarze: zielona — nagrywa, żółta — wznawia nagrywanie, czerwona — nie nagrywa (najedź, żeby
-zobaczyć powód), szara — wstrzymane.
-
-## Gdzie co jest
-
-| Co | Gdzie |
-| --- | --- |
-| Klipy | `Wideo\Clipper` (do zmiany w Ustawieniach) |
-| Ustawienia | `%APPDATA%\Clipper\config.toml` |
-| Dziennik zdarzeń | `%APPDATA%\Clipper\logs\clipper.log` (menu ikony → „Pokaż dziennik zdarzeń”) |
-| Miniatury (pamięć podręczna) | `%LOCALAPPDATA%\pl.clipper.app\miniatury` |
-| Program | `%LOCALAPPDATA%\Clipper` |
-
+W folderze `Wideo\Clipeon` (albo `Wideo\Clipper`, jeśli używałeś wcześniejszej wersji). Folder zmienisz w Ustawieniach.
 Odinstalowanie nigdy nie usuwa klipów.
+</details>
 
-## Prywatność
+<details>
+<summary><b>Jak zmienić skrót?</b></summary>
 
-Clipper działa wyłącznie na Twoim komputerze. Klipy, nagrania i ustawienia nigdy nie są nigdzie wysyłane.
-Nie ma telemetrii ani analityki. Jedyne połączenie z internetem to raz dziennie zapytanie do GitHuba, czy jest nowa
-wersja (Ustawienia → Aktualizacje — można wyłączyć).
+Ustawienia → Zapisywanie klipów → Skrót do zapisania klipu. Kliknij pole i wciśnij nową kombinację klawiszy.
+</details>
 
-## Budowanie ze źródeł
+<details>
+<summary><b>Używałem Clippera — co teraz?</b></summary>
 
-Potrzebne: [Rust](https://rustup.rs) (stable, MSVC), Visual Studio Build Tools, `ffmpeg` w PATH
-(do testów lokalnych) oraz Tauri CLI:
+Clipeon to ta sama aplikacja pod nową nazwą. Zainstaluj go: instalator sam usunie Clippera, a ustawienia, autostart i klipy zostaną.
+</details>
+
+**Prywatność:** wszystko zostaje na Twoim komputerze — jedyne połączenie z internetem to sprawdzanie aktualizacji na GitHubie (można wyłączyć).
+
+<details>
+<summary><b>Budowanie ze źródeł</b></summary>
+
+Potrzebne: [Rust](https://rustup.rs) (MSVC), Visual Studio Build Tools i `ffmpeg` w PATH.
 
 ```powershell
 cargo install tauri-cli --version "^2" --locked
-git clone https://github.com/Atsuieon/Clipper
-cd Clipper
-cargo run                 # wersja deweloperska (z konsolą)
-cargo tauri build         # instalator: target\release\bundle\nsis\
+git clone https://github.com/Atsuieon/Clipeon
+cd Clipeon
+cargo run              # wersja deweloperska
+cargo tauri build      # instalator w target\release\bundle\nsis\
 ```
 
-Żeby dołączyć FFmpeg do instalatora, wypakuj `ffmpeg.exe` (build LGPL, np. z
-[FFmpeg-Builds](https://github.com/FFmpeg-Builds/FFmpeg-Builds)) do `zasoby\ffmpeg\` i zbuduj z
-`cargo tauri build --config instalator/tauri.ffmpeg.json` — tak robi to workflow wydań.
+Wydania z FFmpeg w zestawie buduje workflow `.github/workflows/wydanie.yml` po wypchnięciu tagu `v*`.
+</details>
 
-Struktura: `src/` — rdzeń w Rust (przechwytywanie WGC, enkodery, bufor, zapis, strażnik, edycja),
-`ui/` — okno (HTML/CSS/JS bez bundlera), `instalator/` — dodatki do instalatora NSIS.
+## English
 
-## Znane ograniczenia
-
-- Instalator nie jest podpisany — patrz ostrzeżenie SmartScreen wyżej.
-- Karty AMD Radeon RX 7000 kodują AV1 w rozdzielczości 1920×1082 (2 czarne linie na dole) — ograniczenie sprzętu.
-- Podgląd klipów HEVC w aplikacji wymaga rozszerzenia „HEVC Video Extensions” z Microsoft Store.
-- Dymek po zapisie nie jest widoczny nad grami w trybie pełnoekranowym wyłącznym (dźwięk działa).
-- Nagrywany jest jeden wybrany monitor.
-
-## Plany
-
-- Wybór okna gry zamiast całego monitora.
-- Znaczniki w trakcie gry i zapis kilku momentów naraz.
-- Format pionowy 9:16 i łączenie klipów.
+Clipeon keeps the last seconds of your gameplay in memory and saves them as an MP4 when you press **Alt+F10**.
+GPU encoding (AMD / NVIDIA / Intel), separate game and mic tracks, trimming, shrink-to-size for Discord,
+drag-and-drop clips into other apps. Windows 10 2004+ / 11. [Download the latest release](https://github.com/Atsuieon/Clipeon/releases/latest)
+— the installer is unsigned, so SmartScreen may warn: *More info → Run anyway*. The interface is in Polish.
 
 ## Licencja
 
-Clipper: [MIT](LICENSE) © 2026 Atsuieon. FFmpeg w instalatorze: LGPL 2.1+ — szczegóły w
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
----
-
-<a name="english"></a>
-## English
-
-**Clipper** is a lightweight instant-replay recorder for Windows games. It keeps the last seconds of gameplay in RAM
-(encoded on your GPU) and saves them as an MP4 when you press **Alt+F10** — no constant recording to disk.
-
-- GPU encoding with auto-detection: AMD AMF, NVIDIA NVENC, Intel Quick Sync (CPU fallback); H.264 / HEVC / AV1.
-- Game audio and microphone on separate tracks; per-track volume and "without my voice" export.
-- Library with date sections, multi-select and Recycle Bin delete; editor with trimming and "shrink to 10/20/50/100 MB";
-  drag a clip straight into Discord, Explorer or a browser.
-- Watchdog that restarts recording after driver crashes, resolution changes or sleep, with alerts and an event log.
-- **Install:** download the setup from [Releases](https://github.com/Atsuieon/Clipper/releases/latest). The installer
-  is not code-signed, so SmartScreen may warn — click *More info → Run anyway*. FFmpeg is included.
-- **Requirements:** Windows 10 2004+ / 11 (64-bit), a GPU with hardware video encoding recommended.
-- **Privacy:** everything stays on your PC. The only network request is a daily update check against GitHub
-  (can be turned off). No telemetry.
-- **Files:** clips in `Videos\Clipper`, settings in `%APPDATA%\Clipper\config.toml`, log in `%APPDATA%\Clipper\logs`.
-- **Build:** `cargo install tauri-cli --version "^2"` then `cargo tauri build`.
-- **License:** MIT © 2026 Atsuieon; bundled FFmpeg is LGPL 2.1+ (see THIRD_PARTY_NOTICES.md). The UI is in Polish.
+[MIT](LICENSE) © 2026 Atsuieon. FFmpeg w instalatorze: LGPL 2.1+ — zob. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

@@ -42,7 +42,7 @@ unsafe extern "system" fn procedura(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         KLIKNIETY.store(NUMER.load(Ordering::SeqCst), Ordering::SeqCst);
         return LRESULT(0);
     }
-    // Kliknięcie nie aktywuje okna (gra nie traci fokusu, dopóki użytkownik sam nie otworzy Clippera)
+    // Kliknięcie nie aktywuje okna (gra nie traci fokusu, dopóki użytkownik sam nie otworzy Clipeona)
     if msg == windows::Win32::UI::WindowsAndMessaging::WM_MOUSEACTIVATE {
         return LRESULT(windows::Win32::UI::WindowsAndMessaging::MA_NOACTIVATE as isize);
     }
@@ -66,14 +66,14 @@ pub fn pokaz(miejsce: Miejsce, tytul: &str, opis: &str, blad: bool, trwale: bool
 
     unsafe {
         let instancja = GetModuleHandleW(None).unwrap_or_default();
-        let klasa = w!("ClipperPowiadomienie");
+        let klasa = w!("ClipeonPowiadomienie");
         let wc = WNDCLASSW { lpfnWndProc: Some(procedura), hInstance: instancja.into(), lpszClassName: klasa, ..Default::default() };
         RegisterClassW(&wc); // druga rejestracja tej samej klasy po prostu się nie udaje — to w porządku
         let Ok(hwnd) = CreateWindowExW(
             WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
                 | if klik.is_some() { Default::default() } else { WS_EX_TRANSPARENT },
             klasa,
-            w!("Clipper"),
+            w!("Clipeon"),
             WS_POPUP,
             x_cel,
             y,
