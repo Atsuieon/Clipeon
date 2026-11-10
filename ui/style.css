@@ -508,7 +508,7 @@ input[type="number"]:focus-visible, select:focus-visible { outline: none; border
   display: inline-flex; flex: none; padding: 3px; gap: 2px; border: 1px solid var(--ramka-karty); border-radius: 999px;
 }
 .tryb .segment { border-color: transparent; padding: 5px 13px; font-size: 13px; }
-.tryb .segment.wybrany { border-color: #fff; }
+.tryb .segment.wybrany { color: #000; }
 .tryb .segment:disabled { color: var(--pomoc); }
 .tryb .segment.wybrany:disabled { color: #000; opacity: 0.7; }
 .ekran-wybor { position: relative; flex: none; }
@@ -542,3 +542,26 @@ input[type="number"]:focus-visible, select:focus-visible { outline: none; border
   #zapisz-klip { padding: 9px; }
   .status span:last-child { display: none; }
 }
+
+/* ---------- Pigułka: przesuwane podświetlenie zakładek i przełącznika Gra | Pulpit ---------- */
+[data-pigulka] { position: relative; isolation: isolate; }
+[data-pigulka] > button { position: relative; z-index: 1; }
+.pigulka {
+  position: absolute; left: 0; top: 0; z-index: 0;
+  border-radius: 999px; pointer-events: none; opacity: 0;
+  will-change: transform, width;
+  transition: transform var(--czas-pigulki) var(--krzywa-pigulki), width var(--czas-pigulki) var(--krzywa-pigulki),
+    height var(--czas-pigulki) var(--krzywa-pigulki), opacity var(--czas);
+}
+.pigulka.widoczna { opacity: 1; }
+.pigulka.bez-animacji { transition: none; }
+:root { --czas-pigulki: 220ms; --krzywa-pigulki: cubic-bezier(0.3, 0.7, 0.2, 1); }
+/* Zakładki: obramowanie przenosi pigułka, a napis zmienia kolor w tym samym tempie */
+.zakladki .pigulka { border: 1px solid var(--ramka-pola); }
+.zakladki .zakladka[aria-selected="true"] { border-color: transparent; }
+.zakladki .zakladka, .tryb .segment { transition: color var(--czas-pigulki) var(--krzywa-pigulki), background var(--czas), opacity var(--czas), transform var(--czas); }
+/* Gra | Pulpit: biała pigułka pod czarnym napisem */
+.tryb .pigulka { background: #fff; }
+.tryb .segment.wybrany, .tryb .segment.wybrany:hover { background: transparent; border-color: transparent; }
+.tryb .segment.wybrany:disabled { opacity: 1; }
+.tryb:has(.segment:disabled) .pigulka.widoczna { opacity: 0.7; }

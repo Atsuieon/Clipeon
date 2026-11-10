@@ -49,13 +49,61 @@ const formatCzas = (s) => {
 const formatData = (ms) =>
   new Date(ms).toLocaleString("pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
+// ---------- Pigułka: podświetlenie przesuwające się między przyciskami grupy ----------
+// Jeden element na grupę, przesuwany transformacją (karta graficzna, bez przeliczania układu).
+// Każde kliknięcie ustawia tylko cel, a przejście CSS rusza z miejsca, w którym pigułka akurat jest,
+// więc szybkie klikanie nie zostawia jej w połowie drogi. Zmiana rozmiaru okna, czcionki albo
+// napisu przestawia ją bez animacji (ResizeObserver).
+
+const PIGULKI = new Map(); // kontener -> selektor wybranego przycisku
+
+const obserwatorPigulek = new ResizeObserver((wpisy) => {
+  const kontenery = new Set(wpisy.map((w) => w.target.closest("[data-pigulka]")));
+  for (const k of kontenery) if (k) ulozPigulke(k, false);
+});
+
+function dodajPigulke(kontener, selektor) {
+  const p = document.createElement("span");
+  p.className = "pigulka";
+  p.setAttribute("aria-hidden", "true");
+  kontener.prepend(p);
+  kontener.dataset.pigulka = "";
+  PIGULKI.set(kontener, selektor);
+  obserwatorPigulek.observe(kontener);
+  for (const b of kontener.children) if (b !== p) obserwatorPigulek.observe(b);
+}
+
+function ulozPigulke(kontener, animuj = true) {
+  const p = kontener.querySelector(":scope > .pigulka");
+  const cel = kontener.querySelector(PIGULKI.get(kontener));
+  if (!p) return;
+  if (!cel || !cel.offsetWidth) {
+    p.classList.remove("widoczna");
+    return;
+  }
+  // Pierwsze pokazanie i zmiana rozmiaru: od razu na miejsce, bez przejazdu przez pół paska
+  const skok = !animuj || !p.classList.contains("widoczna");
+  if (skok) p.classList.add("bez-animacji");
+  p.style.width = `${cel.offsetWidth}px`;
+  p.style.height = `${cel.offsetHeight}px`;
+  p.style.transform = `translate(${cel.offsetLeft}px, ${cel.offsetTop}px)`;
+  p.classList.add("widoczna");
+  if (skok) {
+    p.getBoundingClientRect(); // zatwierdza pozycję, zanim wrócą przejścia
+    p.classList.remove("bez-animacji");
+  }
+}
+
 // ---------- Zakładki ----------
+
+dodajPigulke(document.querySelector(".zakladki"), '.zakladka[aria-selected="true"]');
 
 function pokazZakladke(nazwa) {
   if (nazwa !== "ustawienia") nazwa = "klipy";
   for (const b of document.querySelectorAll(".zakladka")) {
     b.setAttribute("aria-selected", String(b.dataset.zakladka === nazwa));
   }
+  ulozPigulke(document.querySelector(".zakladki"));
   $("widok-klipy").hidden = nazwa !== "klipy";
   $("widok-ustawienia").hidden = nazwa !== "ustawienia";
   if (nazwa === "klipy") wczytajKlipy();
@@ -104,14 +152,22 @@ function pokazStan(s) {
 let zmianaTrybu = false; // przełącznik czeka na nowy stan z rdzenia
 let ostatniWybor = null;
 
-function pokazTryb(s) {
-  zmianaTrybu = false;
-  for (const b of $("tryb").children) {
-    const wybrany = b.dataset.tryb === s.tryb;
+const przyciskiTrybu = () => $("tryb").querySelectorAll("[data-tryb]");
+dodajPigulke($("tryb"), ".segment.wybrany");
+
+function zaznaczTryb(tryb) {
+  for (const b of przyciskiTrybu()) {
+    const wybrany = b.dataset.tryb === tryb;
     b.classList.toggle("wybrany", wybrany);
     b.setAttribute("aria-checked", String(wybrany));
-    b.disabled = false;
   }
+  ulozPigulke($("tryb"));
+}
+
+function pokazTryb(s) {
+  zmianaTrybu = false;
+  zaznaczTryb(s.tryb);
+  for (const b of przyciskiTrybu()) b.disabled = false;
   const opisEkranu = s.ekran || "Ekran";
   $("ekran").innerHTML = `${ikona("monitor")}<span class="etykieta-ekranu">${opisEkranu}</span><svg class="ikona strzalka" viewBox="0 0 24 24" aria-hidden="true">${IKONY.strzalka}</svg>`;
   $("ekran").title = `Nagrywany ekran: ${opisEkranu} (zmień)`;
@@ -131,7 +187,9 @@ function pokazTryb(s) {
 async function ustawTryb(zmiana) {
   if (zmianaTrybu) return;
   zmianaTrybu = true;
-  for (const b of $("tryb").children) b.disabled = true;
+  // Pigułka jedzie od razu; gdyby rdzeń odmówił, nowy stan przesunie ją z powrotem
+  if (zmiana.tryb) zaznaczTryb(zmiana.tryb);
+  for (const b of przyciskiTrybu()) b.disabled = true;
   try {
     await invoke("ustaw_tryb", { tryb: zmiana.tryb ?? null, monitor: zmiana.monitor ?? null });
   } catch (e) {
@@ -142,7 +200,7 @@ async function ustawTryb(zmiana) {
   }
 }
 
-for (const b of $("tryb").children) {
+for (const b of przyciskiTrybu()) {
   b.addEventListener("click", () => {
     if (b.dataset.tryb === stan.tryb) return;
     ustawTryb({ tryb: b.dataset.tryb });
@@ -570,8 +628,6 @@ function odswiezEdytor() {
   $("zakres-tekst").textContent = przyciete() ? `Zaznaczono ${dl.toFixed(1)} s` : "Cały klip";
   // Dokładne cięcie ma znaczenie tylko bez kompresji (kompresja i tak koduje od nowa)
   $("dokladnie-wiersz").hidden = !przyciete() || rozmiarDocelowy !== null;
-  $("zastap-wiersz").hidden = !przyciete();
-  if (!przyciete()) $("zastap").checked = false;
 
   // Rozmiary większe od (przyciętego) oryginału nie mają sensu
   const szacunek = odtwarzany ? odtwarzany.rozmiar * (dlugosc ? dl / dlugosc : 1) : 0;
@@ -593,6 +649,10 @@ function odswiezEdytor() {
     });
     kontener.append(b);
   }
+
+  // Zastąpić można każdą zmienioną wersją: przyciętą, skompresowaną albo z inną głośnością
+  $("zastap-wiersz").hidden = !zmiany();
+  if (!zmiany()) $("zastap").checked = false;
 
   const b = $("eksportuj");
   if (rozmiarDocelowy !== null) b.textContent = `Zapisz jako ${rozmiarDocelowy} MB`;
@@ -749,7 +809,7 @@ function biezaceZlecenie() {
     przyciete: przyciete(),
     dokladnie: $("dokladnie").checked,
     rozmiar_mb: rozmiarDocelowy,
-    zastap: przyciete() && $("zastap").checked,
+    zastap: zmiany() && $("zastap").checked,
     glosnosci: glosnosciZmienione() ? glosnosci() : [],
   };
 }
@@ -791,7 +851,7 @@ $("eksportuj").addEventListener("click", async () => {
   if (!odtwarzany || eksportTrwa) return;
   const klip = odtwarzany;
   const zlecenie = biezaceZlecenie();
-  if (zlecenie.zastap && !confirm("Zastąpić oryginał przyciętą wersją? Oryginał trafi do Kosza.")) return;
+  if (zlecenie.zastap && !confirm("Zastąpić oryginał nową wersją? Oryginał trafi do Kosza.")) return;
   try {
     const nowy = await eksportujTeraz(klip, zlecenie);
     if (zlecenie.zastap) odtworz(nowy);

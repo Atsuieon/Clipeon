@@ -32,7 +32,12 @@
 - Przycisk **Kopiuj diagnostykę** (w Ustawieniach i na czerwonym pasku) kopiuje opis sprzętu, ustawień
   i ostatnich zdarzeń do wklejenia w zgłoszeniu. Nic nie jest wysyłane automatycznie.
 
+**Wygląd**
+- Podświetlenie zakładek Klipy/Ustawienia i przełącznika Gra | Pulpit płynnie przesuwa się na wybraną opcję.
+
 **Poprawki**
+- „Zastąp oryginał” w edytorze jest dostępne przy każdej zmianie (np. sama kompresja do 10 MB albo inna głośność),
+  a nie tylko po przycięciu.
 - Bufor można ustawić od 5 s do 10 min (suwak kończył się na 5 min).
 - Pliki tymczasowe i opisy w programie używają już nazwy Clipeon zamiast Clipper.
 
