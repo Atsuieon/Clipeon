@@ -153,6 +153,7 @@ fn obsluz_zdarzenie(app: &AppHandle, z: Zdarzenie) {
             }
             pokaz_dymek(app, &cfg.monitor, "Clipeon nie nagrywa", &opis, true, true);
         }
+        Zdarzenie::Uwaga(opis) => pokaz_dymek(app, &cfg.monitor, "Nagrywanie działa wolniej", &opis, true, false),
         Zdarzenie::Alarm(None) => {
             crate::powiadomienie::ukryj();
             pokaz_dymek(app, &cfg.monitor, "Nagrywanie znów działa", "Clipeon sam wznowił nagrywanie", false, false);

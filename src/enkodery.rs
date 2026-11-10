@@ -56,45 +56,126 @@ fn wbudowane() -> &'static [&'static Enkoder] {
 }
 
 /// Czy enkoder działa tutaj — wynik próby zapamiętany (sondy idą po kolei: równoległe sesje
-/// na jednej karcie potrafiły ciągnąć się kilkanaście sekund).
+/// na jednej karcie potrafiły ciągnąć się kilkanaście sekund). Porażkę pamiętamy tylko kilka minut:
+/// przy autostarcie karta bywa jeszcze zajęta, a sterownik mógł zostać w międzyczasie zaktualizowany.
 fn dziala(e: &'static Enkoder) -> bool {
     use std::collections::HashMap;
     use std::sync::Mutex;
-    static WYNIKI: OnceLock<Mutex<HashMap<&'static str, bool>>> = OnceLock::new();
+    use std::time::{Duration, Instant};
+    static WYNIKI: OnceLock<Mutex<HashMap<&'static str, (bool, Instant)>>> = OnceLock::new();
     let wyniki = WYNIKI.get_or_init(|| Mutex::new(HashMap::new()));
     // Blokada trzymana przez całą próbę = próby nigdy nie idą równolegle
     let mut w = wyniki.lock().unwrap_or_else(|x| x.into_inner());
-    if let Some(&ok) = w.get(e.nazwa) {
-        return ok;
+    if let Some(&(ok, kiedy)) = w.get(e.nazwa) {
+        if ok || kiedy.elapsed() < Duration::from_secs(300) {
+            return ok;
+        }
     }
-    let ok = wbudowane().iter().any(|x| x.nazwa == e.nazwa) && proba(e);
-    w.insert(e.nazwa, ok);
+    let ok = wbudowane().iter().any(|x| x.nazwa == e.nazwa) && proba_z_ponowieniem(e);
+    w.insert(e.nazwa, (ok, Instant::now()));
     ok
 }
 
-/// Próbne zakodowanie kilku klatek (karty może nie być albo sterownik jej nie obsługuje); limit 5 s.
-fn proba(e: &Enkoder) -> bool {
+/// Ostrzeżenie dla użytkownika (np. za stary sterownik NVIDIA), pokazywane przy wyborze enkodera.
+static OSTRZEZENIE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+pub fn ostrzezenie() -> Option<String> {
+    OSTRZEZENIE.lock().unwrap_or_else(|x| x.into_inner()).clone()
+}
+
+/// Sprzętowa próba może się nie udać przy pierwszym podejściu (zimny start sterownika) — druga szansa.
+fn proba_z_ponowieniem(e: &Enkoder) -> bool {
+    let sprzetowy = !e.nazwa.ends_with("_mf") && e.nazwa != "libx264";
+    let mut powod = match proba(e) {
+        Ok(()) => return true,
+        Err(p) => p,
+    };
+    if sprzetowy && !blad_sprzetu(&powod) {
+        match proba(e) {
+            Ok(()) => return true,
+            Err(p) => powod = p,
+        }
+    }
+    // Brak karty danego producenta to normalna sytuacja — logujemy tylko coś, co da się naprawić
+    if !blad_sprzetu(&powod) {
+        crate::dziennik::info(&format!("Enkoder {} nie działa: {powod}", e.nazwa));
+    }
+    if let Some(wersja) = wymagany_sterownik_nvidia(&powod) {
+        let tekst = format!(
+            "Sterownik karty NVIDIA jest za stary do nagrywania kartą (potrzebny {wersja} lub nowszy). \
+             Zaktualizuj go w aplikacji NVIDIA albo na nvidia.com — do tego czasu nagrywa procesor."
+        );
+        crate::dziennik::blad(&tekst);
+        *OSTRZEZENIE.lock().unwrap_or_else(|x| x.into_inner()) = Some(tekst);
+    }
+    false
+}
+
+/// Komunikaty ffmpeg oznaczające, że karty danego producenta po prostu nie ma.
+fn blad_sprzetu(powod: &str) -> bool {
+    let p = powod.to_lowercase();
+    [
+        "cannot load nvcuda.dll",
+        "cannot load nvencodeapi",
+        "no capable devices found",
+        "dll amfrt64.dll failed to open",
+        "amfrt64",
+        "unsupported device",
+        "no device available",
+        "error creating a mfx session",
+    ]
+    .iter()
+    .any(|x| p.contains(x))
+}
+
+/// „The minimum required Nvidia driver for nvenc is 570.0 or newer” -> Some("570.0").
+fn wymagany_sterownik_nvidia(powod: &str) -> Option<String> {
+    let reszta = powod.split("required Nvidia driver for nvenc is ").nth(1)?;
+    Some(reszta.split_whitespace().next()?.to_string())
+}
+
+/// Próbne zakodowanie kilku klatek (karty może nie być albo sterownik jej nie obsługuje); limit 15 s
+/// (przy autostarcie Windows karta potrafi odpowiadać wolno). Błąd = ostatnie linie komunikatu ffmpeg.
+fn proba(e: &Enkoder) -> Result<(), String> {
+    use std::io::Read;
     let mut cmd = crate::ffmpeg::komenda();
-    cmd.args(["-hide_banner", "-loglevel", "quiet", "-f", "lavfi", "-i", "color=black:s=640x360:r=30"])
+    // 1280x720: część sterowników odrzuca bardzo małe klatki
+    cmd.args(["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=black:s=1280x720:r=30"])
         .args(["-frames:v", "3"]);
     if wymaga_nv12(e.nazwa) {
         cmd.args(["-pix_fmt", "nv12"]);
     }
-    cmd.args(["-c:v", e.nazwa, "-f", "null", "-"]).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
-    let Ok(mut proces) = cmd.spawn() else { return false };
+    cmd.args(["-c:v", e.nazwa, "-f", "null", "-"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped());
+    let mut proces = cmd.spawn().map_err(|x| format!("nie udało się uruchomić ffmpeg: {x}"))?;
+    // stderr czytamy w tle, żeby pełny potok nie zatrzymał ffmpeg
+    let mut stderr = proces.stderr.take().unwrap();
+    let czytanie = std::thread::spawn(move || {
+        let mut t = String::new();
+        let _ = stderr.read_to_string(&mut t);
+        t
+    });
     let start = std::time::Instant::now();
-    loop {
+    let wynik = loop {
         match proces.try_wait() {
-            Ok(Some(status)) => return status.success(),
-            Ok(None) if start.elapsed() < std::time::Duration::from_secs(5) => {
+            Ok(Some(status)) => break status.success(),
+            Ok(None) if start.elapsed() < std::time::Duration::from_secs(15) => {
                 std::thread::sleep(std::time::Duration::from_millis(20))
             }
             _ => {
                 let _ = proces.kill();
-                return false;
+                let _ = proces.wait();
+                return Err("brak odpowiedzi przez 15 s".into());
             }
         }
+    };
+    let tekst = czytanie.join().unwrap_or_default();
+    if wynik {
+        return Ok(());
     }
+    let linie: Vec<&str> = tekst.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    Err(if linie.is_empty() { "nieznany błąd".into() } else { linie[linie.len().saturating_sub(3)..].join(" | ") })
 }
 
 /// Wszystkie działające enkodery (do listy w ustawieniach).
@@ -203,7 +284,8 @@ pub fn argumenty_eksportu(nazwa: &str, bps: u64, sztywny_limit: bool) -> Vec<Str
 /// Lista do ustawień: (nazwa, opis); pierwsza pozycja to „auto” z informacją, co zostanie użyte.
 pub fn do_ustawien() -> Vec<(String, String)> {
     let auto = znajdz(do_nagrywania(AUTO)).map(|e| e.opis).unwrap_or("brak");
-    let mut l = vec![(AUTO.to_string(), format!("Automatycznie — teraz: {auto}"))];
+    let uwaga = if ostrzezenie().is_some() { " (zaktualizuj sterownik NVIDIA)" } else { "" };
+    let mut l = vec![(AUTO.to_string(), format!("Automatycznie — teraz: {auto}{uwaga}"))];
     l.extend(dostepne().iter().map(|e| (e.nazwa.to_string(), e.opis.to_string())));
     l
 }

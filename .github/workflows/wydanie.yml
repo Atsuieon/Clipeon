@@ -13,7 +13,7 @@ jobs:
   instalator:
     runs-on: windows-latest
     env:
-      FFMPEG_ZIP: ffmpeg-n9.0-latest-win64-lgpl-9.0.zip
+      FFMPEG_ZIP: ffmpeg-n8.1-latest-win64-lgpl-8.1.zip
     steps:
       - uses: actions/checkout@v4
 
@@ -72,7 +72,7 @@ jobs:
           więc Windows SmartScreen może pokazać ostrzeżenie — kliknij *Więcej informacji → Uruchom mimo to*.
 
           W zestawie: $ffmpeg (LGPL, [FFmpeg-Builds](https://github.com/FFmpeg-Builds/FFmpeg-Builds),
-          źródła: https://github.com/FFmpeg/FFmpeg/tree/release/9.0).
+          źródła: https://github.com/FFmpeg/FFmpeg/tree/release/8.1).
           "@ | Out-File -Encoding utf8 opis.md
 
       - uses: softprops/action-gh-release@v2

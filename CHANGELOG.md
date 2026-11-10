@@ -1,5 +1,14 @@
 # Zmiany
 
+## 1.1.1
+
+- Nagrywanie działa też na starszym Windows 10: gdy system nie pozwala wyłączyć żółtej ramki przechwytywania
+  (albo nie obsługuje innych nowszych opcji), Clipeon nagrywa dalej z ustawieniami domyślnymi zamiast przerywać.
+- Karty NVIDIA: FFmpeg w zestawie działa ze sterownikami od wersji 570 (wcześniej wymagał 610 i przy starszym
+  sterowniku nagrywanie spadało na procesor). Przy za starym sterowniku Clipeon pokazuje, że trzeba go zaktualizować.
+- Wykrywanie enkoderów jest odporniejsze: dłuższy czas na odpowiedź karty przy starcie Windows, druga próba
+  i zapis przyczyny w dzienniku, gdy enkoder nie działa.
+
 ## 1.1.0
 
 - Nowa nazwa: **Clipeon** (wcześniej Clipper). Instalator sam usuwa starą wersję, a Clipeon przejmuje
