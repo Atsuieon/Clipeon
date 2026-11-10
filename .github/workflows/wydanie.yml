@@ -61,6 +61,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: |
           if (-not $env:TAURI_SIGNING_PRIVATE_KEY) { throw "Brak sekretu TAURI_SIGNING_PRIVATE_KEY (Settings → Secrets and variables → Actions)" }
+          if (Select-String -Path tauri.conf.json -Pattern 'WSTAW-KLUCZ-PUBLICZNY' -Quiet) { throw "W tauri.conf.json brakuje klucza publicznego aktualizacji (plugins.updater.pubkey)" }
           npx --yes @tauri-apps/cli@2 build --config instalator/tauri.ffmpeg.json
 
       - name: latest.json dla automatycznych aktualizacji
