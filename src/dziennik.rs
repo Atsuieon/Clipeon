@@ -61,5 +61,9 @@ pub fn przechwytuj_awarie() {
             .unwrap_or_default();
         let watek = std::thread::current().name().unwrap_or("bez nazwy").to_string();
         zapisz("AWARIA", &format!("wątek {watek}: {co} ({gdzie})"));
+        // Awaria głównego wątku kończy cały program — wracamy sami
+        if watek == "main" {
+            crate::odzyskiwanie::po_awarii_glownego_watku();
+        }
     }));
 }

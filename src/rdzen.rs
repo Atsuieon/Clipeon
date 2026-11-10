@@ -26,6 +26,8 @@ pub enum Zdarzenie {
     BladZapisu(String),
     /// Trwały alarm „Clipeon nie nagrywa” (Some) albo koniec problemu (None)
     Alarm(Option<String>),
+    /// Nagrywanie działa, ale gorzej niż mogłoby (np. za stary sterownik karty) — pokazywane raz
+    Uwaga { tytul: String, opis: String },
 }
 
 /// Po tylu sekundach bez nowych klatek strażnik uznaje, że nagrywanie stoi
@@ -164,6 +166,13 @@ impl Rdzen {
         }
         drop(w);
         self.wyslij_stan();
+        // Poza blokadą: obsługa zdarzenia odczytuje config
+        static POKAZANO: std::sync::Once = std::sync::Once::new();
+        if let Some(u) = crate::enkodery::ostrzezenie() {
+            POKAZANO.call_once(|| {
+                (self.powiadom)(Zdarzenie::Uwaga { tytul: "Nagrywanie działa wolniej".into(), opis: u })
+            });
+        }
     }
 
     /// Zatrzymuje skrót i sesję; zostawia tylko błędy z listy `zostaw`.
@@ -250,6 +259,11 @@ impl Rdzen {
     }
 
     /// Zapisuje bufor do MP4 w osobnym wątku; nagrywanie trwa dalej.
+    /// Krótka informacja w dymku (nie alarm).
+    pub fn uwaga(&self, tytul: &str, opis: &str) {
+        (self.powiadom)(Zdarzenie::Uwaga { tytul: tytul.into(), opis: opis.into() });
+    }
+
     pub fn zapisz_klip(&self) {
         let (migawka, folder, fps, pauza) = {
             let w = self.zamek();

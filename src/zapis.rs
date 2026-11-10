@@ -32,7 +32,14 @@ pub fn zapisz(
         .collect();
 
     std::fs::create_dir_all(folder).map_err(|e| format!("Nie mogę utworzyć {}: {e}", folder.display()))?;
+    // Miejsce na dysku: faststart przepisuje plik drugi raz, więc potrzeba ok. 2× rozmiaru klipu
+    let rozmiar_danych: u64 = wideo.iter().map(|p| p.dane.len() as u64).sum::<u64>()
+        + sciezki.iter().flat_map(|(_, a)| a.iter()).map(|p| p.dane.len() as u64).sum::<u64>();
+    sprawdz_miejsce(folder, rozmiar_danych * 2 + 64 * 1024 * 1024)?;
     let plik = nowa_nazwa(folder);
+    // Najpierw do pliku tymczasowego (bez .mp4, więc nie pojawi się w bibliotece); nazwa docelowa
+    // dopiero po udanym zapisie — przerwany zapis (brak miejsca, awaria) nie zostawi uszkodzonego klipu
+    let tymczasowy = plik.with_extension("mp4.tmp");
 
     // Dźwięk idzie przez małe pliki tymczasowe (ADTS), obraz przez stdin ffmpeg
     let mut cmd = crate::ffmpeg::komenda();
@@ -72,7 +79,7 @@ pub fn zapisz(
                 }
             }
         }
-        cmd.args(["-movflags", "+faststart"]).arg(&plik).stdin(Stdio::piped());
+        cmd.args(["-movflags", "+faststart", "-f", "mp4"]).arg(&tymczasowy).stdin(Stdio::piped());
 
         let mut ffmpeg = cmd.spawn().map_err(|e| format!("Nie udało się uruchomić ffmpeg: {e}"))?;
         let mut wejscie = ffmpeg.stdin.take().unwrap();
@@ -86,7 +93,17 @@ pub fn zapisz(
     for t in &tymczasowe {
         let _ = std::fs::remove_file(t);
     }
-    wynik?;
+    let wynik = wynik.and_then(|()| {
+        std::fs::rename(&tymczasowy, &plik).map_err(|e| format!("Nie udało się nadać nazwy klipowi: {e}"))
+    });
+    if let Err(e) = wynik {
+        let _ = std::fs::remove_file(&tymczasowy);
+        // Brak miejsca w trakcie zapisu: czytelny komunikat zamiast błędu ffmpeg
+        if wolne_miejsce(folder).is_some_and(|w| w < 64 * 1024 * 1024) {
+            return Err(format!("Za mało miejsca na dysku z folderem {} — zwolnij miejsce", folder.display()));
+        }
+        return Err(e);
+    }
 
     let rozmiar = std::fs::metadata(&plik).map(|m| m.len()).unwrap_or(0);
     println!(
@@ -100,6 +117,35 @@ pub fn zapisz(
     Ok(plik)
 }
 
+/// Wolne miejsce (bajty) na dysku z danym folderem, dostępne dla bieżącego użytkownika.
+pub fn wolne_miejsce(folder: &Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    let szeroka: Vec<u16> = folder.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let mut wolne = 0u64;
+    unsafe {
+        windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW(
+            windows::core::PCWSTR(szeroka.as_ptr()),
+            Some(&mut wolne),
+            None,
+            None,
+        )
+        .ok()?;
+    }
+    Some(wolne)
+}
+
+/// Błąd z jasnym opisem, gdy na dysku jest mniej niż `potrzeba` bajtów (nieznane = próbujemy zapisać).
+pub fn sprawdz_miejsce(folder: &Path, potrzeba: u64) -> Result<(), String> {
+    match wolne_miejsce(folder) {
+        Some(w) if w < potrzeba => Err(format!(
+            "Za mało miejsca na dysku: wolne {:.1} GB, potrzeba ok. {:.1} GB. Zwolnij miejsce albo wybierz inny folder klipów",
+            w as f64 / 1e9,
+            potrzeba as f64 / 1e9
+        )),
+        _ => Ok(()),
+    }
+}
+
 /// Lokalna data i godzina w formacie 2026-11-08_17-45-03.
 fn znacznik_czasu() -> String {
     let t = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
@@ -111,7 +157,7 @@ fn nowa_nazwa(folder: &Path) -> PathBuf {
     let baza = format!("Clipeon_{}", znacznik_czasu());
     let mut plik = folder.join(format!("{baza}.mp4"));
     let mut i = 2;
-    while plik.exists() {
+    while plik.exists() || plik.with_extension("mp4.tmp").exists() {
         plik = folder.join(format!("{baza}_{i}.mp4"));
         i += 1;
     }

@@ -16,6 +16,23 @@ fn wynik_edycji(nazwa: &str) -> bool {
         || rdzen.rsplit_once('_').is_some_and(|(_, k)| k.ends_with("MB") && k[..k.len() - 2].chars().all(|c| c.is_ascii_digit()) && k.len() > 2)
 }
 
+/// Usuwa pliki tymczasowe (*.mp4.tmp) po przerwanych zapisach — np. po awarii albo braku miejsca.
+/// Świeże (ostatnie 10 min) zostawiamy, bo zapis może właśnie trwać.
+pub fn usun_resztki(folder: &Path) {
+    let Ok(wpisy) = std::fs::read_dir(folder) else { return };
+    for w in wpisy.flatten() {
+        let sciezka = w.path();
+        if !sciezka.to_string_lossy().ends_with(".mp4.tmp") {
+            continue;
+        }
+        let stary = w.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok())
+            .is_some_and(|wiek| wiek > Duration::from_secs(600));
+        if stary && std::fs::remove_file(&sciezka).is_ok() {
+            crate::dziennik::info(&format!("Usunięto resztkę przerwanego zapisu: {}", sciezka.display()));
+        }
+    }
+}
+
 /// Sprząta folder; zwraca liczbę klipów przeniesionych do Kosza.
 pub fn sprzataj(folder: &Path, dni: u32, gb: u32) -> usize {
     if dni == 0 && gb == 0 {

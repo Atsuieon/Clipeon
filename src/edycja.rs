@@ -123,6 +123,11 @@ pub fn eksportuj(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dyn
     // Do końca eksportu porządki i usuwanie nie ruszą źródła
     let _uzywany = crate::klipy::uzywaj(zrodlo);
     let wynik = nazwa_wyniku(zrodlo, z);
+    // Wynik nie będzie większy niż źródło (×2 na faststart) — sprawdzamy, zanim zaczniemy kodować
+    if let Some(folder) = wynik.parent() {
+        let zrodlowy = std::fs::metadata(zrodlo).map(|m| m.len()).unwrap_or(0);
+        crate::zapis::sprawdz_miejsce(folder, zrodlowy * 2 + 32 * 1024 * 1024)?;
+    }
     // Najpierw do pliku tymczasowego (bez .mp4, żeby nie pojawił się w bibliotece),
     // żeby przerwany eksport nie zostawił połowy klipu
     let tymczasowy = wynik.with_extension("mp4.tmp");
