@@ -91,7 +91,7 @@ jobs:
           $zmiany
 
           ---
-          **Masz już Clipeona 1.1.1 lub nowszego?** Aktualizacja pojawi się w programie sama — kliknij „Aktualizuj”.
+          **Masz już Clipeona 1.2.0 lub nowszego?** Aktualizacja pojawi się w programie sama — kliknij „Aktualizuj”.
 
           **Instalacja:** pobierz plik ``Clipeon_*_x64-setup.exe`` poniżej i uruchom go. Instalator nie jest podpisany,
           więc Windows SmartScreen może pokazać ostrzeżenie — kliknij *Więcej informacji → Uruchom mimo to*.
