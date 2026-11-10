@@ -93,143 +93,227 @@
           </div>
         </div>
         <form id="formularz" autocomplete="off">
-          <h2 class="sekcja">Nagrywanie</h2>
-          <div class="karty">
-            <div class="karta">
-              <h3>Ile ostatnich sekund zapisywać</h3>
-              <p class="pomoc">Clipeon cały czas pamięta tyle ostatnich sekund gry. Po wciśnięciu skrótu zapisuje je jako klip.</p>
-              <div class="wiersz">
-                <input type="range" id="bufor" min="5" max="600" step="5" aria-label="Ile ostatnich sekund zapisywać">
-                <span class="wartosc" id="bufor-wartosc"></span>
+          <div class="grupy">
+            <!-- Nagrywanie -->
+            <section class="grupa">
+              <h2>Nagrywanie</h2>
+              <div class="karta ustawienia-lista">
+                <div class="ust">
+                  <div class="opis">
+                    <label for="bufor">Ile ostatnich sekund zapisywać</label>
+                    <p class="pomoc" id="ram"></p>
+                  </div>
+                  <div class="pole">
+                    <input type="range" id="bufor" min="5" max="600" step="5" aria-label="Ile ostatnich sekund zapisywać">
+                    <span class="wartosc" id="bufor-wartosc"></span>
+                  </div>
+                </div>
+
+                <div class="ust">
+                  <div class="opis">
+                    <span>Jakość obrazu w grze</span>
+                    <p class="pomoc">Dotyczy ekranu 1080p — przy 1440p i 4K Clipeon sam ją podnosi.</p>
+                  </div>
+                  <div class="pole"><div class="segmenty" id="presety"></div></div>
+                </div>
+
+                <div class="ust">
+                  <div class="opis"><span>Klatki i jakość</span></div>
+                  <div class="pole pola">
+                    <label>Klatki/s<input type="number" id="fps" min="10" max="240" step="1"></label>
+                    <label>Mb/s<input type="number" id="bitrate" min="1" max="200" step="1"></label>
+                  </div>
+                </div>
+
+                <div class="ust">
+                  <div class="opis">
+                    <label for="monitor">Ekran gry</label>
+                    <p class="pomoc" id="monitor-uwaga"></p>
+                  </div>
+                  <div class="pole"><select id="monitor" aria-label="Ekran gry"></select></div>
+                </div>
+
+                <div class="ust">
+                  <div class="opis">
+                    <label for="gra">Nagrywaj</label>
+                    <p class="pomoc" id="gra-uwaga">Clipeon nagrywa cały ekran — wybór gry decyduje tylko o tym, kiedy nagrywa.</p>
+                  </div>
+                  <div class="pole"><select id="gra" aria-label="Co nagrywać"></select></div>
+                </div>
+
+                <details class="ust-rozwijane">
+                  <summary>Tryb pulpitu<span class="pomoc">Osobny ekran i ustawienia dla przełącznika „Pulpit”</span></summary>
+                  <div class="ust">
+                    <div class="opis"><label for="monitor-pulpitu">Ekran pulpitu</label></div>
+                    <div class="pole"><select id="monitor-pulpitu" aria-label="Ekran pulpitu"></select></div>
+                  </div>
+                  <div class="ust">
+                    <div class="opis">
+                      <span>Klatki i jakość pulpitu</span>
+                      <p class="pomoc" id="ram-pulpitu"></p>
+                    </div>
+                    <div class="pole pola">
+                      <label>Klatki/s<input type="number" id="fps-pulpitu" min="10" max="240" step="1"></label>
+                      <label>Mb/s<input type="number" id="bitrate-pulpitu" min="1" max="200" step="1"></label>
+                    </div>
+                  </div>
+                </details>
               </div>
-              <p class="pomoc" id="ram"></p>
-            </div>
+            </section>
 
-            <div class="karta">
-              <h3>Jakość obrazu w grze</h3>
-              <p class="pomoc">Wyższa jakość to ostrzejszy obraz, ale większe pliki. Jakość dotyczy ekranu 1080p — przy 1440p i 4K Clipeon sam ją podnosi.</p>
-              <div class="segmenty" id="presety"></div>
-              <div class="pola">
-                <label>Klatki na sekundę<input type="number" id="fps" min="10" max="240" step="1"></label>
-                <label>Jakość (Mb/s)<input type="number" id="bitrate" min="1" max="200" step="1"></label>
+            <!-- Dźwięk -->
+            <section class="grupa">
+              <h2>Dźwięk</h2>
+              <div class="karta ustawienia-lista">
+                <div class="ust">
+                  <div class="opis">
+                    <label for="dzwiek">Dźwięk z gry i komputera</label>
+                    <p class="pomoc">Zapisuje się osobno od głosu, więc w edytorze ściszysz jedno albo drugie.</p>
+                  </div>
+                  <div class="pole"><label class="przelacznik"><input type="checkbox" id="dzwiek"><span class="suwak"></span></label></div>
+                </div>
+                <div class="ust">
+                  <div class="opis"><label for="mikrofon">Mój mikrofon</label></div>
+                  <div class="pole"><label class="przelacznik"><input type="checkbox" id="mikrofon"><span class="suwak"></span></label></div>
+                </div>
+                <div class="ust">
+                  <div class="opis">
+                    <label for="mikrofon-urzadzenie">Który mikrofon</label>
+                    <p class="pomoc" id="mikrofon-uwaga"></p>
+                  </div>
+                  <div class="pole"><select id="mikrofon-urzadzenie" aria-label="Który mikrofon nagrywać"></select></div>
+                </div>
+                <div class="ust">
+                  <div class="opis">
+                    <label for="glos-w-edytorze">Mój głos w zapisywanych wersjach</label>
+                    <p class="pomoc">W edytorze zmienisz to dla każdego klipu osobno.</p>
+                  </div>
+                  <div class="pole"><label class="przelacznik"><input type="checkbox" id="glos-w-edytorze"><span class="suwak"></span></label></div>
+                </div>
               </div>
-            </div>
+            </section>
 
-            <div class="karta">
-              <h3>Format wideo</h3>
-              <p class="pomoc">Jak zapisywać obraz. Przycięte i zmniejszone wersje zawsze zapisują się w formacie, który działa wszędzie.</p>
-              <select id="enkoder" aria-label="Format wideo"></select>
-              <p class="pomoc" id="enkoder-uwaga"></p>
-            </div>
-
-            <div class="karta">
-              <h3>Ekran gry</h3>
-              <p class="pomoc">Monitor, na którym grasz. Nagrywany, gdy na pasku wybrany jest tryb „Gra”.</p>
-              <select id="monitor" aria-label="Ekran gry"></select>
-              <p class="pomoc" id="monitor-uwaga"></p>
-            </div>
-          </div>
-
-          <h2 class="sekcja">Tryb pulpitu</h2>
-          <div class="karty">
-            <div class="karta">
-              <h3>Nagrywanie pulpitu</h3>
-              <p class="pomoc">Osobne ustawienia dla trybu „Pulpit” (przełącznik na pasku u góry i w menu ikony przy zegarze). Na pulpicie zwykle wystarcza mniej klatek, więc klipy są mniejsze, a komputer mniej obciążony.</p>
-              <label class="pole-pelne">Ekran pulpitu<select id="monitor-pulpitu" aria-label="Ekran pulpitu"></select></label>
-              <div class="pola">
-                <label>Klatki na sekundę<input type="number" id="fps-pulpitu" min="10" max="240" step="1"></label>
-                <label>Jakość (Mb/s)<input type="number" id="bitrate-pulpitu" min="1" max="200" step="1"></label>
+            <!-- Zapisywanie klipów -->
+            <section class="grupa">
+              <h2>Zapisywanie klipów</h2>
+              <div class="karta ustawienia-lista">
+                <div class="ust">
+                  <div class="opis">
+                    <span>Skrót do zapisania klipu</span>
+                    <p class="pomoc">Kliknij i wciśnij nową kombinację (Esc anuluje).</p>
+                  </div>
+                  <div class="pole"><button type="button" class="pole-skrotu" id="skrot"></button></div>
+                </div>
+                <div class="ust">
+                  <div class="opis">
+                    <span>Gdzie zapisywać klipy</span>
+                    <p class="pomoc sciezka" id="folder"></p>
+                    <p class="pomoc">Nowe klipy trafiają do podfolderów z miesiącem, np. 2026-11.</p>
+                  </div>
+                  <div class="pole"><button type="button" class="przycisk drugorzedny" id="zmien-folder">Zmień folder…</button></div>
+                </div>
+                <div class="ust">
+                  <div class="opis">
+                    <label for="dzwiek-zapisu">Dźwięk po zapisaniu</label>
+                    <p class="pomoc">Żebyś wiedział, że się udało, bez wychodzenia z gry.</p>
+                  </div>
+                  <div class="pole"><label class="przelacznik"><input type="checkbox" id="dzwiek-zapisu"><span class="suwak"></span></label></div>
+                </div>
+                <div class="ust">
+                  <div class="opis"><label for="powiadomienie-zapisu">Powiadomienie w rogu ekranu</label></div>
+                  <div class="pole"><label class="przelacznik"><input type="checkbox" id="powiadomienie-zapisu"><span class="suwak"></span></label></div>
+                </div>
+                <div class="ust">
+                  <div class="opis">
+                    <label for="sprz-dni-wl">Usuwaj klipy starsze niż</label>
+                    <p class="pomoc">Stare klipy idą do Kosza, więc da się je przywrócić.</p>
+                  </div>
+                  <div class="pole">
+                    <label class="przelacznik"><input type="checkbox" id="sprz-dni-wl"><span class="suwak"></span></label>
+                    <input type="number" id="sprz-dni" min="1" max="3650" aria-label="Liczba dni">
+                    <span class="jednostka">dni</span>
+                  </div>
+                </div>
+                <div class="ust">
+                  <div class="opis"><label for="sprz-gb-wl">Klipy zajmą najwyżej</label></div>
+                  <div class="pole">
+                    <label class="przelacznik"><input type="checkbox" id="sprz-gb-wl"><span class="suwak"></span></label>
+                    <input type="number" id="sprz-gb" min="1" max="100000" aria-label="Limit w GB">
+                    <span class="jednostka">GB</span>
+                  </div>
+                </div>
               </div>
-              <p class="pomoc" id="ram-pulpitu"></p>
-            </div>
-          </div>
+            </section>
 
-          <h2 class="sekcja">Dźwięk</h2>
-          <div class="karty">
-            <div class="karta">
-              <h3>Co nagrywać</h3>
-              <p class="pomoc">Gra i Twój głos zapisują się osobno, więc w edytorze możesz potem ściszyć jedno albo drugie.</p>
-              <label class="przelacznik"><input type="checkbox" id="dzwiek"><span class="suwak"></span>Dźwięk z gry i komputera</label>
-              <label class="przelacznik"><input type="checkbox" id="mikrofon"><span class="suwak"></span>Mój mikrofon</label>
-            </div>
-
-            <div class="karta">
-              <h3>Mój głos w zapisywanych wersjach</h3>
-              <p class="pomoc">Czy przycięte i zmniejszone wersje mają domyślnie zawierać Twój głos. W edytorze zmienisz to dla każdego klipu osobno.</p>
-              <label class="przelacznik"><input type="checkbox" id="glos-w-edytorze"><span class="suwak"></span>Domyślnie z moim głosem</label>
-            </div>
-          </div>
-
-          <h2 class="sekcja">Zapisywanie klipów</h2>
-          <div class="karty">
-            <div class="karta">
-              <h3>Skrót do zapisania klipu</h3>
-              <p class="pomoc">Działa także w trakcie gry. Kliknij pole i wciśnij nową kombinację klawiszy (Esc anuluje).</p>
-              <button type="button" class="pole-skrotu" id="skrot"></button>
-            </div>
-
-            <div class="karta">
-              <h3>Gdzie zapisywać klipy</h3>
-              <p class="pomoc sciezka" id="folder"></p>
-              <button type="button" class="przycisk drugorzedny" id="zmien-folder">Zmień folder…</button>
-            </div>
-
-            <div class="karta">
-              <h3>Po zapisaniu klipu</h3>
-              <p class="pomoc">Żebyś wiedział, że się udało, bez wychodzenia z gry (działa w trybie okna bez ramki).</p>
-              <label class="przelacznik"><input type="checkbox" id="dzwiek-zapisu"><span class="suwak"></span>Krótki dźwięk</label>
-              <label class="przelacznik"><input type="checkbox" id="powiadomienie-zapisu"><span class="suwak"></span>Powiadomienie w rogu ekranu</label>
-            </div>
-
-            <div class="karta">
-              <h3>Automatyczne porządki</h3>
-              <p class="pomoc">Clipeon sam przenosi stare klipy do Kosza, żeby nie zapchały dysku (da się je przywrócić). Przycięte i zmniejszone wersje z ostatniej doby zostają.</p>
-              <label class="przelacznik"><input type="checkbox" id="sprz-dni-wl"><span class="suwak"></span>Usuwaj klipy starsze niż</label>
-              <div class="wiersz-liczby"><input type="number" id="sprz-dni" min="1" max="3650" aria-label="Liczba dni"><span class="pomoc">dni</span></div>
-              <label class="przelacznik"><input type="checkbox" id="sprz-gb-wl"><span class="suwak"></span>Nie pozwalaj, żeby klipy zajęły więcej niż</label>
-              <div class="wiersz-liczby"><input type="number" id="sprz-gb" min="1" max="100000" aria-label="Limit w GB"><span class="pomoc">GB</span></div>
-            </div>
-          </div>
-
-          <h2 class="sekcja">System</h2>
-          <div class="karty">
-            <div class="karta">
-              <h3>Uruchamianie</h3>
-              <p class="pomoc">Clipeon działa w tle jako ikona przy zegarze.</p>
-              <label class="przelacznik"><input type="checkbox" id="autostart"><span class="suwak"></span>Uruchamiaj razem z Windows</label>
-              <label class="przelacznik"><input type="checkbox" id="ikona-zegar"><span class="suwak"></span>Ikona zawsze widoczna przy zegarze</label>
-            </div>
-
-            <div class="karta">
-              <h3>Sposób przechwytywania obrazu</h3>
-              <p class="pomoc">Zostaw „Automatycznie”, chyba że nagrania się zacinają albo są czarne. Clipeon sam przechodzi na następny sposób, gdy któryś nie działa.</p>
-              <select id="metoda" aria-label="Sposób przechwytywania obrazu">
-                <option value="auto">Automatycznie (polecane)</option>
-                <option value="dda">Desktop Duplication — najlżejszy, obraz zostaje na karcie</option>
-                <option value="gfx">Windows Graphics Capture — gdy Desktop Duplication nie działa</option>
-                <option value="potok">Tryb zgodności — działa wszędzie, ale bardziej obciąża procesor</option>
-              </select>
-            </div>
-
-            <div class="karta">
-              <h3>Zgłaszanie problemów</h3>
-              <p class="pomoc">Kopiuje do schowka opis karty graficznej, monitorów, ustawień i ostatnich zdarzeń. Wklej go do zgłoszenia na GitHubie. Nic nie jest wysyłane automatycznie.</p>
-              <div class="wiersz-akt">
-                <button type="button" class="przycisk drugorzedny" id="kopiuj-diagnostyke">Kopiuj diagnostykę</button>
-                <button type="button" class="przycisk drugorzedny" id="pokaz-dziennik">Pokaż dziennik</button>
+            <!-- System -->
+            <section class="grupa">
+              <h2>System</h2>
+              <div class="karta ustawienia-lista">
+                <div class="ust">
+                  <div class="opis">
+                    <label for="autostart">Uruchamiaj razem z Windows</label>
+                    <p class="pomoc">Clipeon działa w tle jako ikona przy zegarze.</p>
+                  </div>
+                  <div class="pole"><label class="przelacznik"><input type="checkbox" id="autostart"><span class="suwak"></span></label></div>
+                </div>
+                <div class="ust">
+                  <div class="opis"><label for="ikona-zegar">Ikona zawsze widoczna przy zegarze</label></div>
+                  <div class="pole"><label class="przelacznik"><input type="checkbox" id="ikona-zegar"><span class="suwak"></span></label></div>
+                </div>
+                <div class="ust">
+                  <div class="opis">
+                    <label for="aktualizacje">Sprawdzaj, czy jest nowa wersja</label>
+                    <p class="pomoc">Raz dziennie pytamy GitHuba. To jedyne połączenie z internetem — klipy nigdy nie opuszczają komputera.</p>
+                  </div>
+                  <div class="pole"><label class="przelacznik"><input type="checkbox" id="aktualizacje"><span class="suwak"></span></label></div>
+                </div>
+                <div class="ust">
+                  <div class="opis"><span>Aktualizacja</span><p class="pomoc" id="akt-wynik" role="status"></p></div>
+                  <div class="pole">
+                    <button type="button" class="przycisk drugorzedny" id="sprawdz-teraz">Sprawdź teraz</button>
+                    <button type="button" class="przycisk aktualizacja" id="aktualizuj-teraz" hidden>Aktualizuj teraz</button>
+                  </div>
+                </div>
               </div>
-            </div>
+            </section>
 
-            <div class="karta">
-              <h3>Aktualizacje</h3>
-              <p class="pomoc">Clipeon raz dziennie pyta GitHuba, czy jest nowa wersja. Gdy jest, wystarczy kliknąć „Aktualizuj” — Clipeon sam ją pobierze, sprawdzi podpis, zainstaluje i uruchomi się ponownie. To jedyne połączenie z internetem — klipy nigdy nie opuszczają komputera.</p>
-              <label class="przelacznik"><input type="checkbox" id="aktualizacje"><span class="suwak"></span>Sprawdzaj, czy jest nowa wersja</label>
-              <div class="wiersz-akt">
-                <button type="button" class="przycisk drugorzedny" id="sprawdz-teraz">Sprawdź teraz</button>
-                <button type="button" class="przycisk aktualizacja" id="aktualizuj-teraz" hidden>Aktualizuj teraz</button>
-                <span class="pomoc" id="akt-wynik" role="status"></span>
+            <!-- Zaawansowane: ustawiane raz i rzadko ruszane -->
+            <details class="grupa zaawansowane">
+              <summary><h2>Zaawansowane</h2><span class="pomoc">Format wideo, sposób przechwytywania, diagnostyka</span></summary>
+              <div class="karta ustawienia-lista">
+                <div class="ust">
+                  <div class="opis">
+                    <label for="enkoder">Format wideo</label>
+                    <p class="pomoc" id="enkoder-uwaga"></p>
+                  </div>
+                  <div class="pole"><select id="enkoder" aria-label="Format wideo"></select></div>
+                </div>
+                <div class="ust">
+                  <div class="opis">
+                    <label for="metoda">Sposób przechwytywania obrazu</label>
+                    <p class="pomoc">Zostaw „Automatycznie”, chyba że nagrania się zacinają albo są czarne.</p>
+                  </div>
+                  <div class="pole">
+                    <select id="metoda" aria-label="Sposób przechwytywania obrazu">
+                      <option value="auto">Automatycznie (polecane)</option>
+                      <option value="dda">Desktop Duplication — najlżejszy</option>
+                      <option value="gfx">Windows Graphics Capture</option>
+                      <option value="potok">Tryb zgodności</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="ust">
+                  <div class="opis">
+                    <span>Zgłaszanie problemów</span>
+                    <p class="pomoc">Kopiuje opis sprzętu, ustawień i ostatnich zdarzeń. Nic nie jest wysyłane automatycznie.</p>
+                  </div>
+                  <div class="pole">
+                    <button type="button" class="przycisk drugorzedny" id="kopiuj-diagnostyke">Kopiuj diagnostykę</button>
+                    <button type="button" class="przycisk drugorzedny" id="pokaz-dziennik">Pokaż dziennik</button>
+                  </div>
+                </div>
               </div>
-            </div>
+            </details>
           </div>
         </form>
         <p class="o-programie">Clipeon <span id="wersja"></span> · by <a href="#" id="autor">Atsuieon</a></p>
@@ -258,6 +342,7 @@
       <video id="wideo" title="Kliknij: odtwórz / pauza · Przeciągnij: wrzuć plik do Discorda, Eksploratora lub przeglądarki"></video>
       <div class="sterowanie">
         <button class="przycisk ikonowy" id="graj"></button>
+        <button class="przycisk ikonowy" id="pelny-ekran" title="Pełny ekran (F)" aria-label="Pełny ekran (F)"></button>
         <span class="czas" id="czas">0:00 / 0:00</span>
         <div class="os" id="os" title="Kliknij, żeby przewinąć">
           <div class="os-tlo"></div>

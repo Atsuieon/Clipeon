@@ -29,6 +29,12 @@ pub struct Stan {
     pub monitor: String,
     /// Droga przechwytywania bieżącej sesji ("dda", "gfx", "potok")
     pub droga: Option<String>,
+    /// Nazwa gry, która jest teraz na wierzchu nagrywanego ekranu
+    pub gra: Option<String>,
+    /// Gra wybrana w ustawieniach (pusta = nagrywaj zawsze)
+    pub wybrana_gra: String,
+    /// Czekamy, aż wybrana gra wystartuje (nagrywanie jest wtedy wstrzymane)
+    pub czeka_na_gre: bool,
 }
 
 pub enum Zdarzenie {
@@ -84,6 +90,10 @@ struct Wnetrze {
     odrzucone: HashSet<(String, Droga)>,
     /// Lżejsze ustawienia enkodera (po wykryciu, że nie nadąża)
     lekki: bool,
+    /// Gra na wierzchu nagrywanego ekranu (do pokazania w oknie i w zasobniku)
+    gra: Option<crate::gra::Gra>,
+    /// Wybrana gra nie działa — nagrywanie czeka na nią
+    czeka_na_gre: bool,
 }
 
 #[derive(Clone)]
@@ -105,6 +115,8 @@ impl Rdzen {
             wznawianie: None,
             odrzucone: HashSet::new(),
             lekki: false,
+            gra: None,
+            czeka_na_gre: false,
         };
         Rdzen { w: Arc::new(Mutex::new(w)), powiadom: Arc::new(powiadom) }
     }
@@ -130,6 +142,9 @@ impl Rdzen {
             ekran: wideo::etykieta_ekranu(monitor),
             monitor: monitor.to_string(),
             droga: w.sesja.as_ref().map(|s| s._wideo.droga.nazwa().to_string()),
+            gra: w.gra.as_ref().map(|g| g.nazwa.clone()),
+            wybrana_gra: if w.cfg.gra.is_empty() { String::new() } else { nazwa_wybranej(&w.cfg) },
+            czeka_na_gre: w.czeka_na_gre,
         }
     }
 
@@ -172,7 +187,11 @@ impl Rdzen {
         // żeby zwolnić skrót i enkoder
         // Błąd „nagrywanie” należy do strażnika — zostaje do czasu, aż nagrywanie znów ruszy
         self.zatrzymaj(&["config", "nagrywanie"]);
+        // Wybrana gra nie działa — nagrywanie czeka na nią (bez alarmu i bez zużycia procesora)
+        let wybrana = self.config().gra;
+        let czeka = !wybrana.is_empty() && !crate::gra::dziala(&wybrana);
         let mut w = self.zamek();
+        w.czeka_na_gre = czeka;
         let pokolenie = w.pokolenie;
 
         let r = self.clone();
@@ -182,7 +201,7 @@ impl Rdzen {
                 w.bledy.insert("skrot", e);
             }
         }
-        if !w.pauza {
+        if !w.pauza && !czeka {
             let (cfg, lekki) = (w.cfg.clone(), w.lekki);
             let mut odrzucone = std::mem::take(&mut w.odrzucone);
             let wynik = self.nowa_sesja(&cfg, pokolenie, &mut odrzucone, lekki);
@@ -265,13 +284,13 @@ impl Rdzen {
 
         // Dźwięk: AAC 160 kb/s; bufor dłuższy o 2 s, żeby na pewno pokrył początek obrazu
         let (mut audio_, mut bufory_audio) = (Vec::new(), Vec::new());
-        for (wlaczone, zrodlo, klucz, nazwa) in [
-            (cfg.dzwiek_systemowy, Zrodlo::System, "system", "Gra"),
-            (cfg.mikrofon, Zrodlo::Mikrofon, "mikrofon", "Mikrofon"),
+        for (wlaczone, zrodlo, urzadzenie, klucz, nazwa) in [
+            (cfg.dzwiek_systemowy, Zrodlo::System, String::new(), "system", "Gra"),
+            (cfg.mikrofon, Zrodlo::Mikrofon, cfg.mikrofon_urzadzenie.clone(), "mikrofon", "Mikrofon"),
         ] {
             if wlaczone {
                 let b = Bufor::nowy(cfg.bufor_sekundy + 2);
-                audio_.push(audio::uruchom(zrodlo, 160, b.clone(), self.zglaszacz(pokolenie, klucz)));
+                audio_.push(audio::uruchom(zrodlo, urzadzenie, 160, b.clone(), self.zglaszacz(pokolenie, klucz)));
                 bufory_audio.push((nazwa, b));
             }
         }
@@ -371,7 +390,7 @@ impl Rdzen {
     }
 
     pub fn zapisz_klip(&self) {
-        let (migawka, folder, pauza) = {
+        let (migawka, folder, pauza, czeka, czeka_na, gra) = {
             let w = self.zamek();
             let migawka = w.sesja.as_ref().map(|s| {
                 let wideo = s.bufor_wideo.lock().unwrap_or_else(|e| e.into_inner()).migawka();
@@ -379,20 +398,29 @@ impl Rdzen {
                     s.bufory_audio.iter().map(|(n, b)| (*n, b.lock().unwrap_or_else(|e| e.into_inner()).migawka())).collect();
                 (wideo, audio, s.format_wideo, s._wideo.fps, s.pulpit)
             });
-            (migawka, w.cfg.folder_klipow.clone(), w.pauza)
+            (
+                migawka,
+                w.cfg.folder_klipow.clone(),
+                w.pauza,
+                w.czeka_na_gre,
+                nazwa_wybranej(&w.cfg),
+                w.gra.as_ref().map(|g| g.nazwa.clone()),
+            )
         };
         let powiadom = self.powiadom.clone();
         let Some((wideo, audio, format_wideo, fps, pulpit)) = migawka else {
             let opis = if pauza {
-                "Nagrywanie jest wstrzymane — wznów je, żeby zapisywać klipy"
+                "Nagrywanie jest wstrzymane — wznów je, żeby zapisywać klipy".to_string()
+            } else if czeka {
+                format!("Clipeon czeka na {czeka_na} — nagrywanie ruszy, gdy gra wystartuje")
             } else {
-                "Nagrywanie teraz nie działa — Clipeon próbuje je wznowić"
+                "Nagrywanie teraz nie działa — Clipeon próbuje je wznowić".to_string()
             };
-            powiadom(Zdarzenie::BladZapisu(opis.into()));
+            powiadom(Zdarzenie::BladZapisu(opis));
             return;
         };
         let przedrostek = if pulpit { "Clipeon_Pulpit" } else { "Clipeon" };
-        std::thread::spawn(move || match zapis::zapisz(&folder, przedrostek, fps, format_wideo, wideo, audio) {
+        std::thread::spawn(move || match zapis::zapisz(&folder, przedrostek, fps, format_wideo, wideo, audio, gra) {
             Ok(plik) => powiadom(Zdarzenie::Zapisano(plik)),
             Err(e) => {
                 crate::dziennik::blad(&format!("Nie udało się zapisać klipu: {e}"));
@@ -401,10 +429,60 @@ impl Rdzen {
         });
     }
 
+    /// Rozpoznaje grę na wierzchu nagrywanego ekranu i — gdy w ustawieniach wybrano konkretną grę —
+    /// uruchamia nagrywanie, kiedy gra wystartuje, i zatrzymuje je, kiedy jej nie ma.
+    /// Wołane co sekundę przez strażnika.
+    fn pilnuj_gry(&self) {
+        let (wybrana, monitor, pauza, ma_sesje, czekal) = {
+            let w = self.zamek();
+            (w.cfg.gra.clone(), w.cfg.aktywny_monitor().0.to_string(), w.pauza, w.sesja.is_some(), w.czeka_na_gre)
+        };
+        if pauza {
+            return;
+        }
+        // Nazwa gry na wierzchu — tylko do pokazania w oknie i w zasobniku
+        let teraz = crate::gra::na_pierwszym_planie(&monitor);
+        let zmiana_nazwy = {
+            let mut w = self.zamek();
+            let zmiana = w.gra != teraz;
+            w.gra = teraz;
+            zmiana
+        };
+
+        if wybrana.is_empty() {
+            if czekal {
+                self.zamek().czeka_na_gre = false;
+            }
+            if zmiana_nazwy || czekal {
+                self.wyslij_stan();
+            }
+            return;
+        }
+
+        let dziala = crate::gra::dziala(&wybrana);
+        if dziala && czekal {
+            crate::dziennik::info(&format!("Wybrana gra ({wybrana}) wystartowała — zaczynam nagrywać"));
+            self.uruchom();
+        } else if !dziala && ma_sesje {
+            crate::dziennik::info(&format!("Wybrana gra ({wybrana}) się zamknęła — czekam na nią"));
+            let sesja = {
+                let mut w = self.zamek();
+                w.czeka_na_gre = true;
+                w.wznawianie = None;
+                w.bledy.remove("nagrywanie");
+                w.sesja.take()
+            };
+            drop(sesja);
+            self.wyslij_stan();
+        } else if zmiana_nazwy {
+            self.wyslij_stan();
+        }
+    }
+
     /// Co nie działa w nagrywaniu obrazu (None = działa albo jest wstrzymane).
     fn problem_nagrywania(&self, po_uspieniu: bool) -> Option<String> {
         let w = self.zamek();
-        if w.pauza {
+        if w.pauza || w.czeka_na_gre {
             return None;
         }
         let Some(sesja) = &w.sesja else {
@@ -458,6 +536,9 @@ impl Rdzen {
                 // Długa przerwa między obiegami = komputer był uśpiony
                 let po_uspieniu = poprzedni_obieg.elapsed() > Duration::from_secs(10);
                 poprzedni_obieg = Instant::now();
+
+                // Jaka gra jest na wierzchu; przy wybranej grze: start, gdy rusza, stop, gdy znika
+                r.pilnuj_gry();
 
                 let problem = r.problem_nagrywania(po_uspieniu);
                 // Inne błędy (skrót zajęty, brak dźwięku) też zasługują na alarm, ale nie na restart
@@ -768,4 +849,15 @@ fn problem_inny_dlugo(r: &Rdzen) -> bool {
         return false;
     }
     od.get_or_insert_with(Instant::now).elapsed() >= ALARM_PO
+}
+
+/// Nazwa wybranej gry do pokazania („Czekam na …”): ładna z ustawień albo sama nazwa pliku.
+fn nazwa_wybranej(cfg: &Config) -> String {
+    if cfg.gra.is_empty() {
+        String::new()
+    } else if cfg.gra_nazwa.is_empty() {
+        cfg.gra.clone()
+    } else {
+        cfg.gra_nazwa.clone()
+    }
 }

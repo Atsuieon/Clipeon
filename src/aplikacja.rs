@@ -30,7 +30,8 @@ struct PozycjeMenu {
 fn pozwol_na_folder(app: &AppHandle, folder: &std::path::Path) {
     let _ = std::fs::create_dir_all(folder);
     let kanoniczny = folder.canonicalize().unwrap_or_else(|_| folder.to_path_buf());
-    let _ = app.asset_protocol_scope().allow_directory(kanoniczny, false);
+    // Rekurencyjnie: klipy leżą w podfolderach miesięcy (2026-11), a starsze prosto w folderze
+    let _ = app.asset_protocol_scope().allow_directory(kanoniczny, true);
 }
 
 fn tekst_zapisu(cfg: &Config) -> String {
@@ -109,11 +110,15 @@ fn pokaz_stan(app: &AppHandle, stan: &Stan) {
         (ikona::ZOLTY, format!("Wznawiam nagrywanie ({p})…"))
     } else if stan.pauza {
         (ikona::SZARY, "Nagrywanie wstrzymane".to_string())
+    } else if stan.czeka_na_gre {
+        (ikona::SZARY, format!("Czekam na {}", stan.wybrana_gra))
+    } else if stan.tryb == crate::config::TRYB_PULPIT {
+        (ikona::ZIELONY, format!("Nagrywa pulpit ({})", stan.ekran))
     } else {
-        if stan.tryb == crate::config::TRYB_PULPIT {
-            (ikona::ZIELONY, format!("Nagrywa pulpit ({})", stan.ekran))
-        } else {
-            (ikona::ZIELONY, "Nagrywa".to_string())
+        // Przy rozpoznanej grze widać, co dokładnie jest nagrywane
+        match &stan.gra {
+            Some(g) => (ikona::ZIELONY, format!("Nagrywa: {g}")),
+            None => (ikona::ZIELONY, "Nagrywa".to_string()),
         }
     };
     if let Some(t) = app.tray_by_id(ID_ZASOBNIKA) {
@@ -456,6 +461,29 @@ fn przenies_autostart_z_clippera(app: &AppHandle) {
 }
 
 /// Monitory do wyboru w ustawieniach i na pasku (z rozdzielczością, odświeżaniem i HDR).
+/// Podłączone mikrofony do wyboru w ustawieniach.
+#[tauri::command]
+async fn mikrofony() -> Vec<crate::audio::Mikrofon> {
+    tauri::async_runtime::spawn_blocking(crate::audio::mikrofony).await.unwrap_or_default()
+}
+
+/// Programy, które można wybrać jako nagrywaną grę (plus ta wybrana wcześniej, gdy teraz nie działa).
+#[tauri::command]
+fn gry(rdzen: State<'_, Rdzen>) -> Vec<crate::gra::Gra> {
+    let cfg = rdzen.config();
+    let mut lista = crate::gra::lista();
+    if !cfg.gra.is_empty() && !lista.iter().any(|g| crate::gra::ten_sam(&g.proces, &cfg.gra)) {
+        lista.insert(
+            0,
+            crate::gra::Gra {
+                nazwa: if cfg.gra_nazwa.is_empty() { cfg.gra.clone() } else { cfg.gra_nazwa.clone() },
+                proces: cfg.gra,
+            },
+        );
+    }
+    lista
+}
+
 #[tauri::command]
 fn monitory() -> Vec<crate::wideo::InfoMonitora> {
     crate::wideo::monitory()
@@ -539,6 +567,8 @@ pub fn uruchom() {
         .invoke_handler(tauri::generate_handler![
             stan,
             ustawienia,
+            mikrofony,
+            gry,
             zapisz_ustawienia,
             wybierz_folder,
             zapisz_klip,

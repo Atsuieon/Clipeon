@@ -48,8 +48,8 @@ svg.ikona { width: 18px; height: 18px; stroke: currentColor; stroke-width: 1.5; 
   border-bottom: 1px solid var(--ramka-panelu);
   z-index: 40;
 }
-.belka-tytul { display: flex; align-items: center; gap: 10px; padding-left: 16px; height: 100%; flex: 1; color: var(--pomoc); font-size: 13px; }
-.belka-logo { width: 16px; height: 16px; stroke: #fff; stroke-width: 1.5; fill: none; }
+.belka-tytul { display: flex; align-items: center; gap: 10px; padding-left: 16px; height: 100%; flex: 1; color: var(--pomoc); font-size: 14px; font-weight: 500; }
+.belka-logo { width: 18px; height: 18px; stroke: #fff; stroke-width: 1.7; fill: none; }
 .belka-logo .pelne { fill: #fff; stroke: none; }
 .belka-przyciski { display: flex; height: 100%; }
 .okno-przycisk {
@@ -79,7 +79,7 @@ svg.ikona { width: 18px; height: 18px; stroke: currentColor; stroke-width: 1.5; 
   padding: 18px 22px 18px 28px;
 }
 
-.marka { font-size: 20px; font-weight: 400; letter-spacing: -0.02em; color: var(--naglowek); }
+.marka { font-size: 24px; font-weight: 600; letter-spacing: -0.03em; color: var(--naglowek); }
 
 .zakladki { display: flex; gap: 4px; }
 
@@ -211,10 +211,51 @@ h2.sekcja { font-size: 26px; margin: 34px 0 16px; }
 .pusto { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 90px 20px; }
 .ikona-duza svg { width: 40px; height: 40px; stroke-width: 1.2; color: var(--pomoc); }
 
-/* Ustawienia */
-.karty { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
-.karty .karta { padding: 22px 22px 24px; display: flex; flex-direction: column; gap: 14px; }
-.karty .karta .pomoc:first-of-type { margin-top: -10px; }
+/* Ustawienia: grupy obok siebie, w każdej wiersz na ustawienie (nazwa z lewej, pole z prawej) */
+.grupy { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 22px 18px; align-items: start; }
+.grupa > h2, .grupa > summary > h2 {
+  font-size: 12.5px; font-weight: 500; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--pomoc); margin: 0 0 10px 4px;
+}
+.ustawienia-lista { display: flex; flex-direction: column; overflow: hidden; }
+
+.ust {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, auto); gap: 18px; align-items: center;
+  padding: 13px 20px; border-top: 1px solid var(--ramka-karty);
+}
+.ustawienia-lista > .ust:first-child, .ust-rozwijane .ust:first-of-type { border-top-width: 0; }
+.ust-rozwijane .ust { border-top: 1px solid var(--ramka-karty); }
+.ust .opis { min-width: 0; }
+.ust .opis > label, .ust .opis > span { display: block; color: var(--tytul); cursor: default; }
+.ust .opis > label { cursor: pointer; }
+.ust .pomoc { font-size: 12.5px; line-height: 1.35; margin-top: 3px; }
+.ust .pomoc:empty { display: none; }
+.ust .pole { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-width: 0; }
+.ust .pole select, .ust .pole .pole-skrotu { min-width: 190px; max-width: 260px; }
+.ust .pole input[type="range"] { width: 150px; }
+.ust .pole input[type="number"] { width: 86px; }
+.ust .pole.pola { display: grid; grid-template-columns: auto auto; gap: 10px; }
+.ust .pole.pola label { display: flex; flex-direction: row; align-items: center; gap: 8px; color: var(--pomoc); font-size: 12.5px; }
+.ust .pole .przycisk { white-space: nowrap; }
+.jednostka { color: var(--pomoc); font-size: 13px; }
+
+/* Rozwijane: tryb pulpitu w grupie i cała sekcja „Zaawansowane” */
+.ust-rozwijane > summary, .zaawansowane > summary {
+  display: flex; align-items: baseline; gap: 10px; cursor: pointer; list-style: none;
+  color: var(--tytul); transition: background var(--czas);
+}
+.ust-rozwijane > summary::-webkit-details-marker, .zaawansowane > summary::-webkit-details-marker { display: none; }
+.ust-rozwijane > summary { padding: 13px 20px; border-top: 1px solid var(--ramka-karty); }
+.ust-rozwijane > summary:hover, .zaawansowane > summary:hover { background: var(--hover); }
+.ust-rozwijane > summary::before, .zaawansowane > summary::before {
+  content: ""; width: 7px; height: 7px; flex: none; align-self: center;
+  border-right: 1.5px solid var(--pomoc); border-bottom: 1.5px solid var(--pomoc);
+  transform: rotate(-45deg); transition: transform var(--czas);
+}
+.ust-rozwijane[open] > summary::before, .zaawansowane[open] > summary::before { transform: rotate(45deg); }
+.ust-rozwijane > summary .pomoc, .zaawansowane > summary .pomoc { font-size: 12.5px; }
+.zaawansowane > summary { padding: 0 4px 10px; border-radius: 12px; }
+.zaawansowane > summary h2 { margin: 0; }
 
 .wiersz { display: flex; align-items: center; gap: 16px; }
 .wartosc { min-width: 56px; text-align: right; font-size: 18px; color: var(--tytul); font-variant-numeric: tabular-nums; }
@@ -281,6 +322,22 @@ select option { background: #0a0a0a; }
   display: flex; align-items: center; justify-content: flex-end; gap: 16px;
   background: linear-gradient(180deg, transparent, #000 35%);
 }
+
+/* Pełny ekran w podglądzie: obraz na całą wysokość, sterowanie na wierzchu */
+.okno-odtwarzacza.pelny {
+  width: 100%; height: 100%; max-height: none; border: 0; border-radius: 0;
+  display: grid; grid-template-rows: minmax(0, 1fr) auto;
+}
+.okno-odtwarzacza.pelny .pasek, .okno-odtwarzacza.pelny .eksport { display: none; }
+.okno-odtwarzacza.pelny video { height: 100%; max-height: none; object-fit: contain; background: #000; }
+.okno-odtwarzacza.pelny .sterowanie {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.85), transparent);
+  transition: opacity var(--czas);
+}
+.okno-odtwarzacza.pelny { position: relative; }
+.okno-odtwarzacza.pelny.bez-sterowania .sterowanie { opacity: 0; pointer-events: none; }
+.okno-odtwarzacza.pelny.bez-sterowania { cursor: none; }
 
 /* Odtwarzacz */
 .nakladka {
@@ -363,6 +420,16 @@ select option { background: #0a0a0a; }
   .marka { display: none; }
   .gora { gap: 14px; padding-left: 20px; }
   main { padding-left: 20px; padding-right: 20px; }
+}
+@media (max-width: 780px) {
+  /* Za wąsko na dwie kolumny ustawień */
+  .grupy { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 560px) {
+  /* Nazwa ustawienia nad polem, bo w jednej linii zrobiłoby się ciasno */
+  .ust { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .ust .pole { justify-content: flex-start; }
+  .ust .pole select, .ust .pole .pole-skrotu { min-width: 0; max-width: none; flex: 1; }
 }
 @media (max-width: 760px) {
   .nakladka { padding: 12px; }

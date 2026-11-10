@@ -9,6 +9,8 @@ const IKONY = {
   zapisz: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
   pauza: '<rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/>',
   graj: '<polygon points="6 3 20 12 6 21 6 3"/>',
+  pelny: '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
+  okno: '<path d="M3 8h3a2 2 0 0 0 2-2V3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/>',
   folder: '<path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/>',
   kosz: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
   zamknij: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
@@ -129,9 +131,13 @@ function pokazStan(s) {
       ? "Wznawiam…"
       : s.pauza
         ? "Wstrzymane"
-        : pulpit
-          ? "Nagrywa pulpit"
-          : "Nagrywa";
+        : s.czeka_na_gre
+          ? `Czekam na ${s.wybrana_gra}`
+          : pulpit
+            ? "Nagrywa pulpit"
+            : s.gra
+              ? `Nagrywa: ${s.gra}`
+              : "Nagrywa";
   // Pasek z wyjaśnieniem i przyciskami, gdy coś nie działa
   const problem = s.bledy[0] || (s.wznawianie && `Wznawiam nagrywanie: ${s.wznawianie}`);
   $("baner").hidden = !problem;
@@ -144,6 +150,7 @@ function pokazStan(s) {
   $("status").title = s.bledy.join("\n");
   $("pauza").innerHTML = s.pauza ? zIkona("graj", "Wznów") : zIkona("pauza", "Wstrzymaj");
   $("zapisz-klip").disabled = !s.nagrywa;
+  $("status").classList.toggle("czeka", !!s.czeka_na_gre);
   pokazTryb(s);
 }
 
@@ -305,6 +312,12 @@ function pompujMiniatury() {
           const d = karta.querySelector(".dlugosc");
           d.textContent = formatCzas(m.dlugosc);
           d.hidden = false;
+        }
+        // Gra zapisana w metadanych klipu — pokazujemy ją zamiast samej nazwy pliku
+        if (m.gra) {
+          klip.gra = m.gra;
+          karta.querySelector(".pomoc").textContent = `${formatMB(klip.rozmiar)} · ${m.gra}`;
+          karta.querySelector(".pomoc").title = klip.nazwa;
         }
       })
       .catch(() => {})
@@ -555,6 +568,7 @@ function odtworz(klip) {
 
 function zamknijOdtwarzacz() {
   if (eksportTrwa) return dymek("Poczekaj, aż skończy się zapisywanie");
+  if (wPelnym()) document.exitFullscreen().catch(() => {});
   const v = $("wideo");
   v.pause();
   v.removeAttribute("src");
@@ -589,6 +603,47 @@ $("wideo").addEventListener("timeupdate", () => {
 $("wideo").addEventListener("play", odswiezPrzyciskGraj);
 $("wideo").addEventListener("pause", odswiezPrzyciskGraj);
 $("wideo").addEventListener("click", () => !poPrzeciaganiu && przelaczGraj());
+
+// ---------- Pełny ekran w podglądzie ----------
+
+const wPelnym = () => !!document.fullscreenElement;
+
+function przelaczPelnyEkran() {
+  const okno = $("okno-odtwarzacza");
+  if (wPelnym()) document.exitFullscreen().catch(() => {});
+  // Pełny ekran bierze całą nakładkę, więc oś czasu i przyciski zostają widoczne
+  else okno.requestFullscreen().catch(() => dymek("Pełny ekran jest niedostępny"));
+}
+
+function odswiezPelnyEkran() {
+  const pelny = wPelnym();
+  $("pelny-ekran").innerHTML = ikona(pelny ? "okno" : "pelny");
+  $("pelny-ekran").title = pelny ? "Wyjdź z pełnego ekranu (F)" : "Pełny ekran (F)";
+  $("pelny-ekran").setAttribute("aria-label", $("pelny-ekran").title);
+  $("okno-odtwarzacza").classList.toggle("pelny", pelny);
+  if (pelny) obudzSterowanie();
+}
+
+document.addEventListener("fullscreenchange", odswiezPelnyEkran);
+odswiezPelnyEkran();
+$("pelny-ekran").addEventListener("click", przelaczPelnyEkran);
+$("wideo").addEventListener("dblclick", przelaczPelnyEkran);
+
+// W pełnym ekranie sterowanie chowa się po 2 s bez ruchu myszy
+let ukryjSterowanie = null;
+
+function obudzSterowanie() {
+  const okno = $("okno-odtwarzacza");
+  okno.classList.remove("bez-sterowania");
+  clearTimeout(ukryjSterowanie);
+  if (!wPelnym()) return;
+  ukryjSterowanie = setTimeout(() => {
+    if (wPelnym() && !$("wideo").paused) okno.classList.add("bez-sterowania");
+  }, 2000);
+}
+
+$("okno-odtwarzacza").addEventListener("mousemove", obudzSterowanie);
+$("okno-odtwarzacza").addEventListener("mouseleave", () => clearTimeout(ukryjSterowanie));
 
 function przelaczGraj() {
   const v = $("wideo");
@@ -979,11 +1034,16 @@ document.addEventListener("keydown", (e) => {
   if (nasluchSkrotu) return;
   if (e.key === "Escape") {
     ukryjMenu();
+    // Pełny ekran zamyka się sam (Esc należy do przeglądarki) — nakładkę zostawiamy otwartą
+    if (wPelnym()) return;
     if (!$("odtwarzacz").hidden) zamknijOdtwarzacz();
     else if (zaznaczone.size) wyczyscZaznaczenie();
   } else if (e.key === " " && !$("odtwarzacz").hidden && !e.target.closest("input, select, button, .uchwyt")) {
     e.preventDefault();
     przelaczGraj();
+  } else if ((e.key === "f" || e.key === "F") && !$("odtwarzacz").hidden && !e.target.closest("input, select")) {
+    e.preventDefault();
+    przelaczPelnyEkran();
   }
 });
 // Bez domyślnego menu przeglądarki
@@ -1014,8 +1074,43 @@ for (const p of PRESETY) {
 }
 
 async function wczytajUstawienia() {
-  const [u, monitory] = await Promise.all([invoke("ustawienia"), invoke("monitory")]);
+  const [u, monitory, mikrofony, gry] = await Promise.all([
+    invoke("ustawienia"),
+    invoke("monitory"),
+    invoke("mikrofony"),
+    invoke("gry"),
+  ]);
   cfg = u.cfg;
+
+  // Mikrofon: „domyślny systemowy” plus podłączone urządzenia (zapamiętywane po identyfikatorze)
+  const domyslny = mikrofony.find((m) => m.domyslny);
+  $("mikrofon-urzadzenie").replaceChildren(
+    new Option(domyslny ? `Domyślny systemowy (${domyslny.nazwa})` : "Domyślny systemowy", ""),
+    ...mikrofony.map((m) => new Option(m.nazwa, m.id)),
+  );
+  $("mikrofon-urzadzenie").value = cfg.mikrofon_urzadzenie;
+  // Wybrany mikrofon jest odłączony — pokazujemy go, żeby wybór nie zmienił się po cichu
+  if ($("mikrofon-urzadzenie").value !== cfg.mikrofon_urzadzenie) {
+    $("mikrofon-urzadzenie").append(new Option("Wybrany mikrofon (niepodłączony)", cfg.mikrofon_urzadzenie));
+    $("mikrofon-urzadzenie").value = cfg.mikrofon_urzadzenie;
+  }
+
+  // Gra: „automatycznie” plus otwarte programy; nazwę zapisujemy razem z plikiem procesu
+  $("gra").replaceChildren(
+    new Option("Automatycznie (co jest na wierzchu)", ""),
+    ...gry.map((g) => {
+      const o = new Option(g.nazwa, g.proces);
+      o.dataset.nazwa = g.nazwa;
+      return o;
+    }),
+  );
+  $("gra").value = cfg.gra;
+  if ($("gra").value !== cfg.gra) {
+    const o = new Option(`${cfg.gra_nazwa || cfg.gra} (teraz nie działa)`, cfg.gra);
+    o.dataset.nazwa = cfg.gra_nazwa || cfg.gra;
+    $("gra").append(o);
+    $("gra").value = cfg.gra;
+  }
   ostatniWybor = `${stan.tryb}|${stan.monitor}`;
   for (const [id, wartosc] of [["monitor", cfg.monitor], ["monitor-pulpitu", cfg.monitor_pulpitu]]) {
     $(id).replaceChildren(new Option("Główny monitor", ""), ...monitory.map((m) => new Option(m.opis + (m.hdr ? " · HDR" : ""), m.id)));
@@ -1061,6 +1156,14 @@ async function wczytajUstawienia() {
 function odswiezFormularz() {
   $("sprz-dni").disabled = !$("sprz-dni-wl").checked;
   $("sprz-gb").disabled = !$("sprz-gb-wl").checked;
+  // Wybór mikrofonu ma sens tylko wtedy, gdy mikrofon w ogóle nagrywamy
+  $("mikrofon-urzadzenie").disabled = !$("mikrofon").checked;
+  $("mikrofon-uwaga").textContent = $("mikrofon").checked
+    ? ""
+    : "Włącz „Mój mikrofon”, żeby wybrać urządzenie.";
+  $("gra-uwaga").textContent = $("gra").value
+    ? "Clipeon nagrywa cały ekran — przy wybranej grze bufor działa tylko wtedy, gdy ta gra jest uruchomiona."
+    : "Clipeon nagrywa cały czas, a nazwę gry pokazuje przy statusie.";
   const uwagi = {
     hevc_amf: "Podgląd w Clipeonie wymaga rozszerzenia HEVC z Microsoft Store, a Discord w przeglądarce może takiego klipu nie odtworzyć.",
     av1_amf: "Karty Radeon RX 7000 zapisują ten format w 1920×1082 — na dole klipu są 2 czarne linie.",
@@ -1088,7 +1191,7 @@ function odswiezFormularz() {
   }
 }
 
-for (const id of ["bufor", "fps", "bitrate", "dzwiek", "mikrofon", "sprz-dni-wl", "sprz-gb-wl", "enkoder", "monitor", "monitor-pulpitu", "bitrate-pulpitu"]) {
+for (const id of ["bufor", "fps", "bitrate", "dzwiek", "mikrofon", "mikrofon-urzadzenie", "gra", "sprz-dni-wl", "sprz-gb-wl", "enkoder", "monitor", "monitor-pulpitu", "bitrate-pulpitu"]) {
   $(id).addEventListener("input", odswiezFormularz);
 }
 
@@ -1153,6 +1256,9 @@ $("zapisz-ustawienia").addEventListener("click", async () => {
     fps_pulpitu: Number($("fps-pulpitu").value),
     bitrate_pulpitu_mbps: Number($("bitrate-pulpitu").value),
     metoda_przechwytywania: $("metoda").value,
+    mikrofon_urzadzenie: $("mikrofon-urzadzenie").value,
+    gra: $("gra").value,
+    gra_nazwa: $("gra").selectedOptions[0]?.dataset.nazwa || "",
     dzwiek_zapisu: $("dzwiek-zapisu").checked,
     glos_w_edytorze: $("glos-w-edytorze").checked,
     powiadomienie_zapisu: $("powiadomienie-zapisu").checked,
