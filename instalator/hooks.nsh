@@ -20,9 +20,12 @@
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
-  ; Uruchamianie razem z Windows — pytamy tylko przy zwykłej instalacji (nie przy cichej aktualizacji).
-  ; Wpis jest taki sam jak ten, który ustawia przełącznik w Ustawieniach Clipeona.
+  ; Uruchamianie razem z Windows — pytamy tylko przy zwykłej instalacji (nie przy cichej ani przy
+  ; aktualizacji z poziomu Clipeona, /UPDATE). Wpis jest taki sam jak ten z Ustawień Clipeona.
   IfSilent clipeon_autostart_koniec
+  ${If} $UpdateMode = 1
+    Goto clipeon_autostart_koniec
+  ${EndIf}
   MessageBox MB_YESNO|MB_ICONQUESTION "Uruchamiać Clipeona razem z Windows?$\r$\nClipeon będzie wtedy od razu gotowy do zapisywania klipów.$\r$\n$\r$\nStart Clipeon together with Windows?" IDNO clipeon_autostart_koniec
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Clipeon" '"$INSTDIR\${MAINBINARYNAME}.exe"'
   clipeon_autostart_koniec:

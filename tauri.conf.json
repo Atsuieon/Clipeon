@@ -18,6 +18,17 @@
       }
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZGNzQyNkRDM0MyRkIwQkEKUldTNnNDODgzQ1owYjRUMDZSOWx1NDZ5ZUtYYXd0RC9Mc0RKeWhtMVFJakRsVzMyb3BobHNKNzcK",
+      "endpoints": [
+        "https://github.com/Atsuieon/Clipeon/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": [

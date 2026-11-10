@@ -164,6 +164,25 @@ fn obsluz_zdarzenie(app: &AppHandle, z: Zdarzenie) {
 /// Dymek w prawym górnym rogu monitora z grą (nagrywanego) — patrz powiadomienie.rs.
 /// `trwaly` = wisi do naprawy problemu, a kliknięcie otwiera okno Clipeona.
 fn pokaz_dymek(app: &AppHandle, monitor: &str, tytul: &str, opis: &str, blad: bool, trwaly: bool) {
+    let klik: Option<Box<dyn FnOnce() + Send>> = if trwaly {
+        let app = app.clone();
+        Some(Box::new(move || pokaz_okno(&app, "klipy")))
+    } else {
+        None
+    };
+    pokaz_dymek_z_klikiem(app, monitor, tytul, opis, blad, trwaly, klik);
+}
+
+/// Dymek z własną akcją po kliknięciu (`klik` = None: kliknięcia przechodzą do gry).
+fn pokaz_dymek_z_klikiem(
+    app: &AppHandle,
+    monitor: &str,
+    tytul: &str,
+    opis: &str,
+    blad: bool,
+    trwaly: bool,
+    klik: Option<Box<dyn FnOnce() + Send>>,
+) {
     let m = app
         .available_monitors()
         .ok()
@@ -176,12 +195,6 @@ fn pokaz_dymek(app: &AppHandle, monitor: &str, tytul: &str, opis: &str, blad: bo
         skala: m.scale_factor() as f32,
     };
     let (tytul, opis) = (tytul.to_string(), opis.to_string());
-    let klik: Option<Box<dyn FnOnce() + Send>> = if trwaly {
-        let app = app.clone();
-        Some(Box::new(move || pokaz_okno(&app, "klipy")))
-    } else {
-        None
-    };
     std::thread::spawn(move || crate::powiadomienie::pokaz(miejsce, &tytul, &opis, blad, trwaly, klik));
 }
 
@@ -201,26 +214,77 @@ struct Ustawienia {
     repozytorium: &'static str,
 }
 
-/// Znalezione nowsze wydanie (None = brak albo jeszcze nie sprawdzono).
-#[derive(Default)]
-struct Aktualizacja(std::sync::Mutex<Option<crate::aktualizacje::Wydanie>>);
-
-/// Sprawdza aktualizacje i pokazuje wynik w oknie i menu zasobnika.
-fn sprawdz_aktualizacje_teraz(app: &AppHandle) -> Result<Option<crate::aktualizacje::Wydanie>, String> {
-    let wynik = crate::aktualizacje::sprawdz();
+/// Sprawdza aktualizacje i pokazuje wynik w oknie i menu zasobnika. `w_tle` = sprawdzenie
+/// automatyczne: wtedy o nowej wersji mówi też dymek (raz na wersję).
+async fn sprawdz_aktualizacje_teraz(app: &AppHandle, w_tle: bool) -> Result<Option<crate::aktualizacje::Wydanie>, String> {
+    let h = app.clone();
+    let wynik = crate::aktualizacje::sprawdz(app, move || przed_instalacja(&h)).await;
     match &wynik {
         Ok(Some(w)) => {
             crate::dziennik::info(&format!("Dostępna aktualizacja {}", w.wersja));
-            *app.state::<Aktualizacja>().0.lock().unwrap_or_else(|e| e.into_inner()) = Some(w.clone());
             if let Some(m) = app.try_state::<PozycjeMenu>() {
-                let _ = m.aktualizacja.set_text(format!("Dostępna aktualizacja {} — pobierz", w.wersja));
+                let _ = m.aktualizacja.set_text(format!("Aktualizuj do wersji {}", w.wersja));
             }
             let _ = app.emit("aktualizacja", w);
+            static OGLOSZONA: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+            let mut ogloszona = OGLOSZONA.lock().unwrap_or_else(|e| e.into_inner());
+            if w_tle && *ogloszona != w.wersja {
+                *ogloszona = w.wersja.clone();
+                let monitor = app.state::<Rdzen>().config().monitor;
+                let a = app.clone();
+                pokaz_dymek_z_klikiem(
+                    app,
+                    &monitor,
+                    &format!("Nowa wersja Clipeona: {}", w.wersja),
+                    "Kliknij, żeby otworzyć Clipeona i zaktualizować",
+                    false,
+                    false,
+                    Some(Box::new(move || pokaz_okno(&a, "klipy"))),
+                );
+            }
         }
-        Ok(None) => {}
+        Ok(None) => {
+            if let Some(m) = app.try_state::<PozycjeMenu>() {
+                let _ = m.aktualizacja.set_text("Sprawdź aktualizacje");
+            }
+            let _ = app.emit("aktualizacja", None::<crate::aktualizacje::Wydanie>);
+        }
         Err(e) => crate::dziennik::blad(e),
     }
     wynik
+}
+
+/// Pobiera i instaluje znalezioną wersję; menu zasobnika pokazuje, co się dzieje.
+async fn zainstaluj_aktualizacje_teraz(app: &AppHandle) -> Result<(), String> {
+    if let Some(m) = app.try_state::<PozycjeMenu>() {
+        let _ = m.aktualizacja.set_text("Pobieranie aktualizacji…");
+        let _ = m.aktualizacja.set_enabled(false);
+    }
+    let wynik = crate::aktualizacje::zainstaluj(app).await;
+    // Tu dochodzimy tylko po błędzie (udana instalacja zamyka program)
+    if let Err(e) = &wynik {
+        crate::dziennik::blad(e);
+        if let Some(m) = app.try_state::<PozycjeMenu>() {
+            let tekst = match app.state::<crate::aktualizacje::Stan>().znaleziona() {
+                Some(w) => format!("Aktualizuj do wersji {}", w.wersja),
+                None => "Sprawdź aktualizacje".into(),
+            };
+            let _ = m.aktualizacja.set_text(tekst);
+            let _ = m.aktualizacja.set_enabled(true);
+        }
+        let monitor = app.state::<Rdzen>().config().monitor;
+        pokaz_dymek(app, &monitor, "Aktualizacja się nie udała", e, true, false);
+    }
+    wynik
+}
+
+/// Tuż przed uruchomieniem instalatora: zatrzymujemy nagrywanie, żeby ffmpeg zwolnił swoje pliki.
+fn przed_instalacja(app: &AppHandle) {
+    crate::dziennik::info("Zamykanie Clipeona na czas instalacji aktualizacji");
+    if let Some(r) = app.try_state::<Rdzen>() {
+        r.zakoncz();
+    }
+    std::thread::sleep(std::time::Duration::from_millis(800));
 }
 
 /// Asynchronicznie: przy pierwszym wywołaniu wykrywanie enkoderów może potrwać sekundę-dwie.
@@ -388,21 +452,20 @@ fn monitory() -> Vec<(String, String)> {
 
 /// Znalezione nowsze wydanie (okno pyta o nie przy otwarciu).
 #[tauri::command]
-fn aktualizacja(stan: State<'_, Aktualizacja>) -> Option<crate::aktualizacje::Wydanie> {
-    stan.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
+fn aktualizacja(stan: State<'_, crate::aktualizacje::Stan>) -> Option<crate::aktualizacje::Wydanie> {
+    stan.znaleziona()
 }
 
 /// Ręczne sprawdzenie z ustawień.
 #[tauri::command]
 async fn sprawdz_aktualizacje(app: AppHandle) -> Result<Option<crate::aktualizacje::Wydanie>, String> {
-    tauri::async_runtime::spawn_blocking(move || sprawdz_aktualizacje_teraz(&app)).await.map_err(|e| e.to_string())?
+    sprawdz_aktualizacje_teraz(&app, false).await
 }
 
-/// Otwiera stronę nowego wydania (albo listę wydań) w przeglądarce.
+/// Przycisk „Aktualizuj”: pobranie, sprawdzenie podpisu, instalacja i ponowne uruchomienie.
 #[tauri::command]
-fn otworz_aktualizacje(stan: State<'_, Aktualizacja>) {
-    let strona = stan.0.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|w| w.strona.clone());
-    crate::aktualizacje::otworz(&strona.unwrap_or_else(|| format!("{}/releases", crate::aktualizacje::REPOZYTORIUM)));
+async fn zainstaluj_aktualizacje(app: AppHandle) -> Result<(), String> {
+    zainstaluj_aktualizacje_teraz(&app).await
 }
 
 #[tauri::command]
@@ -446,6 +509,7 @@ pub fn uruchom() {
         // Druga kopia programu tylko pokazuje okno pierwszej (skrót i enkoder są jedne)
         .plugin(tauri_plugin_single_instance::init(|app, _, _| pokaz_okno(app, "klipy")))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .invoke_handler(tauri::generate_handler![
             stan,
@@ -467,7 +531,7 @@ pub fn uruchom() {
             otworz_log,
             aktualizacja,
             sprawdz_aktualizacje,
-            otworz_aktualizacje,
+            zainstaluj_aktualizacje,
             otworz_repozytorium
         ])
         .setup(move |app| {
@@ -492,7 +556,7 @@ pub fn uruchom() {
                 &[&stan, &sep()?, &zapisz, &pauza, &sep()?, &folder, &biblioteka, &ustawienia, &log, &aktualizacja, &sep()?, &zamknij],
             )?;
             app.manage(PozycjeMenu { stan, aktualizacja, zapisz, pauza });
-            app.manage(Aktualizacja::default());
+            app.manage(crate::aktualizacje::Stan::default());
 
             TrayIconBuilder::with_id(ID_ZASOBNIKA)
                 .icon(ikona::ikona(ikona::ZIELONY))
@@ -509,16 +573,23 @@ pub fn uruchom() {
                         "ustawienia" => pokaz_okno(app, "ustawienia"),
                         "log" => otworz_log(),
                         "aktualizacja" => {
-                            let znana = app.state::<Aktualizacja>().0.lock().unwrap_or_else(|e| e.into_inner()).is_some();
-                            if znana {
-                                otworz_aktualizacje(app.state::<Aktualizacja>());
+                            let stan = app.state::<crate::aktualizacje::Stan>();
+                            let app = app.clone();
+                            if stan.trwa() {
+                                // Pozycja jest wtedy wyłączona; na wszelki wypadek nic nie robimy
+                            } else if stan.znaleziona().is_some() {
+                                tauri::async_runtime::spawn(async move {
+                                    let _ = zainstaluj_aktualizacje_teraz(&app).await;
+                                });
                             } else {
                                 // Ręczne sprawdzenie; wynik pokazujemy dymkiem
-                                let app = app.clone();
-                                std::thread::spawn(move || {
+                                tauri::async_runtime::spawn(async move {
                                     let monitor = app.state::<Rdzen>().config().monitor;
-                                    let (tytul, opis) = match sprawdz_aktualizacje_teraz(&app) {
-                                        Ok(Some(w)) => (format!("Dostępna wersja {}", w.wersja), "Kliknij w menu ikony, żeby ją pobrać".to_string()),
+                                    let (tytul, opis) = match sprawdz_aktualizacje_teraz(&app, false).await {
+                                        Ok(Some(w)) => (
+                                            format!("Dostępna wersja {}", w.wersja),
+                                            "Kliknij ikonę prawym przyciskiem → „Aktualizuj”".to_string(),
+                                        ),
                                         Ok(None) => ("Masz najnowszą wersję".to_string(), format!("Clipeon {}", crate::aktualizacje::WERSJA)),
                                         Err(e) => ("Nie udało się sprawdzić".to_string(), e),
                                     };
@@ -558,7 +629,7 @@ pub fn uruchom() {
                 std::thread::sleep(std::time::Duration::from_secs(10));
                 loop {
                     if h.state::<Rdzen>().config().sprawdzaj_aktualizacje {
-                        let _ = sprawdz_aktualizacje_teraz(&h);
+                        let _ = tauri::async_runtime::block_on(sprawdz_aktualizacje_teraz(&h, true));
                     }
                     std::thread::sleep(std::time::Duration::from_secs(24 * 3600));
                 }

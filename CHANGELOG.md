@@ -2,6 +2,12 @@
 
 ## 1.2.0
 
+**Aktualizacje**
+- **Aktualizacja jednym kliknięciem:** Clipeon sam sprawdza, czy jest nowa wersja, i pokazuje przycisk
+  „Aktualizuj” (w oknie, w ustawieniach i w menu ikony przy zegarze). Po kliknięciu sam pobiera instalator,
+  sprawdza jego podpis, instaluje go i uruchamia się ponownie — bez wchodzenia na stronę GitHuba.
+  O nowej wersji znalezionej w tle informuje też dymek (raz na wersję).
+
 **Nagrywanie u każdego**
 - Działa też na starszym Windows 10: gdy system nie pozwala wyłączyć żółtej ramki przechwytywania
   (albo nie obsługuje innych nowszych opcji), Clipeon nagrywa dalej z ustawieniami domyślnymi zamiast przerywać.

@@ -55,7 +55,29 @@ jobs:
 
       - name: Instalator
         shell: pwsh
-        run: npx --yes @tauri-apps/cli@2 build --config instalator/tauri.ffmpeg.json
+        env:
+          # Klucz do podpisywania aktualizacji (sekret repozytorium); klucz nie ma hasła
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: |
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) { throw "Brak sekretu TAURI_SIGNING_PRIVATE_KEY (Settings → Secrets and variables → Actions)" }
+          npx --yes @tauri-apps/cli@2 build --config instalator/tauri.ffmpeg.json
+
+      - name: latest.json dla automatycznych aktualizacji
+        shell: pwsh
+        run: |
+          $instalator = Get-ChildItem target/release/bundle/nsis -Filter *-setup.exe | Select-Object -First 1
+          $podpis = Get-Content "$($instalator.FullName).sig" -Raw
+          $wersja = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          $url = "https://github.com/${{ github.repository }}/releases/download/v$wersja/$($instalator.Name)"
+          $platforma = @{ signature = $podpis.Trim(); url = $url }
+          @{
+            version   = $wersja
+            notes     = "Clipeon $wersja"
+            pub_date  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            platforms = @{ "windows-x86_64" = $platforma; "windows-x86_64-nsis" = $platforma }
+          } | ConvertTo-Json -Depth 4 | Out-File -Encoding utf8NoBOM target/release/bundle/nsis/latest.json
+          Get-Content target/release/bundle/nsis/latest.json
 
       - name: Opis wydania
         shell: pwsh
@@ -68,6 +90,8 @@ jobs:
           $zmiany
 
           ---
+          **Masz już Clipeona 1.1.1 lub nowszego?** Aktualizacja pojawi się w programie sama — kliknij „Aktualizuj”.
+
           **Instalacja:** pobierz plik ``Clipeon_*_x64-setup.exe`` poniżej i uruchom go. Instalator nie jest podpisany,
           więc Windows SmartScreen może pokazać ostrzeżenie — kliknij *Więcej informacji → Uruchom mimo to*.
 
@@ -80,4 +104,7 @@ jobs:
         with:
           name: Clipeon ${{ github.ref_name }}
           body_path: opis.md
-          files: target/release/bundle/nsis/*-setup.exe
+          files: |
+            target/release/bundle/nsis/*-setup.exe
+            target/release/bundle/nsis/*-setup.exe.sig
+            target/release/bundle/nsis/latest.json

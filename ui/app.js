@@ -1019,15 +1019,57 @@ odswiezPrzyciskGraj();
 
 // ---------- Aktualizacje ----------
 
+let instalujemy = false; // trwa pobieranie albo instalacja aktualizacji
+
 function pokazAktualizacje(w) {
+  if (instalujemy) return;
   const b = $("aktualizacja");
   b.hidden = !w;
+  b.disabled = false;
+  $("aktualizuj-teraz").hidden = !w;
   if (w) {
-    b.innerHTML = zIkona("pobierz", `Dostępna aktualizacja ${w.wersja}`);
-    b.title = "Otwórz stronę nowej wersji";
+    b.innerHTML = zIkona("pobierz", `Aktualizuj do ${w.wersja}`);
+    b.title = "Pobierz i zainstaluj nową wersję. Clipeon uruchomi się ponownie sam.";
+    $("akt-wynik").textContent = `Dostępna wersja ${w.wersja}`;
   }
 }
-$("aktualizacja").addEventListener("click", () => invoke("otworz_aktualizacje"));
+
+async function aktualizuj() {
+  if (instalujemy) return;
+  instalujemy = true;
+  pokazPostep({ etap: "pobieranie", procent: 0 });
+  try {
+    await invoke("zainstaluj_aktualizacje");
+  } catch (e) {
+    instalujemy = false;
+    dymek(String(e));
+    pokazAktualizacje(await invoke("aktualizacja"));
+  }
+}
+
+function pokazPostep(p) {
+  if (p.etap === "blad") return; // komunikat pokazuje aktualizuj()
+  const tekst =
+    p.etap === "instalowanie"
+      ? "Instalowanie… Clipeon uruchomi się ponownie"
+      : `Pobieranie aktualizacji…${p.procent == null ? "" : ` ${p.procent}%`}`;
+  for (const b of [$("aktualizacja"), $("aktualizuj-teraz")]) b.disabled = true;
+  $("aktualizacja").hidden = false;
+  $("aktualizacja").innerHTML = zIkona("pobierz", tekst);
+  $("akt-wynik").textContent = tekst;
+}
+
+$("aktualizacja").addEventListener("click", aktualizuj);
+$("aktualizuj-teraz").addEventListener("click", aktualizuj);
+listen("aktualizacja-postep", (e) => {
+  if (e.payload.etap !== "blad") {
+    instalujemy = true; // instalację mogło też zacząć menu ikony przy zegarze
+    pokazPostep(e.payload);
+  } else {
+    instalujemy = false;
+    invoke("aktualizacja").then(pokazAktualizacje);
+  }
+});
 $("autor").addEventListener("click", (e) => {
   e.preventDefault();
   invoke("otworz_repozytorium");
