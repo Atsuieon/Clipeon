@@ -58,11 +58,13 @@ fn wbudowane() -> &'static [&'static Enkoder] {
 /// Czy enkoder działa tutaj — wynik próby zapamiętany (sondy idą po kolei: równoległe sesje
 /// na jednej karcie potrafiły ciągnąć się kilkanaście sekund). Porażkę pamiętamy tylko kilka minut:
 /// przy autostarcie karta bywa jeszcze zajęta, a sterownik mógł zostać w międzyczasie zaktualizowany.
+static WYNIKI: OnceLock<std::sync::Mutex<std::collections::HashMap<&'static str, (bool, std::time::Instant)>>> =
+    OnceLock::new();
+
 fn dziala(e: &'static Enkoder) -> bool {
     use std::collections::HashMap;
     use std::sync::Mutex;
     use std::time::{Duration, Instant};
-    static WYNIKI: OnceLock<Mutex<HashMap<&'static str, (bool, Instant)>>> = OnceLock::new();
     let wyniki = WYNIKI.get_or_init(|| Mutex::new(HashMap::new()));
     // Blokada trzymana przez całą próbę = próby nigdy nie idą równolegle
     let mut w = wyniki.lock().unwrap_or_else(|x| x.into_inner());
@@ -76,10 +78,26 @@ fn dziala(e: &'static Enkoder) -> bool {
     ok
 }
 
+/// Najstarszy sterownik NVIDIA obsługiwany przez NVENC w dołączonym FFmpeg 8.1 (SDK 13).
+const MIN_NVIDIA: f64 = 570.0;
+
 /// Ostrzeżenie dla użytkownika (np. za stary sterownik NVIDIA), pokazywane przy wyborze enkodera.
 static OSTRZEZENIE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 pub fn ostrzezenie() -> Option<String> {
+    // Za stary sterownik NVIDIA widać już po wersji (gdy karta jest najmocniejsza w komputerze)
+    static SPRAWDZONO: OnceLock<()> = OnceLock::new();
+    SPRAWDZONO.get_or_init(|| {
+        let glowna = crate::karty::karty().first();
+        if let Some(v) = glowna.and_then(|k| k.wersja_nvidia()).filter(|v| *v < MIN_NVIDIA) {
+            let tekst = format!(
+                "Sterownik karty NVIDIA ({v:.2}) jest za stary do nagrywania kartą (potrzebny {MIN_NVIDIA:.0} lub nowszy). \
+                 Zaktualizuj go w aplikacji NVIDIA albo na nvidia.com — do tego czasu nagrywa procesor."
+            );
+            crate::dziennik::blad(&tekst);
+            *OSTRZEZENIE.lock().unwrap_or_else(|x| x.into_inner()) = Some(tekst);
+        }
+    });
     OSTRZEZENIE.lock().unwrap_or_else(|x| x.into_inner()).clone()
 }
 
@@ -180,7 +198,7 @@ fn proba(e: &Enkoder) -> Result<(), String> {
 
 /// Wszystkie działające enkodery (do listy w ustawieniach).
 pub fn dostepne() -> Vec<&'static Enkoder> {
-    let lista: Vec<_> = KANDYDACI.iter().filter(|e| dziala(e)).collect();
+    let lista: Vec<_> = kandydaci_wg_kart().into_iter().filter(|e| dziala(e)).collect();
     static ZAPISANO: OnceLock<()> = OnceLock::new();
     ZAPISANO.get_or_init(|| {
         crate::dziennik::info(&format!(
@@ -191,9 +209,38 @@ pub fn dostepne() -> Vec<&'static Enkoder> {
     lista
 }
 
-/// Najlepszy działający enkoder danej rodziny (pierwszy z KANDYDACI; dalszych nie sprawdzamy).
+/// Producent karty, której używa enkoder (None = procesor).
+fn producent(nazwa: &str) -> Option<crate::karty::Producent> {
+    use crate::karty::Producent;
+    match nazwa.rsplit('_').next()? {
+        "amf" => Some(Producent::Amd),
+        "nvenc" => Some(Producent::Nvidia),
+        "qsv" => Some(Producent::Intel),
+        _ => None,
+    }
+}
+
+/// Kandydaci w kolejności: najpierw karta z największą pamięcią (przy kilku kartach — np. grafika
+/// w procesorze i osobna karta — kodujemy na mocniejszej), potem pozostałe, procesor na końcu.
+fn kandydaci_wg_kart() -> Vec<&'static Enkoder> {
+    let kolejnosc = crate::karty::kolejnosc_producentow();
+    let mut l: Vec<&'static Enkoder> = KANDYDACI.iter().collect();
+    // Sortowanie stabilne: w obrębie producenta zostaje kolejność kodeków z KANDYDACI
+    l.sort_by_key(|e| producent(e.nazwa).and_then(|p| kolejnosc.iter().position(|x| *x == p)).unwrap_or(usize::MAX));
+    l
+}
+
+/// Najlepszy działający enkoder danej rodziny (dalszych nie sprawdzamy).
 fn najlepszy(kodek: Kodek) -> Option<&'static str> {
-    KANDYDACI.iter().filter(|e| e.kodek == kodek).find(|e| dziala(e)).map(|e| e.nazwa)
+    kandydaci_wg_kart().into_iter().filter(|e| e.kodek == kodek).find(|e| dziala(e)).map(|e| e.nazwa)
+}
+
+/// Enkoder przestał działać w trakcie nagrywania (np. po aktualizacji sterownika): przy następnym
+/// starcie nagrywania sprawdzimy go od nowa, a jeśli nadal nie działa — weźmiemy inny.
+pub fn zapomnij(nazwa: &str) {
+    if let Some(w) = WYNIKI.get() {
+        w.lock().unwrap_or_else(|x| x.into_inner()).remove(nazwa);
+    }
 }
 
 /// Enkoder do nagrywania: wybrany w ustawieniach albo przy „auto” — najlepszy H.264.

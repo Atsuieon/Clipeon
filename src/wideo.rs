@@ -163,9 +163,16 @@ fn mozliwosci_przechwytywania() -> Mozliwosci {
     m
 }
 
+/// Bitrate dopasowany do rozdzielczości: ustawienie dotyczy 1080p, przy większym ekranie potrzeba
+/// więcej danych na ten sam poziom ostrości (skala ~ pikseli^0,75, jak w zaleceniach YouTube/OBS).
+pub fn bitrate_dla(cfg: &Config, w: u32, h: u32) -> u32 {
+    let skala = (w as f64 * h as f64 / (1920.0 * 1080.0)).powf(0.75).max(1.0);
+    ((cfg.bitrate_mbps as f64 * skala).round() as u32).clamp(1, 150)
+}
+
 /// Wspólne dla wszystkich enkoderów: bitrate (VBR ze szczytem 1,5×), klatka kluczowa co 1 s, bez B-klatek.
-fn argumenty_strumienia(cfg: &Config) -> Vec<String> {
-    let (b, g) = (cfg.bitrate_mbps, cfg.fps.to_string());
+fn argumenty_strumienia(cfg: &Config, w: u32, h: u32) -> Vec<String> {
+    let (b, g) = (bitrate_dla(cfg, w, h), cfg.fps.to_string());
     [
         "-b:v", &format!("{b}M"), "-maxrate", &format!("{}M", b * 3 / 2), "-bufsize", &format!("{b}M"),
         "-g", &g, "-bf", "0", "-force_key_frames", "expr:gte(t,n_forced)",
@@ -183,7 +190,7 @@ pub fn uruchom(cfg: &Config, bufor: WspolnyBufor, zglos: impl Fn(String) + Send 
     let nazwa = if cfg.monitor.is_empty() { "główny".to_string() } else { cfg.monitor.clone() };
     let enkoder = enkodery::do_nagrywania(&cfg.enkoder);
     let format = enkodery::format_strumienia(enkoder);
-    crate::dziennik::info(&format!("Wideo: monitor {nazwa} {w}x{h}, {fps} FPS, {enkoder} {} Mb/s", cfg.bitrate_mbps));
+    crate::dziennik::info(&format!("Wideo: monitor {nazwa} {w}x{h}, {fps} FPS, {enkoder} {} Mb/s", bitrate_dla(cfg, w, h)));
 
     let rozmiar_klatki = (w * h * 4) as usize;
     let problem: Problem = Arc::new(Mutex::new(None));
@@ -212,7 +219,7 @@ pub fn uruchom(cfg: &Config, bufor: WspolnyBufor, zglos: impl Fn(String) + Send 
         .args(["-hide_banner", "-loglevel", "error"])
         .args(["-f", "rawvideo", "-pix_fmt", "bgra", "-s", &format!("{w}x{h}"), "-framerate", &fps.to_string(), "-i", "-"])
         .args(enkodery::argumenty_nagrywania(enkoder, fps))
-        .args(argumenty_strumienia(cfg))
+        .args(argumenty_strumienia(cfg, w, h))
         .args(["-f", format, "-"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -295,6 +302,7 @@ pub fn uruchom(cfg: &Config, bufor: WspolnyBufor, zglos: impl Fn(String) + Send 
                         std::thread::sleep(Duration::from_millis(100));
                         let opis = ostatni_blad.lock().unwrap_or_else(|e| e.into_inner()).clone();
                         crate::dziennik::blad(&format!("Wideo: ffmpeg przestał działać: {opis}"));
+                        enkodery::zapomnij(enkoder);
                         zglos(if opis.is_empty() {
                             "enkoder wideo nieoczekiwanie się zamknął".to_string()
                         } else {

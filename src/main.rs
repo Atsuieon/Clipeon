@@ -13,6 +13,7 @@ mod edycja;
 mod enkodery;
 mod ffmpeg;
 mod ikona;
+mod karty;
 mod klipy;
 mod odzyskiwanie;
 mod powiadomienie;
