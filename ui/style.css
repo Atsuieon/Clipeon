@@ -565,3 +565,8 @@ input[type="number"]:focus-visible, select:focus-visible { outline: none; border
 .tryb .segment.wybrany, .tryb .segment.wybrany:hover { background: transparent; border-color: transparent; }
 .tryb .segment.wybrany:disabled { opacity: 1; }
 .tryb:has(.segment:disabled) .pigulka.widoczna { opacity: 0.7; }
+/* Windows z wyłączonymi animacjami (prefers-reduced-motion) gasi wszystkie przejścia; pigułka zostaje,
+   bo to krótki ruch, który pokazuje, co się zmieniło — tylko szybciej */
+@media (prefers-reduced-motion: reduce) {
+  .pigulka:not(.bez-animacji) { transition: transform 160ms ease-out, width 160ms ease-out, height 160ms ease-out !important; }
+}
