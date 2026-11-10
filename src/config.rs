@@ -55,6 +55,13 @@ pub struct Config {
     /// Metoda przechwytywania: "auto", "dda" (Desktop Duplication), "gfx" (Windows Graphics Capture),
     /// "potok" (tryb zgodności: obraz przez pamięć RAM, jak w wersjach do 1.2)
     pub metoda_przechwytywania: String,
+    /// Mikrofon do nagrywania: identyfikator urządzenia (pusty = domyślny systemowy)
+    pub mikrofon_urzadzenie: String,
+    /// Gra do nagrywania: nazwa pliku programu, np. „Cyberpunk2077.exe”
+    /// (pusta = nagrywaj zawsze, bez względu na to, co jest na wierzchu)
+    pub gra: String,
+    /// Ładna nazwa wybranej gry (żeby pokazać „Czekam na …”, zanim gra wystartuje)
+    pub gra_nazwa: String,
 }
 
 pub const TRYB_GRA: &str = "gra";
@@ -87,6 +94,9 @@ impl Default for Config {
             fps_pulpitu: 30,
             bitrate_pulpitu_mbps: 12,
             metoda_przechwytywania: "auto".into(),
+            mikrofon_urzadzenie: String::new(),
+            gra: String::new(),
+            gra_nazwa: String::new(),
             glos_w_edytorze: true,
             sprawdzaj_aktualizacje: true,
         }

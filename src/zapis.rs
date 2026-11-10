@@ -15,6 +15,7 @@ pub fn zapisz(
     format_wideo: &str,
     wideo: Vec<Pakiet>,
     audio: Vec<(&'static str, Vec<Pakiet>)>,
+    gra: Option<String>,
 ) -> Result<PathBuf, String> {
     static ZAPIS: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _kolejka = ZAPIS.lock().unwrap_or_else(|e| e.into_inner());
@@ -32,12 +33,16 @@ pub fn zapisz(
         .filter(|(_, a)| !a.is_empty())
         .collect();
 
-    std::fs::create_dir_all(folder).map_err(|e| format!("Nie mogę utworzyć {}: {e}", folder.display()))?;
+    // Klipy lądują w podfolderze miesiąca (2026-11), żeby folder nie puchł bez końca
+    let znacznik = znacznik_czasu();
+    let folder_miesiaca = folder.join(miesiac(&znacznik));
+    std::fs::create_dir_all(&folder_miesiaca)
+        .map_err(|e| format!("Nie mogę utworzyć {}: {e}", folder_miesiaca.display()))?;
     // Miejsce na dysku: faststart przepisuje plik drugi raz, więc potrzeba ok. 2× rozmiaru klipu
     let rozmiar_danych: u64 = wideo.iter().map(|p| p.dane.len() as u64).sum::<u64>()
         + sciezki.iter().flat_map(|(_, a)| a.iter()).map(|p| p.dane.len() as u64).sum::<u64>();
     sprawdz_miejsce(folder, rozmiar_danych * 2 + 64 * 1024 * 1024)?;
-    let plik = nowa_nazwa(folder, przedrostek);
+    let plik = nowa_nazwa(&folder_miesiaca, przedrostek, &znacznik);
     // Najpierw do pliku tymczasowego (bez .mp4, więc nie pojawi się w bibliotece); nazwa docelowa
     // dopiero po udanym zapisie — przerwany zapis (brak miejsca, awaria) nie zostawi uszkodzonego klipu
     let tymczasowy = plik.with_extension("mp4.tmp");
@@ -79,6 +84,10 @@ pub fn zapisz(
                         .args([format!("-disposition:a:{wyj}"), "0".to_string()]);
                 }
             }
+        }
+        // Nazwa gry zostaje w metadanych pliku (biblioteka pokazuje ją przy klipie)
+        if let Some(g) = gra.as_deref().filter(|g| !g.is_empty()) {
+            cmd.args(["-metadata", &format!("title={g}")]);
         }
         cmd.args(["-movflags", "+faststart", "-f", "mp4"]).arg(&tymczasowy).stdin(Stdio::piped());
 
@@ -153,10 +162,15 @@ fn znacznik_czasu() -> String {
     format!("{:04}-{:02}-{:02}_{:02}-{:02}-{:02}", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond)
 }
 
+/// Nazwa podfolderu miesiąca („2026-11”) ze znacznika czasu.
+pub fn miesiac(znacznik: &str) -> &str {
+    &znacznik[..7.min(znacznik.len())]
+}
+
 /// Wolna nazwa pliku z datą (np. Clipeon_2026-11-10_18-30-00.mp4, z pulpitu Clipeon_Pulpit_…);
 /// drugi zapis w tej samej sekundzie dostaje sufiks, żeby nie nadpisać klipu.
-fn nowa_nazwa(folder: &Path, przedrostek: &str) -> PathBuf {
-    let baza = format!("{przedrostek}_{}", znacznik_czasu());
+fn nowa_nazwa(folder: &Path, przedrostek: &str, znacznik: &str) -> PathBuf {
+    let baza = format!("{przedrostek}_{znacznik}");
     let mut plik = folder.join(format!("{baza}.mp4"));
     let mut i = 2;
     while plik.exists() || plik.with_extension("mp4.tmp").exists() {
@@ -164,4 +178,15 @@ fn nowa_nazwa(folder: &Path, przedrostek: &str) -> PathBuf {
         i += 1;
     }
     plik
+}
+
+#[cfg(test)]
+mod testy {
+    use super::miesiac;
+
+    #[test]
+    fn podfolder_miesiaca_ze_znacznika() {
+        assert_eq!(miesiac("2026-11-10_18-30-00"), "2026-11");
+        assert_eq!(miesiac("2027-01-01_00-00-00"), "2027-01");
+    }
 }

@@ -1,5 +1,24 @@
 # Zmiany
 
+## 1.3.2
+
+- **Widać, jaka gra się nagrywa** — przy statusie, w podpowiedzi ikony przy zegarze i przy zapisanym klipie
+  w bibliotece. Nazwa bierze się z okna na wierzchu nagrywanego ekranu.
+- **Można wybrać grę do nagrywania** (Ustawienia → Nagrywanie → „Nagrywaj”). Przy wybranej grze bufor działa
+  tylko wtedy, gdy gra jest uruchomiona, a poza tym Clipeon czeka i nie zużywa procesora.
+  Uwaga: nagrywany jest cały ekran, więc wybór gry decyduje o tym, *kiedy* Clipeon nagrywa.
+- **Można wybrać mikrofon** zamiast zawsze domyślnego systemowego. Gdy wybrany mikrofon jest odłączony,
+  Clipeon nagrywa z domyślnego i wraca do wybranego, gdy ten się pojawi.
+- **Klipy trafiają do podfolderów z miesiącem** (`2026-11`, `2026-12`…). Biblioteka i automatyczne porządki
+  widzą zarówno je, jak i starsze klipy leżące luzem w folderze.
+- **Pełny ekran w podglądzie klipu**: przycisk przy odtwarzaniu, klawisz `F` albo podwójne kliknięcie w obraz.
+  Sterowanie chowa się po chwili bez ruchu myszy, a `Esc` wychodzi najpierw z pełnego ekranu.
+- **Nowy dźwięk po zapisaniu klipu** („Kropla”) i pasujący do niego dźwięk błędu.
+- **Ustawienia zajmują o połowę mniej miejsca**: zamiast kart z opisami jest wiersz na ustawienie
+  (nazwa z lewej, pole z prawej), dwie kolumny w szerokim oknie, a format wideo, sposób przechwytywania
+  i diagnostyka siedzą w zwijanej sekcji „Zaawansowane”.
+- Logo „Clipeon” jest odrobinę większe i grubsze.
+
 ## 1.3.1
 
 - Przesuwane podświetlenie zakładek i przełącznika Gra | Pulpit działa też wtedy, gdy w Windows są wyłączone

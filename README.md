@@ -47,7 +47,7 @@ Instalator jest budowany automatycznie z kodu w tym repozytorium.
 <details>
 <summary><b>Gdzie są moje klipy?</b></summary>
 
-W folderze `Wideo\Clipeon` (albo `Wideo\Clipper`, jeśli używałeś wcześniejszej wersji). Folder zmienisz w Ustawieniach.
+W folderze `Wideo\Clipeon`, w podfolderze z miesiącem (np. `2026-11`); starsze klipy leżą prosto w folderze. Folder zmienisz w Ustawieniach.
 Odinstalowanie nigdy nie usuwa klipów.
 </details>
 
