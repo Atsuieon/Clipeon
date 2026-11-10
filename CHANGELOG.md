@@ -1,5 +1,10 @@
 # Zmiany
 
+## 1.3.1
+
+- Przesuwane podświetlenie zakładek i przełącznika Gra | Pulpit działa też wtedy, gdy w Windows są wyłączone
+  animacje (wtedy jest tylko trochę szybsze).
+
 ## 1.3.0
 
 **Tryb pulpitu**
