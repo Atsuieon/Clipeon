@@ -6,7 +6,7 @@ use crate::klipy;
 use crate::rdzen::{Rdzen, Stan, Zdarzenie};
 use serde::Serialize;
 use std::path::PathBuf;
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::window::Color;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WebviewUrl, WebviewWindowBuilder, Wry};
@@ -21,6 +21,8 @@ struct PozycjeMenu {
     aktualizacja: MenuItem<Wry>,
     zapisz: MenuItem<Wry>,
     pauza: MenuItem<Wry>,
+    tryb_gra: CheckMenuItem<Wry>,
+    tryb_pulpit: CheckMenuItem<Wry>,
 }
 
 /// Pozwala oknu czytać pliki z folderu przez protokół asset:. Tauri porównuje ścieżki kanoniczne
@@ -108,7 +110,11 @@ fn pokaz_stan(app: &AppHandle, stan: &Stan) {
     } else if stan.pauza {
         (ikona::SZARY, "Nagrywanie wstrzymane".to_string())
     } else {
-        (ikona::ZIELONY, "Nagrywa".to_string())
+        if stan.tryb == crate::config::TRYB_PULPIT {
+            (ikona::ZIELONY, format!("Nagrywa pulpit ({})", stan.ekran))
+        } else {
+            (ikona::ZIELONY, "Nagrywa".to_string())
+        }
     };
     if let Some(t) = app.tray_by_id(ID_ZASOBNIKA) {
         let _ = t.set_icon(Some(ikona::ikona(kolor)));
@@ -119,6 +125,9 @@ fn pokaz_stan(app: &AppHandle, stan: &Stan) {
         let znak = if kolor == ikona::ZIELONY { "●" } else { "○" };
         let _ = m.stan.set_text(format!("{znak} {}", opis.chars().take(70).collect::<String>()));
         let _ = m.pauza.set_text(if stan.pauza { "Wznów nagrywanie" } else { "Wstrzymaj nagrywanie" });
+        let pulpit = stan.tryb == crate::config::TRYB_PULPIT;
+        let _ = m.tryb_gra.set_checked(!pulpit);
+        let _ = m.tryb_pulpit.set_checked(pulpit);
     }
     let _ = app.emit("stan", stan);
 }
@@ -133,7 +142,7 @@ fn obsluz_zdarzenie(app: &AppHandle, z: Zdarzenie) {
             }
             if cfg.powiadomienie_zapisu {
                 let nazwa = plik.file_name().unwrap_or_default().to_string_lossy().into_owned();
-                pokaz_dymek(app, &cfg.monitor, &format!("Zapisano ostatnie {} s", cfg.bufor_sekundy), &nazwa, false, false);
+                pokaz_dymek(app, cfg.aktywny_monitor().0, &format!("Zapisano ostatnie {} s", cfg.bufor_sekundy), &nazwa, false, false);
             }
             let _ = app.emit("klip-zapisany", plik);
             // Po zapisie pilnujemy limitów folderu (jeśli sprzątanie jest włączone)
@@ -144,19 +153,19 @@ fn obsluz_zdarzenie(app: &AppHandle, z: Zdarzenie) {
             if cfg.dzwiek_zapisu {
                 crate::dzwiek::zagraj_blad();
             }
-            pokaz_dymek(app, &cfg.monitor, "Nie udało się zapisać klipu", &e, true, false);
+            pokaz_dymek(app, cfg.aktywny_monitor().0, "Nie udało się zapisać klipu", &e, true, false);
         }
         // Clipeon nie nagrywa: dymek wisi do czasu naprawy albo kliknięcia (kliknięcie otwiera okno)
         Zdarzenie::Alarm(Some(opis)) => {
             if cfg.dzwiek_zapisu {
                 crate::dzwiek::zagraj_blad();
             }
-            pokaz_dymek(app, &cfg.monitor, "Clipeon nie nagrywa", &opis, true, true);
+            pokaz_dymek(app, cfg.aktywny_monitor().0, "Clipeon nie nagrywa", &opis, true, true);
         }
-        Zdarzenie::Uwaga { tytul, opis } => pokaz_dymek(app, &cfg.monitor, &tytul, &opis, true, false),
+        Zdarzenie::Uwaga { tytul, opis } => pokaz_dymek(app, cfg.aktywny_monitor().0, &tytul, &opis, true, false),
         Zdarzenie::Alarm(None) => {
             crate::powiadomienie::ukryj();
-            pokaz_dymek(app, &cfg.monitor, "Nagrywanie znów działa", "Clipeon sam wznowił nagrywanie", false, false);
+            pokaz_dymek(app, cfg.aktywny_monitor().0, "Nagrywanie znów działa", "Clipeon sam wznowił nagrywanie", false, false);
         }
     }
 }
@@ -309,6 +318,8 @@ fn zapisz_ustawienia(app: AppHandle, rdzen: State<'_, Rdzen>, mut cfg: Config, a
     cfg.ikona_ustawiona = stary.ikona_ustawiona;
     let zmiana_ikony = cfg.ikona_przy_zegarze != stary.ikona_przy_zegarze;
     let widoczna = cfg.ikona_przy_zegarze;
+    // Tryb przełącza tylko przełącznik na pasku / w zasobniku (okno ustawień mogło mieć stary)
+    cfg.tryb = stary.tryb.clone();
     rdzen.zmien_config(cfg)?;
     if zmiana_ikony {
         ustaw_ikone(&app, &rdzen, widoczna);
@@ -444,10 +455,22 @@ fn przenies_autostart_z_clippera(app: &AppHandle) {
     }
 }
 
-/// Monitory do wyboru w ustawieniach.
+/// Monitory do wyboru w ustawieniach i na pasku (z rozdzielczością, odświeżaniem i HDR).
 #[tauri::command]
-fn monitory() -> Vec<(String, String)> {
+fn monitory() -> Vec<crate::wideo::InfoMonitora> {
     crate::wideo::monitory()
+}
+
+/// Przełącznik „Gra | Pulpit” i wybór ekranu na pasku (None = bez zmiany).
+#[tauri::command]
+fn ustaw_tryb(rdzen: State<'_, Rdzen>, tryb: Option<String>, monitor: Option<String>) -> Result<(), String> {
+    rdzen.ustaw_tryb(tryb, monitor)
+}
+
+/// Tekst „Kopiuj diagnostykę” do zgłoszenia błędu (bez ścieżek do klipów i bez danych z sieci).
+#[tauri::command]
+fn diagnostyka(rdzen: State<'_, Rdzen>) -> String {
+    rdzen.diagnostyka()
 }
 
 /// Znalezione nowsze wydanie (okno pyta o nie przy otwarciu).
@@ -504,7 +527,9 @@ fn otworz_folder(rdzen: State<'_, Rdzen>) {
 pub fn uruchom() {
     crate::dziennik::przechwytuj_awarie();
     let po_awarii = crate::odzyskiwanie::przy_starcie();
-    crate::dziennik::info("Start Clipeona");
+    crate::dziennik::info(&format!("Start Clipeona {}", crate::aktualizacje::WERSJA));
+    // Windows nie spowalnia Clipeona w tle (oszczędzanie energii zaniżało tempo przechwytywania)
+    crate::ffmpeg::bez_dlawienia(unsafe { windows::Win32::System::Threading::GetCurrentProcess() });
     tauri::Builder::default()
         // Druga kopia programu tylko pokazuje okno pierwszej (skrót i enkoder są jedne)
         .plugin(tauri_plugin_single_instance::init(|app, _, _| pokaz_okno(app, "klipy")))
@@ -527,6 +552,8 @@ pub fn uruchom() {
             przeciagnij,
             info_klipu,
             monitory,
+            ustaw_tryb,
+            diagnostyka,
             uruchom_ponownie,
             otworz_log,
             aktualizacja,
@@ -546,6 +573,8 @@ pub fn uruchom() {
             let log = MenuItem::with_id(app, "log", "Pokaż dziennik zdarzeń", true, None::<&str>)?;
             let aktualizacja = MenuItem::with_id(app, "aktualizacja", "Sprawdź aktualizacje", true, None::<&str>)?;
             let pauza = MenuItem::with_id(app, "pauza", "Wstrzymaj nagrywanie", true, None::<&str>)?;
+            let tryb_gra = CheckMenuItem::with_id(app, "tryb_gra", "Tryb: Gra", true, !cfg.pulpit(), None::<&str>)?;
+            let tryb_pulpit = CheckMenuItem::with_id(app, "tryb_pulpit", "Tryb: Pulpit", true, cfg.pulpit(), None::<&str>)?;
             let folder = MenuItem::with_id(app, "folder", "Otwórz folder klipów", true, None::<&str>)?;
             let biblioteka = MenuItem::with_id(app, "biblioteka", "Biblioteka…", true, None::<&str>)?;
             let ustawienia = MenuItem::with_id(app, "ustawienia", "Ustawienia…", true, None::<&str>)?;
@@ -553,9 +582,9 @@ pub fn uruchom() {
             let sep = || PredefinedMenuItem::separator(app);
             let menu = Menu::with_items(
                 app,
-                &[&stan, &sep()?, &zapisz, &pauza, &sep()?, &folder, &biblioteka, &ustawienia, &log, &aktualizacja, &sep()?, &zamknij],
+                &[&stan, &sep()?, &zapisz, &pauza, &tryb_gra, &tryb_pulpit, &sep()?, &folder, &biblioteka, &ustawienia, &log, &aktualizacja, &sep()?, &zamknij],
             )?;
-            app.manage(PozycjeMenu { stan, aktualizacja, zapisz, pauza });
+            app.manage(PozycjeMenu { stan, aktualizacja, zapisz, pauza, tryb_gra, tryb_pulpit });
             app.manage(crate::aktualizacje::Stan::default());
 
             TrayIconBuilder::with_id(ID_ZASOBNIKA)
@@ -568,6 +597,14 @@ pub fn uruchom() {
                     match e.id().as_ref() {
                         "zapisz" => rdzen.zapisz_klip(),
                         "pauza" => rdzen.przelacz_pauze(),
+                        "tryb_gra" | "tryb_pulpit" => {
+                            let tryb = if e.id().as_ref() == "tryb_pulpit" { "pulpit" } else { "gra" };
+                            if let Err(b) = rdzen.ustaw_tryb(Some(tryb.into()), None) {
+                                crate::dziennik::blad(&b);
+                            }
+                            // Pole wyboru przełącza się samo przy kliknięciu — poprawiamy je według stanu
+                            pokaz_stan(app, &rdzen.stan());
+                        }
                         "folder" => klipy::pokaz_w_eksploratorze(&rdzen.config().folder_klipow, false),
                         "biblioteka" => pokaz_okno(app, "klipy"),
                         "ustawienia" => pokaz_okno(app, "ustawienia"),
@@ -584,7 +621,7 @@ pub fn uruchom() {
                             } else {
                                 // Ręczne sprawdzenie; wynik pokazujemy dymkiem
                                 tauri::async_runtime::spawn(async move {
-                                    let monitor = app.state::<Rdzen>().config().monitor;
+                                    let monitor = app.state::<Rdzen>().config().aktywny_monitor().0.to_string();
                                     let (tytul, opis) = match sprawdz_aktualizacje_teraz(&app, false).await {
                                         Ok(Some(w)) => (
                                             format!("Dostępna wersja {}", w.wersja),

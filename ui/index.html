@@ -28,6 +28,15 @@
       </nav>
       <div class="akcje">
         <button class="przycisk aktualizacja" id="aktualizacja" hidden></button>
+        <!-- Co nagrywać: grę (pełna płynność) albo pulpit (osobny ekran i ustawienia) -->
+        <div class="tryb" id="tryb" role="radiogroup" aria-label="Co nagrywać">
+          <button type="button" class="segment" data-tryb="gra" role="radio" title="Nagrywanie gry: ustawienia z karty „Ekran gry”">Gra</button>
+          <button type="button" class="segment" data-tryb="pulpit" role="radio" title="Nagrywanie pulpitu: osobny ekran, mniej klatek i mniejsze pliki">Pulpit</button>
+        </div>
+        <div class="ekran-wybor">
+          <button type="button" class="przycisk drugorzedny" id="ekran" aria-haspopup="listbox" aria-expanded="false" title="Który ekran nagrywać"></button>
+          <div class="menu lista-ekranow" id="lista-ekranow" role="listbox" aria-label="Który ekran nagrywać" hidden></div>
+        </div>
         <div class="status" id="status" title="">
           <span class="kropka" id="kropka"></span><span id="status-tekst">Łączenie…</span>
         </div>
@@ -45,6 +54,7 @@
       </div>
       <button class="przycisk drugorzedny" id="baner-ponow">Spróbuj ponownie</button>
       <button class="przycisk drugorzedny" id="baner-log">Pokaż dziennik</button>
+      <button class="przycisk drugorzedny" id="baner-diagnostyka" title="Kopiuje opis sprzętu, ustawień i ostatnich zdarzeń — wklej go do zgłoszenia błędu">Kopiuj diagnostykę</button>
     </div>
 
     <main>
@@ -89,14 +99,14 @@
               <h3>Ile ostatnich sekund zapisywać</h3>
               <p class="pomoc">Clipeon cały czas pamięta tyle ostatnich sekund gry. Po wciśnięciu skrótu zapisuje je jako klip.</p>
               <div class="wiersz">
-                <input type="range" id="bufor" min="5" max="300" step="5" aria-label="Ile ostatnich sekund zapisywać">
+                <input type="range" id="bufor" min="5" max="600" step="5" aria-label="Ile ostatnich sekund zapisywać">
                 <span class="wartosc" id="bufor-wartosc"></span>
               </div>
               <p class="pomoc" id="ram"></p>
             </div>
 
             <div class="karta">
-              <h3>Jakość obrazu</h3>
+              <h3>Jakość obrazu w grze</h3>
               <p class="pomoc">Wyższa jakość to ostrzejszy obraz, ale większe pliki. Jakość dotyczy ekranu 1080p — przy 1440p i 4K Clipeon sam ją podnosi.</p>
               <div class="segmenty" id="presety"></div>
               <div class="pola">
@@ -113,9 +123,24 @@
             </div>
 
             <div class="karta">
-              <h3>Który ekran nagrywać</h3>
-              <p class="pomoc">Wybierz monitor, na którym grasz.</p>
-              <select id="monitor" aria-label="Który ekran nagrywać"></select>
+              <h3>Ekran gry</h3>
+              <p class="pomoc">Monitor, na którym grasz. Nagrywany, gdy na pasku wybrany jest tryb „Gra”.</p>
+              <select id="monitor" aria-label="Ekran gry"></select>
+              <p class="pomoc" id="monitor-uwaga"></p>
+            </div>
+          </div>
+
+          <h2 class="sekcja">Tryb pulpitu</h2>
+          <div class="karty">
+            <div class="karta">
+              <h3>Nagrywanie pulpitu</h3>
+              <p class="pomoc">Osobne ustawienia dla trybu „Pulpit” (przełącznik na pasku u góry i w menu ikony przy zegarze). Na pulpicie zwykle wystarcza mniej klatek, więc klipy są mniejsze, a komputer mniej obciążony.</p>
+              <label class="pole-pelne">Ekran pulpitu<select id="monitor-pulpitu" aria-label="Ekran pulpitu"></select></label>
+              <div class="pola">
+                <label>Klatki na sekundę<input type="number" id="fps-pulpitu" min="10" max="240" step="1"></label>
+                <label>Jakość (Mb/s)<input type="number" id="bitrate-pulpitu" min="1" max="200" step="1"></label>
+              </div>
+              <p class="pomoc" id="ram-pulpitu"></p>
             </div>
           </div>
 
@@ -173,6 +198,26 @@
               <p class="pomoc">Clipeon działa w tle jako ikona przy zegarze.</p>
               <label class="przelacznik"><input type="checkbox" id="autostart"><span class="suwak"></span>Uruchamiaj razem z Windows</label>
               <label class="przelacznik"><input type="checkbox" id="ikona-zegar"><span class="suwak"></span>Ikona zawsze widoczna przy zegarze</label>
+            </div>
+
+            <div class="karta">
+              <h3>Sposób przechwytywania obrazu</h3>
+              <p class="pomoc">Zostaw „Automatycznie”, chyba że nagrania się zacinają albo są czarne. Clipeon sam przechodzi na następny sposób, gdy któryś nie działa.</p>
+              <select id="metoda" aria-label="Sposób przechwytywania obrazu">
+                <option value="auto">Automatycznie (polecane)</option>
+                <option value="dda">Desktop Duplication — najlżejszy, obraz zostaje na karcie</option>
+                <option value="gfx">Windows Graphics Capture — gdy Desktop Duplication nie działa</option>
+                <option value="potok">Tryb zgodności — działa wszędzie, ale bardziej obciąża procesor</option>
+              </select>
+            </div>
+
+            <div class="karta">
+              <h3>Zgłaszanie problemów</h3>
+              <p class="pomoc">Kopiuje do schowka opis karty graficznej, monitorów, ustawień i ostatnich zdarzeń. Wklej go do zgłoszenia na GitHubie. Nic nie jest wysyłane automatycznie.</p>
+              <div class="wiersz-akt">
+                <button type="button" class="przycisk drugorzedny" id="kopiuj-diagnostyke">Kopiuj diagnostykę</button>
+                <button type="button" class="przycisk drugorzedny" id="pokaz-dziennik">Pokaż dziennik</button>
+              </div>
             </div>
 
             <div class="karta">

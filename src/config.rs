@@ -38,9 +38,28 @@ pub struct Config {
     pub glos_w_edytorze: bool,
     /// Sprawdzanie przy starcie i raz na dobę, czy na GitHubie jest nowsza wersja
     pub sprawdzaj_aktualizacje: bool,
-    /// Nagrywany monitor (nazwa urządzenia, np. \\.\DISPLAY2); pusty = główny
+    /// Nagrywany monitor w trybie gry (nazwa urządzenia, np. \\.\DISPLAY2); pusty = główny
     pub monitor: String,
+    /// Stały identyfikator tego monitora (nazwa DISPLAYn potrafi się zmienić po aktualizacji
+    /// sterownika albo przełożeniu kabla); uzupełniany przez Clipeona przy zapisie ustawień
+    pub monitor_id: String,
+    /// Tryb nagrywania: "gra" albo "pulpit"
+    pub tryb: String,
+    /// Monitor w trybie pulpitu (jak `monitor`)
+    pub monitor_pulpitu: String,
+    pub monitor_pulpitu_id: String,
+    /// Klatki na sekundę w trybie pulpitu
+    pub fps_pulpitu: u32,
+    /// Bitrate w trybie pulpitu (Mb/s)
+    pub bitrate_pulpitu_mbps: u32,
+    /// Metoda przechwytywania: "auto", "dda" (Desktop Duplication), "gfx" (Windows Graphics Capture),
+    /// "potok" (tryb zgodności: obraz przez pamięć RAM, jak w wersjach do 1.2)
+    pub metoda_przechwytywania: String,
 }
+
+pub const TRYB_GRA: &str = "gra";
+pub const TRYB_PULPIT: &str = "pulpit";
+pub const METODY: &[&str] = &["auto", "dda", "gfx", "potok"];
 
 impl Default for Config {
     fn default() -> Self {
@@ -61,6 +80,13 @@ impl Default for Config {
             sprzatanie_dni: 0,
             sprzatanie_gb: 0,
             monitor: String::new(),
+            monitor_id: String::new(),
+            tryb: TRYB_GRA.into(),
+            monitor_pulpitu: String::new(),
+            monitor_pulpitu_id: String::new(),
+            fps_pulpitu: 30,
+            bitrate_pulpitu_mbps: 12,
+            metoda_przechwytywania: "auto".into(),
             glos_w_edytorze: true,
             sprawdzaj_aktualizacje: true,
         }
@@ -71,6 +97,27 @@ impl Default for Config {
 pub static PRZENIESIONO: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 impl Config {
+    pub fn pulpit(&self) -> bool {
+        self.tryb == TRYB_PULPIT
+    }
+
+    /// Monitor nagrywany w bieżącym trybie: (nazwa urządzenia, stały identyfikator).
+    pub fn aktywny_monitor(&self) -> (&str, &str) {
+        if self.pulpit() {
+            (&self.monitor_pulpitu, &self.monitor_pulpitu_id)
+        } else {
+            (&self.monitor, &self.monitor_id)
+        }
+    }
+
+    pub fn aktywne_fps(&self) -> u32 {
+        if self.pulpit() { self.fps_pulpitu } else { self.fps }
+    }
+
+    pub fn aktywny_bitrate(&self) -> u32 {
+        if self.pulpit() { self.bitrate_pulpitu_mbps } else { self.bitrate_mbps }
+    }
+
     fn sciezka() -> Result<PathBuf, String> {
         let appdata = std::env::var_os("APPDATA").ok_or("Brak zmiennej APPDATA")?;
         Ok(PathBuf::from(appdata).join("Clipeon").join("config.toml"))
@@ -126,11 +173,17 @@ impl Config {
         if !(5..=600).contains(&self.bufor_sekundy) {
             return Err("Długość bufora musi wynosić od 5 do 600 s".into());
         }
-        if !(10..=240).contains(&self.fps) {
+        if !(10..=240).contains(&self.fps) || !(10..=240).contains(&self.fps_pulpitu) {
             return Err("FPS musi wynosić od 10 do 240".into());
         }
-        if !(1..=200).contains(&self.bitrate_mbps) {
+        if !(1..=200).contains(&self.bitrate_mbps) || !(1..=200).contains(&self.bitrate_pulpitu_mbps) {
             return Err("Bitrate musi wynosić od 1 do 200 Mb/s".into());
+        }
+        if self.tryb != TRYB_GRA && self.tryb != TRYB_PULPIT {
+            return Err(format!("Nieznany tryb \"{}\"", self.tryb));
+        }
+        if !METODY.contains(&self.metoda_przechwytywania.as_str()) {
+            return Err(format!("Nieznana metoda przechwytywania \"{}\"", self.metoda_przechwytywania));
         }
         if !crate::enkodery::poprawna_nazwa(&self.enkoder) {
             return Err(format!("Nieznany enkoder \"{}\"", self.enkoder));

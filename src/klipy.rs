@@ -10,6 +10,8 @@ pub struct Klip {
     pub rozmiar: u64,
     /// Czas modyfikacji w ms od 1970 (do sortowania i wyświetlania daty)
     pub czas_ms: u64,
+    /// Klip nagrany w trybie pulpitu (nazwa zaczyna się od „Clipeon_Pulpit_”)
+    pub pulpit: bool,
 }
 
 #[derive(Serialize)]
@@ -28,7 +30,9 @@ pub fn lista(folder: &Path) -> Vec<Klip> {
         .filter_map(|w| {
             let m = w.metadata().ok()?;
             let czas_ms = m.modified().ok()?.duration_since(UNIX_EPOCH).ok()?.as_millis() as u64;
-            Some(Klip { sciezka: w.path(), nazwa: w.file_name().to_string_lossy().into_owned(), rozmiar: m.len(), czas_ms })
+            let nazwa = w.file_name().to_string_lossy().into_owned();
+            let pulpit = nazwa.starts_with("Clipeon_Pulpit_");
+            Some(Klip { sciezka: w.path(), nazwa, rozmiar: m.len(), czas_ms, pulpit })
         })
         .collect();
     klipy.sort_by(|a, b| b.czas_ms.cmp(&a.czas_ms));

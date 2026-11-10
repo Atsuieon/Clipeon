@@ -10,6 +10,7 @@ use std::time::Instant;
 /// samą grę i sam mikrofon (do późniejszej zmiany głośności w edytorze).
 pub fn zapisz(
     folder: &Path,
+    przedrostek: &str,
     fps: u32,
     format_wideo: &str,
     wideo: Vec<Pakiet>,
@@ -36,7 +37,7 @@ pub fn zapisz(
     let rozmiar_danych: u64 = wideo.iter().map(|p| p.dane.len() as u64).sum::<u64>()
         + sciezki.iter().flat_map(|(_, a)| a.iter()).map(|p| p.dane.len() as u64).sum::<u64>();
     sprawdz_miejsce(folder, rozmiar_danych * 2 + 64 * 1024 * 1024)?;
-    let plik = nowa_nazwa(folder);
+    let plik = nowa_nazwa(folder, przedrostek);
     // Najpierw do pliku tymczasowego (bez .mp4, więc nie pojawi się w bibliotece); nazwa docelowa
     // dopiero po udanym zapisie — przerwany zapis (brak miejsca, awaria) nie zostawi uszkodzonego klipu
     let tymczasowy = plik.with_extension("mp4.tmp");
@@ -48,7 +49,7 @@ pub fn zapisz(
     let mut tymczasowe = Vec::new();
     let wynik = (|| {
         for (i, (_, sciezka)) in sciezki.iter().enumerate() {
-            let tmp = std::env::temp_dir().join(format!("clipper-{}-{poczatek}-{i}.aac", std::process::id()));
+            let tmp = std::env::temp_dir().join(format!("clipeon-{}-{poczatek}-{i}.aac", std::process::id()));
             let dane: Vec<u8> = sciezka.iter().flat_map(|p| p.dane.iter().copied()).collect();
             std::fs::write(&tmp, dane).map_err(|e| format!("Nie mogę zapisać pliku tymczasowego: {e}"))?;
             // Przesunięcie dźwięku względem pierwszej klatki obrazu (synchronizacja po QPC)
@@ -152,9 +153,10 @@ fn znacznik_czasu() -> String {
     format!("{:04}-{:02}-{:02}_{:02}-{:02}-{:02}", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond)
 }
 
-/// Wolna nazwa pliku z datą; drugi zapis w tej samej sekundzie dostaje sufiks, żeby nie nadpisać klipu.
-fn nowa_nazwa(folder: &Path) -> PathBuf {
-    let baza = format!("Clipeon_{}", znacznik_czasu());
+/// Wolna nazwa pliku z datą (np. Clipeon_2026-11-10_18-30-00.mp4, z pulpitu Clipeon_Pulpit_…);
+/// drugi zapis w tej samej sekundzie dostaje sufiks, żeby nie nadpisać klipu.
+fn nowa_nazwa(folder: &Path, przedrostek: &str) -> PathBuf {
+    let baza = format!("{przedrostek}_{}", znacznik_czasu());
     let mut plik = folder.join(format!("{baza}.mp4"));
     let mut i = 2;
     while plik.exists() || plik.with_extension("mp4.tmp").exists() {

@@ -15,7 +15,7 @@ jobs:
     env:
       FFMPEG_ZIP: ffmpeg-n8.1-latest-win64-lgpl-8.1.zip
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Wersja z tagu zgadza się z Cargo.toml
         if: startsWith(github.ref, 'refs/tags/v')
@@ -27,9 +27,9 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
 
       - name: FFmpeg (LGPL) do instalatora
         shell: pwsh
@@ -50,6 +50,12 @@ jobs:
           $enkodery = & zasoby/ffmpeg/ffmpeg.exe -hide_banner -encoders
           foreach ($e in 'h264_amf','hevc_amf','av1_amf','h264_nvenc','hevc_nvenc','h264_qsv','hevc_qsv','h264_mf','aac') {
             if (-not ($enkodery -match "\s$e\s")) { throw "Brak enkodera $e w buildzie FFmpeg" }
+          }
+          # Clipeon 1.3+ przechwytuje obraz filtrami ffmpeg (obraz zostaje na karcie) i ma zapasowy enkoder
+          if (-not ((& zasoby/ffmpeg/ffmpeg.exe -hide_banner -encoders) -match '\slibopenh264\s')) { throw "Brak enkodera libopenh264 w buildzie FFmpeg" }
+          $filtry = & zasoby/ffmpeg/ffmpeg.exe -hide_banner -filters
+          foreach ($f in 'ddagrab','gfxcapture','hwupload','hwdownload') {
+            if (-not ($filtry -match "\s$f\s")) { throw "Brak filtra $f w buildzie FFmpeg" }
           }
           Get-Content zasoby/ffmpeg/WERSJA.txt -TotalCount 1
 

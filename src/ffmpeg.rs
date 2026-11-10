@@ -1,14 +1,17 @@
 // Uruchamianie ffmpeg bez okna konsoli. Kolejność szukania: ffmpeg dostarczony z instalatorem
 // (folder „ffmpeg” obok Clipeon.exe), potem ffmpeg z PATH (z pominięciem pośrednika chocolatey).
+// Procesy nagrywania (obraz, dźwięk) dostają wyższy priorytet i nie są dławione przez Windows 11,
+// a ich numery trafiają na listę, z której liczymy zużycie procesora do dziennika.
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
-use std::process::Command;
-use std::sync::OnceLock;
+use std::process::{Child, Command};
+use std::sync::{Mutex, OnceLock};
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+const ABOVE_NORMAL_PRIORITY_CLASS: u32 = 0x0000_8000;
 
 /// Ścieżka do ffmpeg.exe, ustalana raz.
-fn sciezka() -> &'static PathBuf {
+pub fn sciezka() -> &'static PathBuf {
     static SCIEZKA: OnceLock<PathBuf> = OnceLock::new();
     SCIEZKA.get_or_init(|| {
         if let Some(folder) = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())) {
@@ -35,9 +38,95 @@ fn sciezka() -> &'static PathBuf {
     })
 }
 
+/// Odcisk pliku ffmpeg.exe (rozmiar + data zmiany): inny ffmpeg = wyniki prób enkoderów od nowa.
+pub fn odcisk() -> String {
+    std::fs::metadata(sciezka())
+        .map(|m| {
+            let czas = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs());
+            format!("{}:{}", m.len(), czas.unwrap_or(0))
+        })
+        .unwrap_or_else(|_| "brak".into())
+}
+
 /// Nowe polecenie ffmpeg z ukrytym oknem konsoli.
 pub fn komenda() -> Command {
     let mut cmd = Command::new(sciezka());
     cmd.creation_flags(CREATE_NO_WINDOW);
     cmd
+}
+
+/// Polecenie ffmpeg do nagrywania (obraz albo dźwięk w tle): priorytet powyżej normalnego, żeby gra
+/// obciążająca procesor nie zagłodziła enkodera. Uruchamiać przez `uruchom_nagrywanie`.
+pub fn komenda_nagrywania() -> Command {
+    let mut cmd = Command::new(sciezka());
+    cmd.creation_flags(CREATE_NO_WINDOW | ABOVE_NORMAL_PRIORITY_CLASS);
+    cmd
+}
+
+/// Procesy nagrywania (numer procesu, opis) — do pomiaru zużycia procesora.
+static PROCESY: Mutex<Vec<(u32, &'static str)>> = Mutex::new(Vec::new());
+
+/// Uruchamia ffmpeg nagrywania: wyłącza dławienie przez Windows i zapisuje proces na liście pomiarów.
+pub fn uruchom_nagrywanie(cmd: &mut Command, opis: &'static str) -> std::io::Result<Child> {
+    let proces = cmd.spawn()?;
+    {
+        use std::os::windows::io::AsRawHandle;
+        bez_dlawienia(windows::Win32::Foundation::HANDLE(proces.as_raw_handle()));
+    }
+    let mut l = PROCESY.lock().unwrap_or_else(|e| e.into_inner());
+    l.retain(|(pid, _)| crate::pomiar::zyje(*pid));
+    l.push((proces.id(), opis));
+    Ok(proces)
+}
+
+/// Działające procesy nagrywania (martwe usuwa z listy).
+pub fn procesy() -> Vec<(u32, &'static str)> {
+    let mut l = PROCESY.lock().unwrap_or_else(|e| e.into_inner());
+    l.retain(|(pid, _)| crate::pomiar::zyje(*pid));
+    l.clone()
+}
+
+/// Windows 11 (EcoQoS) spowalnia procesy, których okno nie jest na wierzchu — czyli zawsze nas,
+/// gdy gramy. Wyłączamy to dla procesu; na starszym Windows wywołanie po prostu się nie udaje.
+pub fn bez_dlawienia(proces: windows::Win32::Foundation::HANDLE) {
+    use windows::Win32::System::Threading::{
+        PROCESS_POWER_THROTTLING_CURRENT_VERSION, PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+        PROCESS_POWER_THROTTLING_STATE, ProcessPowerThrottling, SetProcessInformation,
+    };
+    let stan = PROCESS_POWER_THROTTLING_STATE {
+        Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+        ControlMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+        StateMask: 0,
+    };
+    unsafe {
+        let _ = SetProcessInformation(
+            proces,
+            ProcessPowerThrottling,
+            &stan as *const _ as *const std::ffi::c_void,
+            std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
+        );
+    }
+}
+
+/// Filtry dostępne w tym ffmpeg (lista z `ffmpeg -filters`), liczona raz.
+pub fn ma_filtr(nazwa: &str) -> bool {
+    static LISTA: OnceLock<String> = OnceLock::new();
+    let lista = LISTA.get_or_init(|| {
+        komenda()
+            .args(["-hide_banner", "-filters"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+            .unwrap_or_default()
+    });
+    lista.lines().any(|l| l.split_whitespace().nth(1) == Some(nazwa))
+}
+
+/// Pierwsza linia `ffmpeg -version` (do diagnostyki).
+pub fn wersja() -> String {
+    komenda()
+        .arg("-version")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8_lossy(&o.stdout).lines().next().map(str::to_string))
+        .unwrap_or_else(|| "nie udało się uruchomić ffmpeg".into())
 }

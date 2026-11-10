@@ -1,11 +1,18 @@
-// Wideo: przechwytywanie ekranu (Windows.Graphics.Capture) -> stałe FPS -> ffmpeg (H.264 / HEVC / AV1)
-// -> zakodowane klatki w buforze RAM.
+// Wideo: przechwytywanie ekranu -> enkoder (H.264 / HEVC / AV1) -> zakodowane klatki w buforze RAM.
+// Trzy drogi przechwytywania (od najlżejszej):
+// - Dda: ffmpeg sam przechwytuje ekran przez Desktop Duplication (`ddagrab`); obraz zostaje na karcie
+//   aż do enkodera — prawie bez pracy procesora. Wymaga, żeby monitor i enkoder były na tej samej karcie.
+// - Gfx: ffmpeg przechwytuje przez Windows.Graphics.Capture (`gfxcapture`) na karcie enkodera — działa
+//   też, gdy monitor jest podłączony do innej karty (laptopy z dwiema kartami).
+// - Potok: tryb zgodności, jak w wersjach do 1.2: Clipeon przechwytuje ekran (windows-capture), kopiuje
+//   klatki do RAM i wysyła je potokiem do ffmpeg. Działa z każdym enkoderem, ale kosztuje procesor.
+// Którą drogę wybrać, decyduje `kolejnosc_drog`; rdzeń przechodzi na następną, gdy poprzednia zawiedzie.
 use crate::bufor::{Pakiet, WspolnyBufor, teraz_100ns};
 use crate::config::Config;
 use crate::enkodery::{self, Kodek};
 use std::io::{Read, Write};
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use windows_capture::capture::{CaptureControl, Context, GraphicsCaptureApiHandler};
@@ -19,102 +26,180 @@ use windows_capture::settings::{
 
 type Blad = Box<dyn std::error::Error + Send + Sync>;
 
-/// Ostatnia klatka z ekranu, wymieniana z wątkiem taktującym.
-struct OstatniaKlatka {
-    piksele: Vec<u8>,
-    nowa: bool,
+/// Opóźnienie przechwytywania i kodowania w ffmpeg (w klatkach): o tyle wcześniej niż przyjście
+/// pierwszego pakietu zaczyna się obraz (ważne dla zgodności obrazu z dźwiękiem).
+const OPOZNIENIE_KLATEK: i64 = 2;
+
+// ---------- Drogi przechwytywania ----------
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Droga {
+    Dda,
+    Gfx,
+    Potok,
 }
 
-/// Problem wykryty w trakcie nagrywania (np. zmiana rozdzielczości); strażnik w rdzeniu go odczytuje
-/// i uruchamia nagrywanie od nowa.
-type Problem = Arc<Mutex<Option<String>>>;
-
-fn zglos_problem(p: &Problem, opis: String) {
-    let mut g = p.lock().unwrap_or_else(|e| e.into_inner());
-    if g.is_none() {
-        crate::dziennik::blad(&format!("Wideo: {opis}"));
-        *g = Some(opis);
-    }
-}
-
-struct Przechwyt {
-    wspolna: Arc<Mutex<OstatniaKlatka>>,
-    rozmiar: (u32, u32),
-    tymczasowy: Vec<u8>,
-    problem: Problem,
-}
-
-impl GraphicsCaptureApiHandler for Przechwyt {
-    type Flags = (Arc<Mutex<OstatniaKlatka>>, (u32, u32), Problem);
-    type Error = Blad;
-
-    fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {
-        let (wspolna, rozmiar, problem) = ctx.flags;
-        Ok(Self { wspolna, rozmiar, tymczasowy: Vec::new(), problem })
-    }
-
-    fn on_closed(&mut self) -> Result<(), Self::Error> {
-        zglos_problem(&self.problem, "przechwytywanie ekranu zostało przerwane przez system".into());
-        Ok(())
-    }
-
-    fn on_frame_arrived(&mut self, frame: &mut Frame, _: InternalCaptureControl) -> Result<(), Self::Error> {
-        let bufor = frame.buffer()?;
-        // Zmiana rozdzielczości: enkoder ma stały rozmiar — zgłaszamy, strażnik uruchomi nagrywanie od nowa
-        if (bufor.width(), bufor.height()) != self.rozmiar {
-            zglos_problem(&self.problem, format!("rozdzielczość ekranu zmieniła się na {}x{}", bufor.width(), bufor.height()));
-            return Ok(());
+impl Droga {
+    pub fn nazwa(self) -> &'static str {
+        match self {
+            Droga::Dda => "dda",
+            Droga::Gfx => "gfx",
+            Droga::Potok => "potok",
         }
-        let piksele = bufor.as_nopadding_buffer(&mut self.tymczasowy);
-        let mut w = self.wspolna.lock().unwrap_or_else(|e| e.into_inner());
-        w.piksele.clear();
-        w.piksele.extend_from_slice(piksele);
-        w.nowa = true;
-        Ok(())
     }
-}
 
-/// Uchwyt trzymający przechwytywanie przy życiu; zniszczenie go zatrzymuje nagrywanie obrazu.
-pub struct Wideo {
-    sterowanie: Option<CaptureControl<Przechwyt, Blad>>,
-    stop: Arc<AtomicBool>,
-    proces: Arc<Mutex<std::process::Child>>,
-    problem: Problem,
-    /// Format surowego strumienia (h264 / hevc / obu) — potrzebny przy zapisie klipu
-    pub format: &'static str,
-}
-
-impl Wideo {
-    /// Problem zgłoszony przez przechwytywanie lub wątek taktujący (None = wszystko w porządku).
-    pub fn problem(&self) -> Option<String> {
-        self.problem.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    pub fn z_nazwy(n: &str) -> Option<Droga> {
+        [Droga::Dda, Droga::Gfx, Droga::Potok].into_iter().find(|d| d.nazwa() == n)
     }
-}
 
-impl Drop for Wideo {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::SeqCst);
-        if let Some(s) = self.sterowanie.take() {
-            let _ = s.stop();
+    pub fn opis(self) -> &'static str {
+        match self {
+            Droga::Dda => "Desktop Duplication (obraz zostaje na karcie)",
+            Droga::Gfx => "Windows Graphics Capture (obraz zostaje na karcie)",
+            Droga::Potok => "tryb zgodności (obraz przez pamięć RAM)",
         }
-        // Zabijamy ffmpeg od razu: zawieszony proces blokowałby wątek taktujący i restart
-        let _ = self.proces.lock().unwrap_or_else(|e| e.into_inner()).kill();
+    }
+
+    /// Czy przechwytuje ffmpeg (a nie Clipeon).
+    pub fn w_ffmpeg(self) -> bool {
+        self != Droga::Potok
     }
 }
 
-/// Monitor o danej nazwie urządzenia (pusta = główny).
-fn wybierz_monitor(nazwa: &str) -> Result<Monitor, Blad> {
-    if nazwa.is_empty() {
-        return Ok(Monitor::primary()?);
-    }
-    Monitor::enumerate()?
-        .into_iter()
-        .find(|m| m.device_name().is_ok_and(|n| n == nazwa))
-        .ok_or_else(|| format!("Nie znaleziono monitora {nazwa} — wybierz inny w Ustawieniach").into())
+/// Wszystko, od czego zależy kolejność dróg (wydzielone, żeby dało się to przetestować).
+#[derive(Clone, Copy, Debug)]
+pub struct Warunki<'a> {
+    /// Ustawienie: "auto", "dda", "gfx" albo "potok"
+    pub metoda: &'a str,
+    /// Enkoder przyjmuje tekstury D3D11 (AMF, NVENC)
+    pub enkoder_tekstury: bool,
+    /// Monitor jest podłączony do tej samej karty, na której koduje enkoder
+    pub ta_sama_karta: bool,
+    /// Wiadomo, na której karcie koduje enkoder
+    pub karta_enkodera: bool,
+    /// Obraz trzeba zmniejszyć (ddagrab nie umie skalować)
+    pub skalowanie: bool,
+    pub filtr_dda: bool,
+    pub filtr_gfx: bool,
 }
 
-/// Monitory do wyboru w ustawieniach: (nazwa urządzenia, opis).
-pub fn monitory() -> Vec<(String, String)> {
+/// Drogi do wypróbowania, od najlepszej. Potok jest zawsze na końcu — działa wszędzie.
+pub fn kolejnosc_drog(w: &Warunki) -> Vec<Droga> {
+    let dda = w.enkoder_tekstury && w.filtr_dda && w.ta_sama_karta && !w.skalowanie;
+    let gfx = w.enkoder_tekstury && w.filtr_gfx && w.karta_enkodera;
+    let mut l = Vec::new();
+    match w.metoda {
+        "potok" => {}
+        "gfx" => {
+            if gfx {
+                l.push(Droga::Gfx);
+            }
+        }
+        "dda" => {
+            if dda {
+                l.push(Droga::Dda);
+            }
+        }
+        _ => {
+            if dda {
+                l.push(Droga::Dda);
+            }
+            if gfx {
+                l.push(Droga::Gfx);
+            }
+        }
+    }
+    l.push(Droga::Potok);
+    l
+}
+
+// ---------- Statystyki (do dziennika co minutę) ----------
+
+#[derive(Default)]
+pub struct Statystyki {
+    /// Klatki z ekranu przyjęte do kodowania (Potok)
+    pub przechwycone: AtomicU64,
+    /// Klatki z ekranu odrzucone, bo przyszły szybciej niż nasze FPS (Potok, starszy Windows)
+    pub pominiete: AtomicU64,
+    /// Takty, w których ekran się nie zmienił i powtórzyliśmy klatkę (Potok)
+    pub powtorzone: AtomicU64,
+    /// Takty spóźnione o ponad klatkę (Potok) albo pakiety spóźnione względem zegara (ffmpeg)
+    pub spoznione: AtomicU64,
+    /// Zakodowane klatki odebrane z enkodera
+    pub pakiety: AtomicU64,
+    pub bajty: AtomicU64,
+}
+
+impl Statystyki {
+    fn dodaj(&self, licznik: &AtomicU64, ile: u64) {
+        let _ = self;
+        licznik.fetch_add(ile, Ordering::Relaxed);
+    }
+
+    /// Wartości liczników (do policzenia różnic co minutę).
+    pub fn odczyt(&self) -> [u64; 6] {
+        [&self.przechwycone, &self.pominiete, &self.powtorzone, &self.spoznione, &self.pakiety, &self.bajty]
+            .map(|a| a.load(Ordering::Relaxed))
+    }
+}
+
+// ---------- Monitory ----------
+
+/// Monitor do wyboru w oknie.
+#[derive(Clone, serde::Serialize)]
+pub struct InfoMonitora {
+    /// Nazwa urządzenia, np. \\.\DISPLAY2
+    pub id: String,
+    /// Numer z nazwy urządzenia (DISPLAY2 -> 2)
+    pub numer: u32,
+    pub nazwa: String,
+    pub szerokosc: u32,
+    pub wysokosc: u32,
+    pub hz: u32,
+    pub glowny: bool,
+    pub hdr: bool,
+    /// Pełny opis do list: „LC24RG50 — 1920×1080, 60 Hz (główny)”
+    pub opis: String,
+}
+
+/// Numer z nazwy urządzenia: \\.\DISPLAY12 -> 12.
+pub fn numer_monitora(nazwa_urzadzenia: &str) -> u32 {
+    let cyfry: String = nazwa_urzadzenia.chars().rev().take_while(|c| c.is_ascii_digit()).collect();
+    cyfry.chars().rev().collect::<String>().parse().unwrap_or(0)
+}
+
+/// Krótka nazwa ekranu do paska i zasobnika, np. „Ekran 2” (pusta nazwa = główny monitor).
+pub fn etykieta_ekranu(nazwa_urzadzenia: &str) -> String {
+    let nazwa = if nazwa_urzadzenia.is_empty() {
+        Monitor::primary().ok().and_then(|m| m.device_name().ok()).unwrap_or_default()
+    } else {
+        nazwa_urzadzenia.to_string()
+    };
+    match numer_monitora(&nazwa) {
+        0 => "Ekran".to_string(),
+        n => format!("Ekran {n}"),
+    }
+}
+
+/// Stały identyfikator monitora (ścieżka urządzenia z identyfikatorem producenta i portu); nie zmienia
+/// się, gdy Windows przenumeruje DISPLAYn po aktualizacji sterownika.
+pub fn trwaly_id(nazwa_urzadzenia: &str) -> Option<String> {
+    use windows::Win32::Graphics::Gdi::{DISPLAY_DEVICEW, EnumDisplayDevicesW};
+    const EDD_GET_DEVICE_INTERFACE_NAME: u32 = 1;
+    let nazwa: Vec<u16> = nazwa_urzadzenia.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut dd = DISPLAY_DEVICEW { cb: std::mem::size_of::<DISPLAY_DEVICEW>() as u32, ..Default::default() };
+    unsafe {
+        EnumDisplayDevicesW(windows::core::PCWSTR(nazwa.as_ptr()), 0, &mut dd, EDD_GET_DEVICE_INTERFACE_NAME)
+            .ok()
+            .ok()?;
+    }
+    let dl = dd.DeviceID.iter().position(|&c| c == 0).unwrap_or(dd.DeviceID.len());
+    let id = String::from_utf16_lossy(&dd.DeviceID[..dl]);
+    (!id.is_empty()).then_some(id)
+}
+
+/// Monitory do wyboru w oknie.
+pub fn monitory() -> Vec<InfoMonitora> {
     let glowny = Monitor::primary().ok().and_then(|m| m.device_name().ok());
     Monitor::enumerate()
         .unwrap_or_default()
@@ -122,12 +207,40 @@ pub fn monitory() -> Vec<(String, String)> {
         .filter_map(|m| {
             let id = m.device_name().ok()?;
             let (w, h) = (m.width().ok()?, m.height().ok()?);
-            let hz = m.refresh_rate().map(|r| format!(", {r} Hz")).unwrap_or_default();
-            let nazwa = m.name().unwrap_or_else(|_| id.trim_start_matches(r"\.").to_string());
-            let dopisek = if glowny.as_deref() == Some(id.as_str()) { " (główny)" } else { "" };
-            Some((id, format!("{nazwa} — {w}×{h}{hz}{dopisek}")))
+            let hz = m.refresh_rate().unwrap_or(0);
+            let nazwa = m.name().unwrap_or_else(|_| id.trim_start_matches(r"\\.\").to_string());
+            let jest_glowny = glowny.as_deref() == Some(id.as_str());
+            let hdr = crate::karty::wyjscie_monitora(&id).is_some_and(|w| w.hdr);
+            let opis = format!(
+                "{nazwa} — {w}×{h}{}{}",
+                if hz > 0 { format!(", {hz} Hz") } else { String::new() },
+                if jest_glowny { " (główny)" } else { "" }
+            );
+            Some(InfoMonitora { numer: numer_monitora(&id), id, nazwa, szerokosc: w, wysokosc: h, hz, glowny: jest_glowny, hdr, opis })
         })
         .collect()
+}
+
+/// Monitor do nagrywania: najpierw po stałym identyfikatorze, potem po nazwie urządzenia, a gdy go
+/// nie ma (odłączony) — główny. Zwraca też, czy to monitor zastępczy.
+fn znajdz_monitor(nazwa: &str, id: &str) -> Result<(Monitor, String, bool), Blad> {
+    let wszystkie = Monitor::enumerate().unwrap_or_default();
+    if !id.is_empty()
+        && let Some(m) = wszystkie.iter().find(|m| m.device_name().ok().and_then(|n| trwaly_id(&n)).as_deref() == Some(id)) {
+            return Ok((*m, m.device_name()?, false));
+        }
+    if !nazwa.is_empty()
+        && let Some(m) = wszystkie.iter().find(|m| m.device_name().is_ok_and(|n| n == nazwa)) {
+            return Ok((*m, nazwa.to_string(), false));
+        }
+    let m = Monitor::primary()?;
+    let n = m.device_name()?;
+    Ok((m, n, !nazwa.is_empty() || !id.is_empty()))
+}
+
+/// Czy wybrany monitor jest znów podłączony (gdy nagrywamy zastępczy).
+pub fn monitor_wrocil(nazwa: &str, id: &str) -> bool {
+    znajdz_monitor(nazwa, id).is_ok_and(|(_, _, zastepczy)| !zastepczy)
 }
 
 /// Które opcjonalne ustawienia przechwytywania obsługuje ten Windows (starsze wersje Windows 10
@@ -151,7 +264,7 @@ fn mozliwosci_przechwytywania() -> Mozliwosci {
             braki.push("wyłączanie żółtej ramki (nagrywanie działa, ramka może być widoczna)");
         }
         if !m.odstep_klatek {
-            braki.push("ograniczanie liczby klatek z ekranu");
+            braki.push("ograniczanie liczby klatek z ekranu (Clipeon odrzuca nadmiarowe sam)");
         }
         if !m.kursor {
             braki.push("wybór kursora");
@@ -163,16 +276,18 @@ fn mozliwosci_przechwytywania() -> Mozliwosci {
     m
 }
 
+// ---------- Parametry kodowania ----------
+
 /// Bitrate dopasowany do rozdzielczości: ustawienie dotyczy 1080p, przy większym ekranie potrzeba
 /// więcej danych na ten sam poziom ostrości (skala ~ pikseli^0,75, jak w zaleceniach YouTube/OBS).
-pub fn bitrate_dla(cfg: &Config, w: u32, h: u32) -> u32 {
+pub fn bitrate_dla(mbps: u32, w: u32, h: u32) -> u32 {
     let skala = (w as f64 * h as f64 / (1920.0 * 1080.0)).powf(0.75).max(1.0);
-    ((cfg.bitrate_mbps as f64 * skala).round() as u32).clamp(1, 150)
+    ((mbps as f64 * skala).round() as u32).clamp(1, 150)
 }
 
 /// Wspólne dla wszystkich enkoderów: bitrate (VBR ze szczytem 1,5×), klatka kluczowa co 1 s, bez B-klatek.
-fn argumenty_strumienia(cfg: &Config, w: u32, h: u32) -> Vec<String> {
-    let (b, g) = (bitrate_dla(cfg, w, h), cfg.fps.to_string());
+fn argumenty_strumienia(mbps: u32, fps: u32, w: u32, h: u32) -> Vec<String> {
+    let (b, g) = (bitrate_dla(mbps, w, h), fps.to_string());
     [
         "-b:v", &format!("{b}M"), "-maxrate", &format!("{}M", b * 3 / 2), "-bufsize", &format!("{b}M"),
         "-g", &g, "-bf", "0", "-force_key_frames", "expr:gte(t,n_forced)",
@@ -182,56 +297,225 @@ fn argumenty_strumienia(cfg: &Config, w: u32, h: u32) -> Vec<String> {
     .collect()
 }
 
-/// Startuje przechwytywanie. `zglos` dostaje opis błędu, gdy ffmpeg nieoczekiwanie przestanie działać.
-pub fn uruchom(cfg: &Config, bufor: WspolnyBufor, zglos: impl Fn(String) + Send + 'static) -> Result<Wideo, Blad> {
-    let monitor = wybierz_monitor(&cfg.monitor)?;
-    let (w, h) = (monitor.width()?, monitor.height()?);
-    let fps = cfg.fps;
-    let nazwa = if cfg.monitor.is_empty() { "główny".to_string() } else { cfg.monitor.clone() };
-    let enkoder = enkodery::do_nagrywania(&cfg.enkoder);
+/// Znaczniki kolorów BT.709 (tak samo na każdej karcie i w każdym odtwarzaczu). NVENC przy wejściu RGB
+/// sam przelicza kolory po swojemu i sam zapisuje znaczniki, więc go pomijamy.
+fn znaczniki_koloru(enkoder: &str) -> Vec<String> {
+    if enkoder.ends_with("_nvenc") {
+        return Vec::new();
+    }
+    ["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv"]
+        .iter()
+        .map(|x| x.to_string())
+        .collect()
+}
+
+// ---------- Uruchomienie ----------
+
+/// Problem wykryty w trakcie nagrywania (np. zmiana rozdzielczości); strażnik w rdzeniu go odczytuje
+/// i uruchamia nagrywanie od nowa.
+type Problem = Arc<Mutex<Option<String>>>;
+
+fn zglos_problem(p: &Problem, opis: String) {
+    let mut g = p.lock().unwrap_or_else(|e| e.into_inner());
+    if g.is_none() {
+        crate::dziennik::blad(&format!("Wideo: {opis}"));
+        *g = Some(opis);
+    }
+}
+
+/// Uchwyt trzymający nagrywanie obrazu przy życiu; zniszczenie go zatrzymuje nagrywanie.
+pub struct Wideo {
+    sterowanie: Option<CaptureControl<Przechwyt, Blad>>,
+    stop: Arc<AtomicBool>,
+    proces: Arc<Mutex<std::process::Child>>,
+    problem: Problem,
+    /// Format surowego strumienia (h264 / hevc / obu) — potrzebny przy zapisie klipu
+    pub format: &'static str,
+    /// FPS strumienia (do zapisu klipu)
+    pub fps: u32,
+    pub droga: Droga,
+    pub statystyki: Arc<Statystyki>,
+    /// Enkoder nie nadąża (gra zabiera całą moc karty albo procesora)
+    pub przeciazenie: Arc<AtomicBool>,
+    /// Nagrywamy monitor główny zamiast odłączonego wybranego: (nazwa, stały identyfikator) wybranego
+    pub zastepczy: Option<(String, String)>,
+    /// Krótki opis do dziennika i diagnostyki: monitor, rozmiar, enkoder, droga
+    pub opis: String,
+}
+
+impl Wideo {
+    /// Problem zgłoszony przez przechwytywanie lub wątki (None = wszystko w porządku).
+    pub fn problem(&self) -> Option<String> {
+        self.problem.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
+impl Drop for Wideo {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(s) = self.sterowanie.take() {
+            let _ = s.stop();
+        }
+        // Zabijamy ffmpeg od razu: zawieszony proces blokowałby wątki i restart
+        let _ = self.proces.lock().unwrap_or_else(|e| e.into_inner()).kill();
+    }
+}
+
+/// Co trzeba wiedzieć o ekranie i enkoderze przed wyborem drogi.
+struct Plan {
+    monitor: Monitor,
+    nazwa_monitora: String,
+    zastepczy: bool,
+    /// Rozmiar ekranu
+    ekran: (u32, u32),
+    wybor: enkodery::Wybor,
+    wyjscie: Option<crate::karty::Wyjscie>,
+    karta_enkodera: Option<u32>,
+}
+
+fn plan(cfg: &Config) -> Result<Plan, Blad> {
+    let (nazwa, id) = cfg.aktywny_monitor();
+    let (monitor, nazwa_monitora, zastepczy) = znajdz_monitor(nazwa, id)?;
+    let ekran = (monitor.width()?, monitor.height()?);
+    // Enkodery wymagają parzystych wymiarów; nieparzysty ekran przycinamy o piksel
+    let (w, h) = (ekran.0 & !1, ekran.1 & !1);
+    let wybor = enkodery::do_nagrywania(&cfg.enkoder, w, h);
+    let wyjscie = crate::karty::wyjscie_monitora(&nazwa_monitora);
+    let karta_enkodera = enkodery::producent(wybor.nazwa).and_then(crate::karty::indeks_karty);
+    Ok(Plan { monitor, nazwa_monitora, zastepczy, ekran, wybor, wyjscie, karta_enkodera })
+}
+
+impl Plan {
+    fn warunki<'a>(&self, metoda: &'a str) -> Warunki<'a> {
+        Warunki {
+            metoda,
+            enkoder_tekstury: enkodery::przyjmuje_tekstury(self.wybor.nazwa),
+            ta_sama_karta: match (&self.wyjscie, self.karta_enkodera) {
+                (Some(w), Some(k)) => w.karta == k,
+                _ => false,
+            },
+            karta_enkodera: self.karta_enkodera.is_some(),
+            skalowanie: (self.wybor.w, self.wybor.h) != (self.ekran.0 & !1, self.ekran.1 & !1),
+            filtr_dda: crate::ffmpeg::ma_filtr("ddagrab"),
+            filtr_gfx: crate::ffmpeg::ma_filtr("gfxcapture"),
+        }
+    }
+}
+
+/// Drogi do wypróbowania dla bieżących ustawień, od najlepszej.
+pub fn drogi(cfg: &Config) -> Vec<Droga> {
+    match plan(cfg) {
+        Ok(p) => kolejnosc_drog(&p.warunki(&cfg.metoda_przechwytywania)),
+        Err(_) => vec![Droga::Potok],
+    }
+}
+
+/// Startuje nagrywanie obrazu wybraną drogą. `zglos` dostaje opis błędu, gdy ffmpeg nieoczekiwanie
+/// przestanie działać. `lekki` = lżejsze ustawienia enkodera (po wykryciu, że nie nadąża).
+pub fn uruchom(
+    cfg: &Config,
+    droga: Droga,
+    lekki: bool,
+    bufor: WspolnyBufor,
+    zglos: impl Fn(String) + Send + 'static,
+) -> Result<Wideo, Blad> {
+    let p = plan(cfg)?;
+    let fps = cfg.aktywne_fps();
+    let enkoder = p.wybor.nazwa;
+    let (w, h) = (p.wybor.w, p.wybor.h);
+    let mbps = cfg.aktywny_bitrate();
     let format = enkodery::format_strumienia(enkoder);
-    crate::dziennik::info(&format!("Wideo: monitor {nazwa} {w}x{h}, {fps} FPS, {enkoder} {} Mb/s", bitrate_dla(cfg, w, h)));
-
-    let rozmiar_klatki = (w * h * 4) as usize;
-    let problem: Problem = Arc::new(Mutex::new(None));
-    let wspolna = Arc::new(Mutex::new(OstatniaKlatka { piksele: vec![0; rozmiar_klatki], nowa: false }));
-
-    let mozliwosci = mozliwosci_przechwytywania();
-    let ustawienia = Settings::new(
-        monitor,
-        if mozliwosci.kursor { CursorCaptureSettings::WithCursor } else { CursorCaptureSettings::Default },
-        // Starszy Windows 10 nie pozwala wyłączyć ramki — wtedy nagrywamy z ramką zamiast przerywać
-        if mozliwosci.bez_ramki { DrawBorderSettings::WithoutBorder } else { DrawBorderSettings::Default },
-        SecondaryWindowSettings::Default,
-        // Nie potrzebujemy klatek częściej niż nasze FPS (Windows 11 24H2+; wcześniej dostajemy wszystkie)
-        if mozliwosci.odstep_klatek {
-            MinimumUpdateIntervalSettings::Custom(Duration::from_secs_f64(1.0 / fps as f64))
-        } else {
-            MinimumUpdateIntervalSettings::Default
-        },
-        DirtyRegionSettings::Default,
-        ColorFormat::Bgra8,
-        (wspolna.clone(), (w, h), problem.clone()),
+    let opis = format!(
+        "monitor {} {}x{}{}, {fps} FPS, {enkoder} {} Mb/s{}, droga {}",
+        p.nazwa_monitora,
+        w,
+        h,
+        if (w, h) != p.ekran { format!(" (ekran {}x{})", p.ekran.0, p.ekran.1) } else { String::new() },
+        bitrate_dla(mbps, w, h),
+        if lekki { " (lekkie ustawienia)" } else { "" },
+        droga.opis()
     );
-    let sterowanie = Przechwyt::start_free_threaded(ustawienia)?;
+    if p.wyjscie.as_ref().is_some_and(|w| w.hdr) {
+        static HDR: std::sync::Once = std::sync::Once::new();
+        HDR.call_once(|| crate::dziennik::info("Monitor ma włączony HDR — nagrywam w 8 bitach (SDR)"));
+    }
 
-    let ffmpeg = crate::ffmpeg::komenda()
-        .args(["-hide_banner", "-loglevel", "error"])
-        .args(["-f", "rawvideo", "-pix_fmt", "bgra", "-s", &format!("{w}x{h}"), "-framerate", &fps.to_string(), "-i", "-"])
-        .args(enkodery::argumenty_nagrywania(enkoder, fps))
-        .args(argumenty_strumienia(cfg, w, h))
+    let problem: Problem = Arc::new(Mutex::new(None));
+    let stop = Arc::new(AtomicBool::new(false));
+    let statystyki = Arc::new(Statystyki::default());
+    let przeciazenie = Arc::new(AtomicBool::new(false));
+    let mut sterowanie = None;
+
+    let mut cmd = crate::ffmpeg::komenda_nagrywania();
+    cmd.args(["-hide_banner", "-loglevel", "error"]);
+    let mut wejscie_potoku = None;
+    match droga {
+        Droga::Dda => {
+            let wyj = p.wyjscie.clone().ok_or("nie wiadomo, do której karty podłączony jest monitor")?;
+            if !enkodery::dziala_z_tekstura(enkoder, w, h, wyj.karta) {
+                return Err(format!("{enkoder} nie przyjmuje obrazu prosto z karty {}", wyj.karta).into());
+            }
+            cmd.args(["-init_hw_device", &format!("d3d11va=gpu:{}", wyj.karta), "-filter_hw_device", "gpu"]);
+            cmd.args([
+                "-filter_complex",
+                &format!("ddagrab=output_idx={}:framerate={fps}:draw_mouse=1:video_size={w}x{h}", wyj.wyjscie),
+            ]);
+        }
+        Droga::Gfx => {
+            let karta = p.karta_enkodera.ok_or("nie wiadomo, na której karcie koduje enkoder")?;
+            if !enkodery::dziala_z_tekstura(enkoder, w, h, karta) {
+                return Err(format!("{enkoder} nie przyjmuje obrazu prosto z karty {karta}").into());
+            }
+            let skaluj = (w, h) != (p.ekran.0 & !1, p.ekran.1 & !1);
+            cmd.args(["-init_hw_device", &format!("d3d11va=gpu:{karta}"), "-filter_hw_device", "gpu"]);
+            cmd.args([
+                "-filter_complex",
+                &format!(
+                    "gfxcapture=hmonitor={}:max_framerate={fps}:capture_cursor=1:display_border=0:width={w}:height={h}:resize_mode={},fps={fps}",
+                    p.monitor.as_raw_hmonitor() as usize,
+                    if skaluj { "scale_aspect" } else { "crop" }
+                ),
+            ]);
+        }
+        Droga::Potok => {
+            let (ew, eh) = p.ekran;
+            let mut filtry = Vec::new();
+            if (w, h) != (ew & !1, eh & !1) {
+                filtry.push(format!("scale={w}:{h}"));
+            } else if (w, h) != (ew, eh) {
+                filtry.push(format!("crop={w}:{h}:0:0"));
+            }
+            if let Some(f) = enkodery::format_wejscia(enkoder) {
+                // Przeliczenie RGB -> YUV na procesorze, jawnie w BT.709 (zgodnie ze znacznikami)
+                filtry.push(format!("scale=out_color_matrix=bt709:out_range=tv,format={f}"));
+            }
+            cmd.args(["-f", "rawvideo", "-pix_fmt", "bgra", "-s", &format!("{ew}x{eh}"), "-framerate", &fps.to_string(), "-i", "-"]);
+            if !filtry.is_empty() {
+                cmd.args(["-vf", &filtry.join(",")]);
+            }
+            let (s, wspolna) = uruchom_przechwyt(&p.monitor, p.ekran, fps, &problem, &statystyki)?;
+            sterowanie = Some(s);
+            wejscie_potoku = Some(wspolna);
+        }
+    }
+    cmd.args(enkodery::argumenty_nagrywania(enkoder, fps, lekki))
+        .args(argumenty_strumienia(mbps, fps, w, h))
+        .args(znaczniki_koloru(enkoder))
         .args(["-f", format, "-"])
-        .stdin(Stdio::piped())
+        .stdin(if droga == Droga::Potok { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn();
-    let mut ffmpeg = match ffmpeg {
+        .stderr(Stdio::piped());
+    let mut ffmpeg = match crate::ffmpeg::uruchom_nagrywanie(&mut cmd, "obraz") {
         Ok(f) => f,
         Err(e) => {
-            let _ = sterowanie.stop();
-            return Err(format!("Nie udało się uruchomić ffmpeg (czy jest w PATH?): {e}").into());
+            if let Some(s) = sterowanie {
+                let _ = s.stop();
+            }
+            return Err(format!("Nie udało się uruchomić ffmpeg: {e}").into());
         }
     };
+    crate::dziennik::info(&format!("Wideo: {opis}"));
+
     // Komunikaty ffmpeg czytamy na bieżąco (pełny potok zatrzymałby enkoder); zostaje ostatnia linia
     let ostatni_blad = Arc::new(Mutex::new(String::new()));
     {
@@ -244,85 +528,296 @@ pub fn uruchom(cfg: &Config, bufor: WspolnyBufor, zglos: impl Fn(String) + Send 
             }
         });
     }
-    let mut wejscie = ffmpeg.stdin.take().unwrap();
-    let mut wyjscie = ffmpeg.stdout.take().unwrap();
+    let wyjscie = ffmpeg.stdout.take().unwrap();
+    let wejscie = ffmpeg.stdin.take();
     let proces = Arc::new(Mutex::new(ffmpeg));
-
-    // Początek osi czasu: klatka n ma czas t0 + n/fps
-    let start = Instant::now();
-    let t0 = teraz_100ns();
     let okres = Duration::from_secs_f64(1.0 / fps as f64);
 
-    // Wątek taktujący: co 1/fps wysyła najnowszą klatkę (albo powtarza poprzednią)
-    let stop = Arc::new(AtomicBool::new(false));
-    let stop_taktu = stop.clone();
-    let problem_taktu = problem.clone();
-    std::thread::Builder::new().name("wideo-takt".into()).spawn(move || {
-        let mut moja = vec![0u8; rozmiar_klatki];
-        let mut n: u32 = 0;
-        while !stop_taktu.load(Ordering::SeqCst) {
-            {
-                let mut w = wspolna.lock().unwrap_or_else(|e| e.into_inner());
-                if w.nowa {
-                    std::mem::swap(&mut w.piksele, &mut moja);
-                    w.nowa = false;
+    // Potok: oś czasu zaczyna się teraz (klatki nadaje nasz wątek taktujący).
+    // ffmpeg: początek ustalamy przy pierwszym pakiecie (start przechwytywania trwa różnie długo).
+    let t0 = (droga == Droga::Potok).then(teraz_100ns);
+    if let (Some(wspolna), Some(wejscie)) = (wejscie_potoku, wejscie) {
+        watek_taktujacy(wspolna, wejscie, fps, stop.clone(), problem.clone(), statystyki.clone(), przeciazenie.clone(), p.ekran);
+    }
+
+    // Wątek czytający: dzieli strumień na klatki i wrzuca je do bufora
+    {
+        let (stop, problem, statystyki, przeciazenie) = (stop.clone(), problem.clone(), statystyki.clone(), przeciazenie.clone());
+        let kodek_strumienia = enkodery::kodek(enkoder);
+        let proces_czytania = proces.clone();
+        std::thread::Builder::new().name("wideo-odczyt".into()).spawn(move || {
+            czytaj_strumien(Odczyt {
+                wyjscie,
+                kodek: kodek_strumienia,
+                fps,
+                t0,
+                droga,
+                bufor,
+                statystyki,
+                przeciazenie,
+                problem,
+                stop,
+                proces: proces_czytania,
+                ostatni_blad,
+                enkoder,
+                zglos: Box::new(zglos),
+            })
+        })?;
+    }
+    let _ = okres;
+
+    let (nazwa, id) = cfg.aktywny_monitor();
+    let zastepczy = p.zastepczy.then(|| (nazwa.to_string(), id.to_string()));
+    Ok(Wideo { sterowanie, stop, proces, problem, format, fps, droga, statystyki, przeciazenie, zastepczy, opis })
+}
+
+struct Odczyt {
+    wyjscie: std::process::ChildStdout,
+    kodek: Kodek,
+    fps: u32,
+    t0: Option<i64>,
+    droga: Droga,
+    bufor: WspolnyBufor,
+    statystyki: Arc<Statystyki>,
+    przeciazenie: Arc<AtomicBool>,
+    problem: Problem,
+    stop: Arc<AtomicBool>,
+    proces: Arc<Mutex<std::process::Child>>,
+    ostatni_blad: Arc<Mutex<String>>,
+    enkoder: &'static str,
+    zglos: Box<dyn Fn(String) + Send>,
+}
+
+fn czytaj_strumien(mut o: Odczyt) {
+    let mut parser = Dzielnik::nowy(o.kodek);
+    let mut kawalek = vec![0u8; 1 << 16];
+    let mut nr: i64 = 0;
+    let okres_100ns = 10_000_000 / o.fps as i64;
+    let mut spoznione_od: Option<Instant> = None;
+    loop {
+        let n = match o.wyjscie.read(&mut kawalek) {
+            Ok(0) | Err(_) => {
+                let _ = o.proces.lock().unwrap_or_else(|e| e.into_inner()).wait();
+                if !o.stop.load(Ordering::SeqCst) {
+                    std::thread::sleep(Duration::from_millis(100));
+                    let opis = o.ostatni_blad.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                    crate::dziennik::blad(&format!("Wideo: ffmpeg przestał działać: {opis}"));
+                    // Chwilowa utrata dostępu do ekranu (UAC, blokada) to nie wina enkodera
+                    if !chwilowy(&opis) {
+                        enkodery::zapomnij(o.enkoder);
+                    }
+                    (o.zglos)(if opis.is_empty() {
+                        "enkoder wideo nieoczekiwanie się zamknął".to_string()
+                    } else {
+                        format!("enkoder wideo przestał działać ({opis})")
+                    });
                 }
-            }
-            if wejscie.write_all(&moja).is_err() {
-                return; // ffmpeg nie żyje; wątek czytający zgłosi błąd
-            }
-            n += 1;
-            // Czekamy do czasu następnej klatki; małe spóźnienie nadrabiamy bez spania
-            let cel = start + okres * n;
-            let teraz = Instant::now();
-            if cel > teraz {
-                std::thread::sleep(cel - teraz);
-            } else if teraz - cel > Duration::from_secs(2) {
-                // Duża przerwa (uśpienie komputera, zawieszony enkoder): nadrabianie tysięcy klatek
-                // zalałoby enkoder, a znaczniki czasu by się rozjechały — lepiej zacząć od nowa
-                zglos_problem(&problem_taktu, "przerwa w nagrywaniu (uśpienie komputera lub zawieszony enkoder)".into());
                 return;
             }
-        }
-    }).expect("wątek wideo-takt");
-
-    // Wątek czytający: dzieli strumień H.264 na klatki i wrzuca je do bufora
-    let stop_czytania = stop.clone();
-    let kodek_strumienia = enkodery::kodek(enkoder);
-    let proces_czytania = proces.clone();
-    std::thread::Builder::new().name("wideo-odczyt".into()).spawn(move || {
-        let mut parser = Dzielnik::nowy(kodek_strumienia);
-        let mut kawalek = vec![0u8; 1 << 16];
-        let mut nr: i64 = 0;
-        loop {
-            let n = match wyjscie.read(&mut kawalek) {
-                Ok(0) | Err(_) => {
-                    let _ = proces_czytania.lock().unwrap_or_else(|e| e.into_inner()).wait();
-                    if !stop_czytania.load(Ordering::SeqCst) {
-                        std::thread::sleep(Duration::from_millis(100));
-                        let opis = ostatni_blad.lock().unwrap_or_else(|e| e.into_inner()).clone();
-                        crate::dziennik::blad(&format!("Wideo: ffmpeg przestał działać: {opis}"));
-                        enkodery::zapomnij(enkoder);
-                        zglos(if opis.is_empty() {
-                            "enkoder wideo nieoczekiwanie się zamknął".to_string()
-                        } else {
-                            format!("enkoder wideo przestał działać ({opis})")
-                        });
+            Ok(n) => n,
+        };
+        let teraz = teraz_100ns();
+        for (dane, klucz) in parser.karm(&kawalek[..n]) {
+            // ffmpeg: początek osi czasu = przyjście pierwszego pakietu minus opóźnienie kodowania
+            let t0 = *o.t0.get_or_insert(teraz - OPOZNIENIE_KLATEK * okres_100ns);
+            let czas = t0 + nr * 10_000_000 / o.fps as i64;
+            nr += 1;
+            o.statystyki.dodaj(&o.statystyki.pakiety, 1);
+            o.statystyki.dodaj(&o.statystyki.bajty, dane.len() as u64);
+            // Przechwytywanie w ffmpeg: czy enkoder nadąża (pakiety nie przychodzą coraz później niż zegar).
+            // Gfx pomijamy — przy nieruchomym ekranie stoi, a potem dogania powtórzonymi klatkami.
+            if o.droga == Droga::Dda {
+                let opoznienie = teraz - OPOZNIENIE_KLATEK * okres_100ns - czas;
+                if opoznienie > 5_000_000 {
+                    o.statystyki.dodaj(&o.statystyki.spoznione, 1);
+                    let od = *spoznione_od.get_or_insert_with(Instant::now);
+                    if od.elapsed() > Duration::from_secs(5) {
+                        o.przeciazenie.store(true, Ordering::SeqCst);
                     }
-                    return;
+                    if opoznienie > 30_000_000 {
+                        zglos_problem(&o.problem, "enkoder nie nadąża — obraz spóźnia się o ponad 3 s".into());
+                    }
+                } else {
+                    spoznione_od = None;
                 }
-                Ok(n) => n,
-            };
-            for (dane, klucz) in parser.karm(&kawalek[..n]) {
-                let czas = t0 + nr * 10_000_000 / fps as i64;
-                nr += 1;
-                bufor.lock().unwrap_or_else(|e| e.into_inner()).dodaj(Pakiet { czas, klucz, dane: dane.into() });
             }
+            o.bufor.lock().unwrap_or_else(|e| e.into_inner()).dodaj(Pakiet { czas, klucz, dane: dane.into() });
         }
-    }).expect("wątek wideo-odczyt");
-
-    Ok(Wideo { sterowanie: Some(sterowanie), stop, proces, problem, format })
+    }
 }
+
+/// Czy błąd to chwilowa utrata dostępu do ekranu (okno UAC, ekran blokady, przełączenie użytkownika)
+/// — wtedy wznawiamy po cichu i nie uznajemy drogi przechwytywania za zepsutą.
+pub fn chwilowy(opis: &str) -> bool {
+    let o = opis.to_lowercase();
+    ["887a0026", "access_lost", "access lost", "80070005", "e_accessdenied", "chwilowa utrata"].iter().any(|x| o.contains(x))
+}
+
+// ---------- Droga „Potok”: przechwytywanie w Clipeonie ----------
+
+/// Ostatnia klatka z ekranu, wymieniana z wątkiem taktującym.
+struct OstatniaKlatka {
+    piksele: Vec<u8>,
+    nowa: bool,
+}
+
+struct Przechwyt {
+    wspolna: Arc<Mutex<OstatniaKlatka>>,
+    rozmiar: (u32, u32),
+    /// Własny bufor klatki: kopiujemy do niego poza blokadą, a z wątkiem taktującym tylko się zamieniamy
+    wlasna: Vec<u8>,
+    tymczasowy: Vec<u8>,
+    problem: Problem,
+    statystyki: Arc<Statystyki>,
+    /// Gdy Windows nie umie ograniczać klatek (przed 11 24H2), odrzucamy nadmiarowe sami — przed
+    /// kosztownym kopiowaniem z karty
+    min_odstep: Option<Duration>,
+    ostatnia: Option<Instant>,
+}
+
+type FlagiPrzechwytu = (Arc<Mutex<OstatniaKlatka>>, (u32, u32), Problem, Arc<Statystyki>, Option<Duration>);
+
+impl GraphicsCaptureApiHandler for Przechwyt {
+    type Flags = FlagiPrzechwytu;
+    type Error = Blad;
+
+    fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {
+        let (wspolna, rozmiar, problem, statystyki, min_odstep) = ctx.flags;
+        Ok(Self { wspolna, rozmiar, wlasna: Vec::new(), tymczasowy: Vec::new(), problem, statystyki, min_odstep, ostatnia: None })
+    }
+
+    fn on_closed(&mut self) -> Result<(), Self::Error> {
+        zglos_problem(&self.problem, "przechwytywanie ekranu zostało przerwane przez system".into());
+        Ok(())
+    }
+
+    fn on_frame_arrived(&mut self, frame: &mut Frame, _: InternalCaptureControl) -> Result<(), Self::Error> {
+        if let (Some(min), Some(t)) = (self.min_odstep, self.ostatnia)
+            && t.elapsed() < min {
+                self.statystyki.dodaj(&self.statystyki.pominiete, 1);
+                return Ok(());
+            }
+        self.ostatnia = Some(Instant::now());
+        let bufor = frame.buffer()?;
+        // Zmiana rozdzielczości: enkoder ma stały rozmiar — zgłaszamy, strażnik uruchomi nagrywanie od nowa
+        if (bufor.width(), bufor.height()) != self.rozmiar {
+            zglos_problem(&self.problem, format!("rozdzielczość ekranu zmieniła się na {}x{}", bufor.width(), bufor.height()));
+            return Ok(());
+        }
+        let piksele = bufor.as_nopadding_buffer(&mut self.tymczasowy);
+        self.wlasna.clear();
+        self.wlasna.extend_from_slice(piksele);
+        {
+            let mut w = self.wspolna.lock().unwrap_or_else(|e| e.into_inner());
+            std::mem::swap(&mut w.piksele, &mut self.wlasna);
+            w.nowa = true;
+        }
+        self.statystyki.dodaj(&self.statystyki.przechwycone, 1);
+        Ok(())
+    }
+}
+
+fn uruchom_przechwyt(
+    monitor: &Monitor,
+    rozmiar: (u32, u32),
+    fps: u32,
+    problem: &Problem,
+    statystyki: &Arc<Statystyki>,
+) -> Result<(CaptureControl<Przechwyt, Blad>, Arc<Mutex<OstatniaKlatka>>), Blad> {
+    let rozmiar_klatki = (rozmiar.0 * rozmiar.1 * 4) as usize;
+    let wspolna = Arc::new(Mutex::new(OstatniaKlatka { piksele: vec![0; rozmiar_klatki], nowa: false }));
+    let mozliwosci = mozliwosci_przechwytywania();
+    let ustawienia = Settings::new(
+        *monitor,
+        if mozliwosci.kursor { CursorCaptureSettings::WithCursor } else { CursorCaptureSettings::Default },
+        // Starszy Windows 10 nie pozwala wyłączyć ramki — wtedy nagrywamy z ramką zamiast przerywać
+        if mozliwosci.bez_ramki { DrawBorderSettings::WithoutBorder } else { DrawBorderSettings::Default },
+        SecondaryWindowSettings::Default,
+        // Nie potrzebujemy klatek częściej niż nasze FPS (Windows 11 24H2+; wcześniej odrzucamy je sami)
+        if mozliwosci.odstep_klatek {
+            MinimumUpdateIntervalSettings::Custom(Duration::from_secs_f64(1.0 / fps as f64))
+        } else {
+            MinimumUpdateIntervalSettings::Default
+        },
+        DirtyRegionSettings::Default,
+        ColorFormat::Bgra8,
+        (
+            wspolna.clone(),
+            rozmiar,
+            problem.clone(),
+            statystyki.clone(),
+            (!mozliwosci.odstep_klatek).then(|| Duration::from_secs_f64(0.9 / fps as f64)),
+        ),
+    );
+    let sterowanie = Przechwyt::start_free_threaded(ustawienia)?;
+    Ok((sterowanie, wspolna))
+}
+
+/// Wątek taktujący: co 1/fps wysyła do ffmpeg najnowszą klatkę (albo powtarza poprzednią).
+#[allow(clippy::too_many_arguments)]
+fn watek_taktujacy(
+    wspolna: Arc<Mutex<OstatniaKlatka>>,
+    mut wejscie: std::process::ChildStdin,
+    fps: u32,
+    stop: Arc<AtomicBool>,
+    problem: Problem,
+    statystyki: Arc<Statystyki>,
+    przeciazenie: Arc<AtomicBool>,
+    rozmiar: (u32, u32),
+) {
+    let okres = Duration::from_secs_f64(1.0 / fps as f64);
+    let start = Instant::now();
+    std::thread::Builder::new()
+        .name("wideo-takt".into())
+        .spawn(move || {
+            let mut moja = vec![0u8; (rozmiar.0 * rozmiar.1 * 4) as usize];
+            let mut n: u32 = 0;
+            // Okno 1 s: ile taktów się spóźniło; 5 s z rzędu ponad 10% = enkoder nie nadąża
+            let (mut spoznione_w_oknie, mut zle_sekundy) = (0u32, 0u32);
+            while !stop.load(Ordering::SeqCst) {
+                {
+                    let mut w = wspolna.lock().unwrap_or_else(|e| e.into_inner());
+                    if w.nowa {
+                        std::mem::swap(&mut w.piksele, &mut moja);
+                        w.nowa = false;
+                    } else {
+                        statystyki.dodaj(&statystyki.powtorzone, 1);
+                    }
+                }
+                if wejscie.write_all(&moja).is_err() {
+                    return; // ffmpeg nie żyje; wątek czytający zgłosi błąd
+                }
+                n += 1;
+                // Czekamy do czasu następnej klatki; małe spóźnienie nadrabiamy bez spania
+                let cel = start + okres * n;
+                let teraz = Instant::now();
+                if cel > teraz {
+                    std::thread::sleep(cel - teraz);
+                } else {
+                    if teraz - cel > okres {
+                        statystyki.dodaj(&statystyki.spoznione, 1);
+                        spoznione_w_oknie += 1;
+                    }
+                    if teraz - cel > Duration::from_secs(2) {
+                        // Duża przerwa (uśpienie komputera, zawieszony enkoder): nadrabianie tysięcy klatek
+                        // zalałoby enkoder, a znaczniki czasu by się rozjechały — lepiej zacząć od nowa
+                        zglos_problem(&problem, "przerwa w nagrywaniu (uśpienie komputera lub zawieszony enkoder)".into());
+                        return;
+                    }
+                }
+                if n.is_multiple_of(fps) {
+                    zle_sekundy = if spoznione_w_oknie * 10 > fps { zle_sekundy + 1 } else { 0 };
+                    spoznione_w_oknie = 0;
+                    if zle_sekundy >= 5 {
+                        przeciazenie.store(true, Ordering::SeqCst);
+                    }
+                }
+            }
+        })
+        .expect("wątek wideo-takt");
+}
+
+// ---------- Dzielenie strumienia na klatki ----------
 
 /// Dzieli surowy strumień enkodera na klatki i rozpoznaje klatki kluczowe:
 /// H.264 / HEVC (Annex B) po znacznikach AUD, AV1 (OBU) po ogranicznikach czasowych.
@@ -423,4 +918,121 @@ fn znajdz_nal(dane: &[u8], od: usize, warunek: impl Fn(u8) -> bool) -> Option<us
         }
     }
     None
+}
+
+#[cfg(test)]
+mod testy {
+    use super::*;
+
+    fn warunki() -> Warunki<'static> {
+        Warunki {
+            metoda: "auto",
+            enkoder_tekstury: true,
+            ta_sama_karta: true,
+            karta_enkodera: true,
+            skalowanie: false,
+            filtr_dda: true,
+            filtr_gfx: true,
+        }
+    }
+
+    #[test]
+    fn drogi_auto() {
+        assert_eq!(kolejnosc_drog(&warunki()), vec![Droga::Dda, Droga::Gfx, Droga::Potok]);
+        // Monitor na innej karcie niż enkoder (laptop): Desktop Duplication odpada
+        assert_eq!(kolejnosc_drog(&Warunki { ta_sama_karta: false, ..warunki() }), vec![Droga::Gfx, Droga::Potok]);
+        // Zmniejszanie obrazu: ddagrab nie skaluje
+        assert_eq!(kolejnosc_drog(&Warunki { skalowanie: true, ..warunki() }), vec![Droga::Gfx, Droga::Potok]);
+        // Quick Sync / procesor: tylko potok
+        assert_eq!(kolejnosc_drog(&Warunki { enkoder_tekstury: false, ..warunki() }), vec![Droga::Potok]);
+        // Stary ffmpeg bez filtrów
+        assert_eq!(kolejnosc_drog(&Warunki { filtr_dda: false, filtr_gfx: false, ..warunki() }), vec![Droga::Potok]);
+    }
+
+    #[test]
+    fn drogi_wymuszone() {
+        assert_eq!(kolejnosc_drog(&Warunki { metoda: "potok", ..warunki() }), vec![Droga::Potok]);
+        assert_eq!(kolejnosc_drog(&Warunki { metoda: "gfx", ..warunki() }), vec![Droga::Gfx, Droga::Potok]);
+        assert_eq!(kolejnosc_drog(&Warunki { metoda: "dda", ..warunki() }), vec![Droga::Dda, Droga::Potok]);
+        assert_eq!(kolejnosc_drog(&Warunki { metoda: "dda", ta_sama_karta: false, ..warunki() }), vec![Droga::Potok]);
+    }
+
+    #[test]
+    fn nazwy_drog() {
+        for d in [Droga::Dda, Droga::Gfx, Droga::Potok] {
+            assert_eq!(Droga::z_nazwy(d.nazwa()), Some(d));
+        }
+        assert_eq!(Droga::z_nazwy("inna"), None);
+    }
+
+    #[test]
+    fn numery_monitorow() {
+        assert_eq!(numer_monitora(r"\\.\DISPLAY2"), 2);
+        assert_eq!(numer_monitora(r"\\.\DISPLAY12"), 12);
+        assert_eq!(numer_monitora(""), 0);
+    }
+
+    #[test]
+    fn chwilowe_bledy() {
+        assert!(chwilowy("enkoder wideo przestał działać ([Parsed_ddagrab_0 @ 0x1] AcquireNextFrame failed: 887a0026)"));
+        assert!(!chwilowy("enkoder wideo przestał działać (Error while opening encoder)"));
+    }
+
+    fn nal(typ: &[u8], dane: &[u8]) -> Vec<u8> {
+        let mut v = vec![0, 0, 0, 1];
+        v.extend_from_slice(typ);
+        v.extend_from_slice(dane);
+        v
+    }
+
+    #[test]
+    fn dzielnik_h264() {
+        // Klatka kluczowa: AUD, SPS, PPS, IDR; potem zwykła: AUD, P
+        let k1 = [nal(&[0x09], &[0xF0]), nal(&[0x67], &[1, 2, 3]), nal(&[0x68], &[4]), nal(&[0x65], &[9, 9, 9, 9])].concat();
+        let k2 = [nal(&[0x09], &[0xF0]), nal(&[0x41], &[7, 7, 7])].concat();
+        let k3 = nal(&[0x09], &[0xF0]);
+        let strumien = [k1.clone(), k2.clone(), k3].concat();
+        // Podajemy po kawałku (jak z potoku), także przecinając kody startowe
+        let mut d = Dzielnik::nowy(Kodek::H264);
+        let mut klatki = Vec::new();
+        for kawalek in strumien.chunks(3) {
+            klatki.extend(d.karm(kawalek));
+        }
+        assert_eq!(klatki.len(), 2);
+        assert_eq!(klatki[0], (k1, true));
+        assert_eq!(klatki[1], (k2, false));
+    }
+
+    #[test]
+    fn dzielnik_hevc() {
+        // Typ NAL w HEVC: (bajt >> 1) & 0x3f; AUD = 35, IDR_W_RADL = 19, TRAIL_R = 1
+        let k1 = [nal(&[35 << 1, 1], &[0x50]), nal(&[19 << 1, 1], &[5, 5, 5])].concat();
+        let k2 = [nal(&[35 << 1, 1], &[0x50]), nal(&[1 << 1, 1], &[6, 6])].concat();
+        let mut d = Dzielnik::nowy(Kodek::Hevc);
+        let mut klatki = d.karm(&[k1.clone(), k2.clone()].concat());
+        klatki.extend(d.karm(&nal(&[35 << 1, 1], &[0x50])));
+        assert_eq!(klatki, vec![(k1, true), (k2, false)]);
+    }
+
+    #[test]
+    fn dzielnik_av1() {
+        // OBU: nagłówek (typ << 3 | pole rozmiaru), rozmiar (leb128), dane.
+        // Ogranicznik czasowy = 2, nagłówek sekwencji = 1, klatka = 6
+        let obu = |typ: u8, dane: &[u8]| [vec![(typ << 3) | 0x02, dane.len() as u8], dane.to_vec()].concat();
+        let k1 = [obu(2, &[]), obu(1, &[1, 2]), obu(6, &[3, 3, 3])].concat();
+        let k2 = [obu(2, &[]), obu(6, &[4, 4])].concat();
+        let mut d = Dzielnik::nowy(Kodek::Av1);
+        let mut klatki = Vec::new();
+        for kawalek in [k1.clone(), k2.clone(), obu(2, &[])].concat().chunks(2) {
+            klatki.extend(d.karm(kawalek));
+        }
+        assert_eq!(klatki, vec![(k1, true), (k2, false)]);
+    }
+
+    #[test]
+    fn bitrate_rosnie_z_rozdzielczoscia() {
+        assert_eq!(bitrate_dla(20, 1920, 1080), 20);
+        assert_eq!(bitrate_dla(20, 1280, 720), 20);
+        assert!(bitrate_dla(20, 3840, 2160) > 40);
+    }
 }

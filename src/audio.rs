@@ -7,9 +7,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use windows::Win32::Media::Audio::{
-    AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_LOOPBACK, IAudioCaptureClient,
+    AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, AUDCLNT_STREAMFLAGS_LOOPBACK,
+    IAudioCaptureClient,
     IAudioClient, IMMDeviceEnumerator, MMDeviceEnumerator, eCapture, eConsole, eRender,
 };
+use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
 use windows::Win32::System::Com::{CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree};
 
 type Blad = Box<dyn std::error::Error + Send + Sync>;
@@ -61,12 +63,11 @@ pub fn uruchom(
             return;
         }
         while !stop_watku.load(Ordering::SeqCst) {
-            if let Err(e) = sesja(zrodlo, bitrate_kbps, &bufor, &stop_watku, &zglos) {
-                if !stop_watku.load(Ordering::SeqCst) {
+            if let Err(e) = sesja(zrodlo, bitrate_kbps, &bufor, &stop_watku, &zglos)
+                && !stop_watku.load(Ordering::SeqCst) {
                     crate::dziennik::blad(&format!("Dźwięk ({}): {e} — ponawiam za 1 s", zrodlo.nazwa()));
                     zglos(Some(format!("Nie można nagrywać ({}): {e}", zrodlo.nazwa())));
                 }
-            }
             std::thread::sleep(Duration::from_secs(1));
         }
     });
@@ -96,15 +97,29 @@ fn sesja(
             s
         };
         let id_start = id_urzadzenia(&urzadzenie);
-        let klient: IAudioClient = urzadzenie.Activate(CLSCTX_ALL, None)?;
+        let mut klient: IAudioClient = urzadzenie.Activate(CLSCTX_ALL, None)?;
 
         let wsk = klient.GetMixFormat()?;
         let f = *wsk;
         let (czestotliwosc, kanaly, bity) = (f.nSamplesPerSec, f.nChannels as u32, f.wBitsPerSample);
-        // Bufor 200 ms po stronie systemu
-        let wynik = klient.Initialize(AUDCLNT_SHAREMODE_SHARED, flagi, 2_000_000, 0, wsk, None);
+        // Bufor 200 ms po stronie systemu. Najpierw z powiadamianiem zdarzeniem (wątek śpi, aż przyjdą dane,
+        // zamiast budzić się co 10 ms); gdy system tego nie przyjmie — zwykłe odpytywanie
+        let zdarzenie = CreateEventW(None, false, false, None).ok();
+        let mut wynik = Err(windows::core::Error::empty());
+        if zdarzenie.is_some() {
+            wynik = klient.Initialize(AUDCLNT_SHAREMODE_SHARED, flagi | AUDCLNT_STREAMFLAGS_EVENTCALLBACK, 2_000_000, 0, wsk, None);
+        }
+        let mut ze_zdarzeniem = wynik.is_ok();
+        if !ze_zdarzeniem {
+            // Nieudany Initialize zostawia klienta w nieokreślonym stanie — bierzemy nowego
+            klient = urzadzenie.Activate(CLSCTX_ALL, None)?;
+            wynik = klient.Initialize(AUDCLNT_SHAREMODE_SHARED, flagi, 2_000_000, 0, wsk, None);
+        }
         CoTaskMemFree(Some(wsk as *const _));
         wynik?;
+        if let (true, Some(z)) = (ze_zdarzeniem, zdarzenie) {
+            ze_zdarzeniem = klient.SetEventHandle(z).is_ok();
+        }
 
         // Format miksera to prawie zawsze float32; 16/24-bit PCM też obsługujemy
         let format_ff = match bity {
@@ -116,14 +131,16 @@ fn sesja(
         let bajtow_na_probke = (bity as usize / 8) * kanaly as usize;
         println!("Dźwięk ({}): {czestotliwosc} Hz, {kanaly} kan., {bity} bit -> AAC {bitrate_kbps} kb/s", zrodlo.nazwa());
 
-        let mut ffmpeg = crate::ffmpeg::komenda()
-            .args(["-hide_banner", "-loglevel", "error"])
-            .args(["-f", format_ff, "-ar", &czestotliwosc.to_string(), "-ac", &kanaly.to_string(), "-i", "-"])
-            .args(["-c:a", "aac", "-b:a", &format!("{bitrate_kbps}k"), "-ac", "2", "-f", "adts", "-"])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("nie udało się uruchomić ffmpeg: {e}"))?;
+        let mut ffmpeg = crate::ffmpeg::uruchom_nagrywanie(
+            crate::ffmpeg::komenda_nagrywania()
+                .args(["-hide_banner", "-loglevel", "error"])
+                .args(["-f", format_ff, "-ar", &czestotliwosc.to_string(), "-ac", &kanaly.to_string(), "-i", "-"])
+                .args(["-c:a", "aac", "-b:a", &format!("{bitrate_kbps}k"), "-ac", "2", "-f", "adts", "-"])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped()),
+            if zrodlo == Zrodlo::System { "dźwięk gry" } else { "mikrofon" },
+        )
+        .map_err(|e| format!("nie udało się uruchomić ffmpeg: {e}"))?;
         let mut wejscie = ffmpeg.stdin.take().unwrap();
         let mut wyjscie = ffmpeg.stdout.take().unwrap();
 
@@ -168,12 +185,18 @@ fn sesja(
 
         let mut zegar = Zegar { t0, czestotliwosc: czestotliwosc as i64, wyslane: 0, bajtow_na_probke };
         let wynik = (|| -> Result<(), Blad> {
-            let mut obieg: u32 = 0;
+            let mut sprawdzone = std::time::Instant::now();
             while !stop.load(Ordering::SeqCst) {
-                std::thread::sleep(Duration::from_millis(10));
-                obieg += 1;
+                match (ze_zdarzeniem, zdarzenie) {
+                    // Czekamy na dane najwyżej 100 ms (przy ciszy loopback nie budzi nas wcale)
+                    (true, Some(z)) => {
+                        WaitForSingleObject(z, 100);
+                    }
+                    _ => std::thread::sleep(Duration::from_millis(10)),
+                }
                 // Co ~2 s: czy domyślne urządzenie się nie zmieniło
-                if obieg % 200 == 0 {
+                if sprawdzone.elapsed() >= Duration::from_secs(2) {
+                    sprawdzone = std::time::Instant::now();
                     let teraz = enumerator.GetDefaultAudioEndpoint(kierunek, eConsole).ok().and_then(|u| id_urzadzenia(&u));
                     if teraz.is_some() && teraz != id_start {
                         crate::dziennik::info(&format!("Dźwięk ({}): zmiana domyślnego urządzenia, przełączam", zrodlo.nazwa()));
@@ -196,7 +219,7 @@ fn sesja(
                     byly_dane = true;
                 }
                 // Gdy nic nie gra, loopback nie daje pakietów — dopychamy ciszę (z zapasem 50 ms
-                // na spóźnione pakiety), żeby oś czasu dźwięku nie stanęła
+                // na spóźnione pakiety), żeby oś czasu dźwięku nie stanęła; przy zdarzeniach co ~100 ms
                 if !byly_dane {
                     zegar.cisza_do(&mut wejscie, teraz_100ns() - 500_000)?;
                 }
@@ -204,6 +227,9 @@ fn sesja(
             Ok(())
         })();
         let _ = klient.Stop();
+        if let Some(z) = zdarzenie {
+            let _ = windows::Win32::Foundation::CloseHandle(z);
+        }
         drop(wejscie);
         let _ = ffmpeg.kill();
         let _ = czytnik.join();

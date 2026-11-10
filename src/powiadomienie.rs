@@ -14,7 +14,7 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, MSG, PM_REMOVE, PeekMessageW,
-    RegisterClassW, SW_SHOWNOACTIVATE, ShowWindow, TranslateMessage, ULW_ALPHA, UpdateLayeredWindow, WNDCLASSW,
+    RegisterClassW, SW_SHOWNOACTIVATE, SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE, ShowWindow, TranslateMessage, ULW_ALPHA, UpdateLayeredWindow, WNDCLASSW,
     WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
 use windows::core::w;
@@ -86,6 +86,9 @@ pub fn pokaz(miejsce: Miejsce, tytul: &str, opis: &str, blad: bool, trwale: bool
         ) else {
             return eprintln!("Nie udało się utworzyć dymka");
         };
+        // Dymek nie trafia do nagrania (tryb pulpitu, ddagrab i Windows.Graphics.Capture go pomijają);
+        // Windows 10 starszy niż 2004 nie zna tej flagi — wtedy dymek po prostu bywa widoczny w klipie
+        let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
 
         // Obraz dymka w pamięci (32 bit, od góry)
         let ekran = GetDC(None);

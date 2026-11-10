@@ -1,0 +1,26 @@
+# Testy: Clipeon działa tylko na Windows, więc testy jednostkowe uruchamiamy na windows-latest
+# (po każdym PR i wypchnięciu gałęzi roboczej).
+name: Testy
+
+on:
+  pull_request:
+  push:
+    branches: ["main", "claude/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  testy:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Testy jednostkowe
+        run: cargo test --locked
+      - name: Clippy
+        run: cargo clippy --locked --all-targets
