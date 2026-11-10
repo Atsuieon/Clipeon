@@ -175,6 +175,13 @@ impl Rdzen {
         }
     }
 
+    /// Zatrzymuje nagrywanie na stałe (przed instalacją aktualizacji): ffmpeg musi się zamknąć,
+    /// żeby instalator mógł podmienić pliki, a strażnik nie może go wznowić.
+    pub fn zakoncz(&self) {
+        self.zamek().pauza = true;
+        self.zatrzymaj(&[]);
+    }
+
     /// Zatrzymuje skrót i sesję; zostawia tylko błędy z listy `zostaw`.
     fn zatrzymaj(&self, zostaw: &[&str]) {
         let (skrot, sesja) = {

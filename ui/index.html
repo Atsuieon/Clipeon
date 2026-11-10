@@ -177,10 +177,11 @@
 
             <div class="karta">
               <h3>Aktualizacje</h3>
-              <p class="pomoc">Clipeon raz dziennie pyta GitHuba, czy jest nowa wersja. To jedyne połączenie z internetem — klipy nigdy nie opuszczają komputera.</p>
+              <p class="pomoc">Clipeon raz dziennie pyta GitHuba, czy jest nowa wersja. Gdy jest, wystarczy kliknąć „Aktualizuj” — Clipeon sam ją pobierze, sprawdzi podpis, zainstaluje i uruchomi się ponownie. To jedyne połączenie z internetem — klipy nigdy nie opuszczają komputera.</p>
               <label class="przelacznik"><input type="checkbox" id="aktualizacje"><span class="suwak"></span>Sprawdzaj, czy jest nowa wersja</label>
               <div class="wiersz-akt">
                 <button type="button" class="przycisk drugorzedny" id="sprawdz-teraz">Sprawdź teraz</button>
+                <button type="button" class="przycisk aktualizacja" id="aktualizuj-teraz" hidden>Aktualizuj teraz</button>
                 <span class="pomoc" id="akt-wynik" role="status"></span>
               </div>
             </div>
