@@ -16,6 +16,8 @@ mod ikona;
 mod karty;
 mod klipy;
 mod odzyskiwanie;
+mod pamiec;
+mod pomiar;
 mod powiadomienie;
 mod rdzen;
 mod skrot;

@@ -75,12 +75,7 @@ fn wykryj() -> Vec<Karta> {
                 .unwrap_or_else(|_| "nieznany".into());
             wynik.push(Karta {
                 nazwa: String::from_utf16_lossy(&opis.Description[..dl]).trim().to_string(),
-                producent: match opis.VendorId {
-                    0x1002 | 0x1022 => Producent::Amd,
-                    0x10de => Producent::Nvidia,
-                    0x8086 => Producent::Intel,
-                    _ => Producent::Inny,
-                },
+                producent: producent_z_id(opis.VendorId),
                 pamiec: opis.DedicatedVideoMemory as u64,
                 sterownik,
             });
@@ -122,4 +117,74 @@ fn zapamietaj_sterowniki(karty: &[Karta]) {
     if wczesniej != teraz {
         let _ = std::fs::write(&plik, teraz);
     }
+}
+
+/// Gdzie jest podłączony monitor: numer karty (kolejność DXGI, ta sama, której używa ffmpeg
+/// w `d3d11va=gpu:N`), numer wyjścia na tej karcie (dla `ddagrab`), producent i HDR.
+#[derive(Clone, Debug)]
+pub struct Wyjscie {
+    pub karta: u32,
+    pub wyjscie: u32,
+    pub producent: Producent,
+    pub hdr: bool,
+}
+
+fn producent_z_id(id: u32) -> Producent {
+    match id {
+        0x1002 | 0x1022 => Producent::Amd,
+        0x10de => Producent::Nvidia,
+        0x8086 => Producent::Intel,
+        _ => Producent::Inny,
+    }
+}
+
+/// Wyjście karty, do którego podłączony jest monitor o nazwie urządzenia (np. \\.\DISPLAY2).
+pub fn wyjscie_monitora(nazwa: &str) -> Option<Wyjscie> {
+    use windows::Win32::Graphics::Dxgi::Common::DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
+    use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIFactory1, IDXGIOutput6};
+    use windows::core::Interface;
+    unsafe {
+        let fabryka = CreateDXGIFactory1::<IDXGIFactory1>().ok()?;
+        let mut a = 0;
+        while let Ok(adapter) = fabryka.EnumAdapters1(a) {
+            let producent = adapter.GetDesc1().map(|o| producent_z_id(o.VendorId)).unwrap_or(Producent::Inny);
+            let mut o = 0;
+            while let Ok(wyjscie) = adapter.EnumOutputs(o) {
+                if let Ok(opis) = wyjscie.GetDesc() {
+                    let dl = opis.DeviceName.iter().position(|&c| c == 0).unwrap_or(opis.DeviceName.len());
+                    if String::from_utf16_lossy(&opis.DeviceName[..dl]).eq_ignore_ascii_case(nazwa) {
+                        let hdr = wyjscie
+                            .cast::<IDXGIOutput6>()
+                            .ok()
+                            .and_then(|w6| w6.GetDesc1().ok())
+                            .is_some_and(|d| d.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
+                        return Some(Wyjscie { karta: a, wyjscie: o, producent, hdr });
+                    }
+                }
+                o += 1;
+            }
+            a += 1;
+        }
+    }
+    None
+}
+
+/// Numer karty (kolejność DXGI) danego producenta; przy kilku — ta z największą pamięcią.
+pub fn indeks_karty(p: Producent) -> Option<u32> {
+    use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIFactory1};
+    let mut najlepsza: Option<(u32, u64)> = None;
+    unsafe {
+        let fabryka = CreateDXGIFactory1::<IDXGIFactory1>().ok()?;
+        let mut a = 0;
+        while let Ok(adapter) = fabryka.EnumAdapters1(a) {
+            if let Ok(o) = adapter.GetDesc1() {
+                let pamiec = o.DedicatedVideoMemory as u64;
+                if producent_z_id(o.VendorId) == p && najlepsza.is_none_or(|(_, m)| pamiec > m) {
+                    najlepsza = Some((a, pamiec));
+                }
+            }
+            a += 1;
+        }
+    }
+    najlepsza.map(|(i, _)| i)
 }

@@ -19,12 +19,11 @@ pub fn przy_starcie() -> bool {
     let po_awarii = argumenty.iter().any(|a| a == FLAGA);
     if po_awarii {
         // Nowa kopia z wątku awarii: czekamy, aż stara się zamknie (inaczej zablokuje ją pojedyncza instancja)
-        if let Some(pid) = argumenty.iter().skip_while(|a| *a != FLAGA).nth(1).and_then(|p| p.parse::<u32>().ok()) {
-            if !czekaj_na_koniec(pid, Duration::from_secs(15)) {
+        if let Some(pid) = argumenty.iter().skip_while(|a| *a != FLAGA).nth(1).and_then(|p| p.parse::<u32>().ok())
+            && !czekaj_na_koniec(pid, Duration::from_secs(15)) {
                 // Stara kopia jednak działa dalej — nie dublujemy programu
                 std::process::exit(0);
             }
-        }
         crate::dziennik::info("Clipeon uruchomiony ponownie po awarii");
     }
     // Windows uruchomi Clipeona ponownie po awarii lub zawieszeniu (nie po aktualizacji ani restarcie systemu —

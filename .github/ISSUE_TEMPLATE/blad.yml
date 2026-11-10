@@ -5,7 +5,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        Dzięki za zgłoszenie! Najbardziej pomaga **dziennik zdarzeń**: prawy klik na ikonie Clipeona przy zegarze →
+        Dzięki za zgłoszenie! Najszybciej pomaga **diagnostyka**: Ustawienia → „Zgłaszanie problemów” → „Kopiuj diagnostykę”
+        (albo ten sam przycisk na czerwonym pasku, gdy Clipeon nie nagrywa) i wklej ją poniżej.
+        Przyda się też **dziennik zdarzeń**: prawy klik na ikonie Clipeona przy zegarze →
         „Pokaż dziennik zdarzeń” → załącz plik `clipeon.log` (albo wklej jego koniec).
         Przed wysłaniem przejrzyj go — zawiera ścieżki do plików na Twoim komputerze.
   - type: textarea
@@ -26,7 +28,7 @@ body:
     id: wersja
     attributes:
       label: Wersja Clipeona
-      description: Na dole Ustawień, np. 1.0.0
+      description: Na dole Ustawień, np. 1.3.0
     validations:
       required: true
   - type: input
@@ -34,6 +36,12 @@ body:
     attributes:
       label: Windows i karta graficzna
       placeholder: np. Windows 11 24H2, AMD Radeon RX 7900 XTX
+  - type: textarea
+    id: diagnostyka
+    attributes:
+      label: Diagnostyka (przycisk „Kopiuj diagnostykę”)
+      description: Karta graficzna, monitory, ustawienia, wyniki prób enkoderów i ostatnie zdarzenia. Ścieżka do Twojego folderu użytkownika jest w niej zastąpiona przez %USERPROFILE%.
+      render: text
   - type: textarea
     id: dziennik
     attributes:

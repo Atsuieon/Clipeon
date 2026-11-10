@@ -1,5 +1,41 @@
 # Zmiany
 
+## 1.3.0
+
+**Tryb pulpitu**
+- Na pasku u góry jest przełącznik **Gra | Pulpit** i wybór ekranu (także w menu ikony przy zegarze).
+  Pulpit ma własny ekran i własne ustawienia (domyślnie 30 FPS i 12 Mb/s), więc przełączanie nie rusza ustawień gry.
+- Klipy z pulpitu mają nazwy `Clipeon_Pulpit_…` i znaczek „Pulpit” w bibliotece.
+- Dymki Clipeona nie trafiają do nagrania.
+
+**Mniej pracy dla procesora**
+- Obraz zostaje na karcie graficznej: przechwytuje go FFmpeg (Desktop Duplication albo Windows Graphics Capture)
+  i od razu koduje enkoder karty, bez kopiowania każdej klatki przez pamięć RAM. Stary sposób zostaje jako
+  „tryb zgodności”. Clipeon sam przechodzi na następny sposób, gdy któryś nie działa, i zapamiętuje ten, który działa.
+- Dźwięk czeka na dane od Windows zamiast sprawdzać je co 10 ms.
+- Gdy enkoder nie nadąża za grą, Clipeon przechodzi na lżejsze ustawienia kodowania i mówi o tym raz.
+- Co minutę dziennik zapisuje, ile procesora zużywa Clipeon z FFmpeg i ile klatek zakodował.
+
+**Więcej kart i komputerów**
+- Enkodery są sprawdzane w prawdziwej rozdzielczości ekranu, a wyniki zostają zapamiętane do zmiany sterownika
+  (szybszy start). Za duży ekran dla H.264 nagrywa się w HEVC albo w zmniejszonej rozdzielczości.
+- Nowe enkodery zapasowe: sprzętowy przez Windows (Media Foundation) i OpenH264.
+- Klipy mają poprawnie opisane kolory (BT.709), więc nie wyglądają na wyblakłe w odtwarzaczach.
+- Monitor z HDR: Ustawienia mówią, że klip będzie w zwykłych kolorach (SDR).
+- Wybrany monitor jest rozpoznawany po stałym identyfikatorze, a nie tylko po numerze, który Windows potrafi zmienić.
+  Gdy monitor jest odłączony, Clipeon nagrywa główny i wraca do wybranego, gdy ten znów się pojawi.
+- Okno UAC i ekran blokady nie wywołują już alarmu od razu: Clipeon czeka do minuty, aż ekran znów będzie dostępny.
+- Nowe ustawienie „Sposób przechwytywania obrazu” (Automatycznie / Desktop Duplication / Windows Graphics Capture /
+  tryb zgodności) na wypadek kłopotów.
+
+**Zgłaszanie błędów**
+- Przycisk **Kopiuj diagnostykę** (w Ustawieniach i na czerwonym pasku) kopiuje opis sprzętu, ustawień
+  i ostatnich zdarzeń do wklejenia w zgłoszeniu. Nic nie jest wysyłane automatycznie.
+
+**Poprawki**
+- Bufor można ustawić od 5 s do 10 min (suwak kończył się na 5 min).
+- Pliki tymczasowe i opisy w programie używają już nazwy Clipeon zamiast Clipper.
+
 ## 1.2.0
 
 **Aktualizacje**

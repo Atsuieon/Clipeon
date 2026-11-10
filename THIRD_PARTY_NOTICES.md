@@ -6,13 +6,13 @@ Clipeon (licencja MIT) korzysta z poniższych komponentów. Ten plik jest dołą
 
 Instalator Clipeona zawiera niezmieniony plik `ffmpeg.exe` z projektu **FFmpeg** (https://ffmpeg.org),
 zbudowany w wariancie **LGPL** (bez komponentów GPL, m.in. bez x264) przez projekt
-**FFmpeg-Builds** (https://github.com/FFmpeg-Builds/FFmpeg-Builds), wydanie `ffmpeg-n9.0-latest-win64-lgpl-9.0`.
+**FFmpeg-Builds** (https://github.com/FFmpeg-Builds/FFmpeg-Builds), wydanie `ffmpeg-n8.1-latest-win64-lgpl-8.1`.
 
 - Dokładna wersja i konfiguracja builda są zapisane w pliku `ffmpeg/WERSJA.txt` w folderze instalacji
   (to wynik `ffmpeg -version`) oraz w opisie każdego wydania Clipeona na GitHubie.
 - Pełna treść licencji FFmpeg: `ffmpeg/LICENSE.txt` w folderze instalacji
   oraz https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-- Kod źródłowy FFmpeg 9.0: https://github.com/FFmpeg/FFmpeg/tree/release/9.0
+- Kod źródłowy FFmpeg 8.1: https://github.com/FFmpeg/FFmpeg/tree/release/8.1
   (archiwa: https://ffmpeg.org/download.html#releases).
 - Skrypty budujące użyte do wykonania tego builda: https://github.com/FFmpeg-Builds/FFmpeg-Builds.
 
