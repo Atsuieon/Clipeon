@@ -14,6 +14,7 @@ mod enkodery;
 mod ffmpeg;
 mod ikona;
 mod klipy;
+mod odzyskiwanie;
 mod powiadomienie;
 mod rdzen;
 mod skrot;

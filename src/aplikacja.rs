@@ -153,7 +153,7 @@ fn obsluz_zdarzenie(app: &AppHandle, z: Zdarzenie) {
             }
             pokaz_dymek(app, &cfg.monitor, "Clipeon nie nagrywa", &opis, true, true);
         }
-        Zdarzenie::Uwaga(opis) => pokaz_dymek(app, &cfg.monitor, "Nagrywanie działa wolniej", &opis, true, false),
+        Zdarzenie::Uwaga { tytul, opis } => pokaz_dymek(app, &cfg.monitor, &tytul, &opis, true, false),
         Zdarzenie::Alarm(None) => {
             crate::powiadomienie::ukryj();
             pokaz_dymek(app, &cfg.monitor, "Nagrywanie znów działa", "Clipeon sam wznowił nagrywanie", false, false);
@@ -440,6 +440,7 @@ fn otworz_folder(rdzen: State<'_, Rdzen>) {
 
 pub fn uruchom() {
     crate::dziennik::przechwytuj_awarie();
+    let po_awarii = crate::odzyskiwanie::przy_starcie();
     crate::dziennik::info("Start Clipeona");
     tauri::Builder::default()
         // Druga kopia programu tylko pokazuje okno pierwszej (skrót i enkoder są jedne)
@@ -469,7 +470,7 @@ pub fn uruchom() {
             otworz_aktualizacje,
             otworz_repozytorium
         ])
-        .setup(|app| {
+        .setup(move |app| {
             let (cfg, blad_cfg) = match Config::wczytaj() {
                 Ok(c) => (c, None),
                 Err(e) => (Config::default(), Some(e)),
@@ -544,6 +545,9 @@ pub fn uruchom() {
             app.manage(rdzen.clone());
             rdzen.uruchom();
             rdzen.uruchom_straznika();
+            if po_awarii {
+                rdzen.uwaga("Clipeon wrócił po awarii", "Nagrywanie znów działa. Szczegóły są w dzienniku zdarzeń");
+            }
             std::thread::spawn(klipy::usun_stara_pamiec_podreczna);
             // Pełna lista enkoderów do ustawień — w tle, po starcie nagrywania
             std::thread::spawn(crate::enkodery::dostepne);
@@ -572,6 +576,7 @@ pub fn uruchom() {
             let r = rdzen.clone();
             std::thread::spawn(move || loop {
                 let c = r.config();
+                crate::sprzatanie::usun_resztki(&c.folder_klipow);
                 crate::sprzatanie::sprzataj(&c.folder_klipow, c.sprzatanie_dni, c.sprzatanie_gb);
                 std::thread::sleep(std::time::Duration::from_secs(3600));
             });
