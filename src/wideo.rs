@@ -503,7 +503,11 @@ pub fn uruchom(
     }
     cmd.args(enkodery::argumenty_nagrywania(enkoder, fps, lekki))
         .args(argumenty_strumienia(mbps, fps, w, h))
-        .args(znaczniki_koloru(enkoder))
+        .args(znaczniki_koloru(enkoder));
+    if droga != Droga::Potok {
+        cmd.args(enkodery::znaczniki_tekstur(enkoder));
+    }
+    cmd
         .args(["-f", format, "-"])
         .stdin(if droga == Droga::Potok { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())

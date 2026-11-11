@@ -122,7 +122,7 @@ fn dziala_przy(e: &'static Enkoder, p: Proba) -> bool {
         }
     if !w.contains_key(&klucz)
         && let Some(z) = crate::pamiec::pamiec().proby.get(&klucz).cloned()
-            && (z.ok || blad_sprzetu(&z.powod) || blad_tekstur(&z.powod)) {
+            && (z.ok || blad_sprzetu(&z.powod) || (p.tekstura.is_some() && blad_tekstur(&z.powod))) {
                 w.insert(klucz, (z.ok, z.powod, Instant::now()));
                 return z.ok;
             }
@@ -232,11 +232,26 @@ fn blad_sprzetu(powod: &str) -> bool {
     .any(|x| p.contains(x))
 }
 
-/// Enkoder odrzuca klatki prosto z karty (np. h264_amf: „SubmitInput() failed with error 18”).
-/// To cecha sterownika i ffmpeg, a nie chwilowy stan — pamiętamy ją do ich zmiany, więc kolejne
-/// starty od razu nagrywają drogą przez RAM zamiast tracić kilka sekund na próby.
+/// Enkoder odrzuca klatki prosto z karty (h264_amf: „SubmitInput() failed with error 18”, a w ostatnich
+/// liniach komunikatu „Error encoding a frame”). To cecha sterownika i ffmpeg, a nie chwilowy stan —
+/// pamiętamy ją do ich zmiany, więc kolejne starty od razu nagrywają drogą przez RAM bez próby.
+/// Chwilowe kłopoty przechwytywania (ekran UAC, gra na pełnym ekranie) mają inne komunikaty.
 fn blad_tekstur(powod: &str) -> bool {
-    powod.to_lowercase().contains("submitinput")
+    let p = powod.to_lowercase();
+    p.contains("submitinput") || p.contains("error encoding a frame")
+}
+
+/// Poprawione znaczniki kolorów, gdy enkoder AMD dostaje obraz BGRA prosto z karty (ddagrab, gfxcapture).
+/// Przelicza go na YUV BT.709 i dobrze zapisuje zakres, ale jako macierz wpisuje „RGB” (gbr) — odtwarzacz
+/// pokazałby wtedy złe kolory. Zakres zostaje taki, jaki wpisał enkoder (hevc: pełny, zgodnie z treścią).
+/// av1_amf znaczy kolory dobrze (TV, BT.709), a przepisanie nagłówka AV1 z „RGB” mogłoby zmienić podpróbkowanie.
+pub fn znaczniki_tekstur(nazwa: &str) -> Vec<String> {
+    let filtr = match nazwa {
+        "h264_amf" => "h264_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1",
+        "hevc_amf" => "hevc_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1",
+        _ => return Vec::new(),
+    };
+    s(&["-bsf:v", filtr])
 }
 
 /// „The minimum required Nvidia driver for nvenc is 570.0 or newer” -> Some("570.0").
@@ -576,7 +591,17 @@ mod testy {
     #[test]
     fn odrzucone_tekstury_to_trwaly_blad() {
         assert!(blad_tekstur("[h264_amf @ 0x1] SubmitInput() failed with error 18"));
+        // Prawdziwy powód z RX 7900 XTX (ostatnie linie komunikatu próby)
+        assert!(blad_tekstur(
+            "[vost#0:0/h264_amf @ 0x1] Error encoding a frame: Unknown error occurred | [vost#0:0/h264_amf @ 0x1] Task finished with error code: -1313558101"
+        ));
         assert!(!blad_tekstur("[Parsed_ddagrab_0 @ 0x1] AcquireNextFrame failed: 887a0026"));
+    }
+
+    #[test]
+    fn znaczniki_tekstur_tylko_dla_amf() {
+        assert_eq!(znaczniki_tekstur("hevc_amf")[1], "hevc_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1");
+        assert!(znaczniki_tekstur("h264_nvenc").is_empty());
     }
 
     #[test]
