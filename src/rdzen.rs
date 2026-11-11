@@ -49,6 +49,8 @@ pub struct Stan {
     pub film: Option<u64>,
     /// Zakończony film jest właśnie składany w plik
     pub film_zapis: bool,
+    /// Zapisany film jest właśnie zmniejszany do formatu z ustawień (procent postępu)
+    pub film_zmniejszanie: Option<u8>,
     /// Skrót filmu jest zajęty przez inny program (opis) — film da się wtedy włączyć tylko z okna
     pub skrot_filmu_blad: Option<String>,
 }
@@ -67,6 +69,10 @@ pub enum Zdarzenie {
     /// Długie nagrywanie się skończyło i plik jest składany; Some = skończyło się samo (powód)
     FilmKoniec(Option<String>),
     FilmZapisany { plik: PathBuf, sekundy: f64, czesci: usize },
+    /// Film został zmniejszony do formatu z ustawień (rozmiary w bajtach)
+    FilmZmniejszony { plik: PathBuf, przed: u64, po: u64 },
+    /// Zmniejszanie się nie udało — film został w pełnej jakości
+    FilmNiezmniejszony(String),
     BladFilmu(String),
 }
 
@@ -130,6 +136,8 @@ struct Wnetrze {
     film: Option<Film>,
     /// Zakończony film jest składany w plik (w tle)
     zapis_filmu: bool,
+    /// Zapisany film jest zmniejszany (procent postępu)
+    zmniejszanie_filmu: Option<u8>,
     /// Numer kolejnej sesji/skrótu; zgłoszenia ze starych wątków są ignorowane
     pokolenie: u64,
     /// Kiedy wystartowała bieżąca sesja (strażnik daje jej chwilę na rozruch)
@@ -174,6 +182,7 @@ impl Rdzen {
             skrot_filmu_blad: None,
             film: None,
             zapis_filmu: false,
+            zmniejszanie_filmu: None,
             pokolenie: 0,
             start_sesji: None,
             wznawianie: None,
@@ -218,6 +227,7 @@ impl Rdzen {
             ramka: w.sesja.as_ref().is_some_and(|s| s._wideo.droga.z_ramka()),
             film: w.film.as_ref().map(Film::sekundy),
             film_zapis: w.zapis_filmu,
+            film_zmniejszanie: w.zmniejszanie_filmu,
             skrot_filmu_blad: w.skrot_filmu_blad.clone(),
         }
     }
@@ -385,6 +395,8 @@ impl Rdzen {
     /// musi się zamknąć, żeby instalator mógł podmienić pliki, a strażnik nie może go wznowić.
     /// Trwający film jest najpierw zapisywany do końca.
     pub fn zakoncz(&self) {
+        // Zmniejszanie filmu w tle przerywamy (film zostaje w pełnej jakości): ffmpeg musi się zamknąć
+        crate::film::przerwij_zmniejszanie();
         let film = {
             let mut w = self.zamek();
             w.pauza = true;
@@ -399,6 +411,11 @@ impl Rdzen {
         // Film, który właśnie składa się w tle, też musi zdążyć (najwyżej 10 minut)
         let od = Instant::now();
         while self.zamek().zapis_filmu && od.elapsed() < Duration::from_secs(600) {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        // Przerwane zmniejszanie kończy się w ułamku sekundy (ffmpeg dostaje sygnał przy najbliższym postępie)
+        let od = Instant::now();
+        while self.zamek().zmniejszanie_filmu.is_some() && od.elapsed() < Duration::from_secs(5) {
             std::thread::sleep(Duration::from_millis(100));
         }
         self.zatrzymaj(&[]);
@@ -677,15 +694,56 @@ impl Rdzen {
         self.zamek().zapis_filmu = false;
         self.wyslij_stan();
         match wynik {
-            Ok(mut w) => {
+            Ok(w) => {
                 let czesci = w.pliki.len();
-                (self.powiadom)(Zdarzenie::FilmZapisany { plik: w.pliki.swap_remove(0), sekundy: w.sekundy, czesci });
+                (self.powiadom)(Zdarzenie::FilmZapisany { plik: w.pliki[0].clone(), sekundy: w.sekundy, czesci });
+                self.zmniejsz_filmy(w.pliki);
             }
             Err(e) => {
                 crate::dziennik::blad(&format!("Nie udało się zapisać filmu: {e}"));
                 (self.powiadom)(Zdarzenie::BladFilmu(e));
             }
         }
+    }
+
+    /// Zmniejsza zapisane filmy do formatu z ustawień (kartą graficzną, z niskim priorytetem). Film jest
+    /// już w bibliotece w pełnej jakości i tak zostaje, jeśli coś pójdzie nie tak.
+    fn zmniejsz_filmy(&self, pliki: Vec<PathBuf>) {
+        let format = self.config().format_filmu;
+        if format == crate::film::BEZ_ZMIAN || crate::film::zmniejszanie_przerwane() {
+            return;
+        }
+        for plik in pliki {
+            crate::dziennik::info(&format!("Film: zmniejszam {} do formatu {format}", plik.display()));
+            self.ustaw_zmniejszanie(Some(0));
+            let r = self.clone();
+            let wynik = crate::film::zmniejsz(&plik, &format, &move |p| r.ustaw_zmniejszanie(Some((p * 100.0) as u8)));
+            self.ustaw_zmniejszanie(None);
+            match wynik {
+                Ok(Some(z)) => {
+                    crate::dziennik::info(&format!("Film: zmniejszony z {:.2} GB do {:.2} GB", z.przed as f64 / 1e9, z.po as f64 / 1e9));
+                    (self.powiadom)(Zdarzenie::FilmZmniejszony { plik, przed: z.przed, po: z.po });
+                }
+                Ok(None) => crate::dziennik::info("Film: zostaje bez zmian (i tak jest mały)"),
+                // Zamykanie programu: bez dymka, film po prostu zostaje w pełnej jakości
+                Err(_) if crate::film::zmniejszanie_przerwane() => crate::dziennik::info("Film: zmniejszanie przerwane, zostaje pełna jakość"),
+                Err(e) => {
+                    crate::dziennik::blad(&format!("Nie udało się zmniejszyć filmu: {e}"));
+                    (self.powiadom)(Zdarzenie::FilmNiezmniejszony(e));
+                }
+            }
+        }
+    }
+
+    fn ustaw_zmniejszanie(&self, procent: Option<u8>) {
+        {
+            let mut w = self.zamek();
+            if w.zmniejszanie_filmu == procent {
+                return;
+            }
+            w.zmniejszanie_filmu = procent;
+        }
+        self.wyslij_stan();
     }
 
     /// Co kilka sekund ze strażnika: film kończy się sam, gdy nie da się go dalej zapisywać.

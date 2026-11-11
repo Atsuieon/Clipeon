@@ -35,15 +35,16 @@ function udawanyTauri() {
     sprawdzaj_aktualizacje: true, monitor: "", monitor_id: "", tryb: "gra", monitor_pulpitu: "",
     monitor_pulpitu_id: "", fps_pulpitu: 30, bitrate_pulpitu_mbps: 12, metoda_przechwytywania: "auto",
     mikrofon_urzadzenie: "", gra: "", gra_nazwa: "", skrot_filmu: "Alt+F9", animowane_tlo: true,
+    format_filmu: "bez_zmian",
   };
   const stan = {
     nagrywa: true, pauza: false, bledy: [], wznawianie: null, tryb: "gra", ekran: "Ekran 1", monitor: "",
     droga: "dda", gra: "Gra testowa", wybrana_gra: "", gra_proces: "", czeka_na_gre: false, mikrofon: true,
-    ramka: false, film: null, film_zapis: false, skrot_filmu_blad: null,
+    ramka: false, film: null, film_zapis: false, skrot_filmu_blad: null, film_zmniejszanie: null,
   };
   const odpowiedzi = {
     stan: () => stan,
-    ustawienia: () => ({ cfg: structuredClone(cfg), autostart: false, enkodery: [["auto", "Automatycznie"]], wersja: "test", repozytorium: "" }),
+    ustawienia: () => ({ cfg: structuredClone(cfg), autostart: false, enkodery: [["auto", "Automatycznie"]], formaty_filmu: [["bez_zmian", "Pełna jakość — bez zmian (największy plik)"], ["hevc", "Mniejszy plik — HEVC, ok. połowa rozmiaru"], ["av1", "Najmniejszy plik — AV1, ok. 1/3 rozmiaru"]], wersja: "test", repozytorium: "" }),
     mikrofony: () => [
       { id: "m1", nazwa: "Mikrofon (USB)", domyslny: true },
       { id: "m2", nazwa: "Mikrofon (Zestaw)", domyslny: false },
@@ -124,8 +125,8 @@ await zrzut("0-mikrofon-wylaczony");
 await strona.evaluate(() => pokazStan({ ...stan, mikrofon: true }));
 await strona.evaluate(() => pokazStan({ ...stan, tryb: "gra", pauza: false, czeka_na_gre: false, bledy: [], wznawianie: null, nagrywa: true, film: null, film_zapis: false, droga: "dda", ramka: false, skrot_filmu_blad: null }));
 
-// ---------- Tło ze znaków i płomyk za myszką ----------
-// Jasne znaki (przezroczystość ≥ 0,4) rysuje tylko płomyk — liczymy je wokół podanego punktu
+// ---------- Tło ze znaków i poświata wokół myszki ----------
+// Jasne znaki (przezroczystość ≥ 0,4) rysuje tylko poświata — liczymy je wokół podanego punktu
 const jasneZnaki = (x, y) =>
   strona.evaluate(([x, y]) => {
     const c = document.getElementById("tlo");
@@ -141,18 +142,18 @@ sprawdz(await strona.evaluate(() => {
   for (let i = 3; i < d.length; i += 4) if (d[i]) return true;
   return false;
 }), "tło ze znaków jest puste");
-// Nad pustym miejscem płomyk idzie za myszką…
+// Nad pustym miejscem poświata idzie za myszką…
 for (let i = 0; i < 12; i++) {
   await strona.mouse.move(500 + i * 6, 640 + (i % 3) * 4);
   await strona.waitForTimeout(40);
 }
-sprawdz((await jasneZnaki(560, 640)) > 20, "płomyk nie idzie za myszką nad pustym tłem");
-await zrzut("0a-tlo-plomyk");
+sprawdz((await jasneZnaki(560, 640)) > 20, "poświata nie idzie za myszką nad pustym tłem");
+await zrzut("0a-tlo-poswiata");
 // …a nad przyciskiem gaśnie
 const przyciskFolder = await strona.locator("#otworz-folder").boundingBox();
 await strona.mouse.move(przyciskFolder.x + 10, przyciskFolder.y + 10);
 await strona.waitForTimeout(2500);
-sprawdz((await jasneZnaki(560, 640)) === 0 && (await jasneZnaki(przyciskFolder.x + 10, przyciskFolder.y + 10)) === 0, "płomyk nie gaśnie, gdy mysz jest nad przyciskiem");
+sprawdz((await jasneZnaki(560, 640)) === 0 && (await jasneZnaki(przyciskFolder.x + 10, przyciskFolder.y + 10)) === 0, "poświata nie gaśnie, gdy mysz jest nad przyciskiem");
 // Napis „Clipeon” ma zorzę (kolorowe tło przycięte do liter)
 const marka = await strona.evaluate(() => {
   const s = getComputedStyle(document.querySelector(".marka"));
@@ -304,6 +305,20 @@ await strona.click("#zapisz-ustawienia");
 await strona.waitForTimeout(100);
 const zeSkrotami = await strona.evaluate(() => window.__zapisane.cfg);
 sprawdz(zeSkrotami.skrot === "Ctrl+F8" && zeSkrotami.skrot_filmu === "", `zapis skrótów: ${JSON.stringify([zeSkrotami.skrot, zeSkrotami.skrot_filmu])}`);
+// Rozmiar filmów: wybór trafia do ustawień, a podpowiedź mówi, ile zajmie godzina nagrania
+sprawdz((await strona.locator("#format-filmu option").count()) === 3, "lista „Rozmiar filmów” nie ma formatów z rdzenia");
+sprawdz((await strona.textContent("#format-filmu-uwaga")).includes("9.2 GB"), `podpowiedź rozmiaru filmu: „${await strona.textContent("#format-filmu-uwaga")}”`);
+await strona.selectOption("#format-filmu", "hevc");
+sprawdz((await strona.textContent("#format-filmu-uwaga")).includes("4.3 GB"), `podpowiedź rozmiaru filmu HEVC: „${await strona.textContent("#format-filmu-uwaga")}”`);
+await strona.click("#zapisz-ustawienia");
+await strona.waitForTimeout(100);
+sprawdz((await strona.evaluate(() => window.__zapisane.cfg.format_filmu)) === "hevc", "wybrany rozmiar filmów nie trafia do ustawień");
+// Zmniejszanie filmu w tle widać w bibliotece
+await strona.evaluate(() => pokazStan({ ...stan, film_zmniejszanie: 42 }));
+sprawdz((await strona.evaluate(() => !$("film-zmniejszanie").hidden && $("film-zmniejszanie").textContent.includes("42%"))), "postęp zmniejszania filmu nie jest pokazany");
+await strona.evaluate(() => pokazStan({ ...stan, film_zmniejszanie: null }));
+sprawdz(await strona.evaluate(() => $("film-zmniejszanie").hidden), "napis o zmniejszaniu filmu nie znika");
+
 // Wyłączone „Animowane tło” chowa tło od razu po zapisie
 await strona.click('label:has(#animowane-tlo)');
 await strona.click("#zapisz-ustawienia");

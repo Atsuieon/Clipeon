@@ -8,7 +8,8 @@ use crate::bufor::{Bufor, Pakiet, WspolnyBufor, teraz_100ns};
 use std::collections::VecDeque;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use crate::enkodery::Kodek;
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex, Weak};
 use std::thread::JoinHandle;
@@ -25,6 +26,21 @@ const MIEJSCE_NA_KONIEC: u64 = 500_000_000;
 /// Do tego rozmiaru film dostaje „szybki start” (nagłówek na początku pliku — wygodne do wysyłania);
 /// większe pliki musiałyby być przepisywane drugi raz
 const SZYBKI_START_DO: u64 = 2_000_000_000;
+
+/// Ustawienie `format_filmu`: film zostaje taki, jak się nagrał
+pub const BEZ_ZMIAN: &str = "bez_zmian";
+/// Mniejsze formaty: (wartość ustawienia, rodzina enkodera, opis, jaka część bitrate obrazu zostaje).
+/// HEVC przy mniej więcej połowie bitrate wygląda jak H.264, AV1 już przy jednej trzeciej.
+const MNIEJSZE: &[(&str, Kodek, &str, f64)] = &[
+    ("hevc", Kodek::Hevc, "Mniejszy plik — HEVC, ok. połowa rozmiaru", 0.45),
+    ("av1", Kodek::Av1, "Najmniejszy plik — AV1, ok. 1/3 rozmiaru", 0.33),
+];
+/// Zmniejszony film nie schodzi poniżej tylu bitów obrazu na sekundę (niżej widać już kwadraty)
+const NAJMNIEJSZY_BITRATE: u64 = 1_500_000;
+/// Zamykanie programu albo instalacja aktualizacji: trwające zmniejszanie ma się przerwać
+static PRZERWIJ_ZMNIEJSZANIE: AtomicBool = AtomicBool::new(false);
+/// Naraz zmniejsza się jeden film (kolejny czeka)
+static ZMNIEJSZANIE: Mutex<()> = Mutex::new(());
 
 /// Parametry obrazu jednej sesji nagrywania (segmenty o tych samych da się skleić bez kodowania).
 #[derive(Clone, PartialEq, Debug)]
@@ -455,6 +471,112 @@ pub fn usun_resztki(folder_klipow: &Path) {
     let _ = std::fs::remove_dir(tmp);
 }
 
+// ---------- Zmniejszanie gotowego filmu ----------
+
+pub fn poprawny_format(format: &str) -> bool {
+    format == BEZ_ZMIAN || MNIEJSZE.iter().any(|m| m.0 == format)
+}
+
+/// Formaty filmu do wyboru w ustawieniach: (wartość, opis). Mniejsze tylko wtedy, gdy karta graficzna
+/// umie je zapisać — kodowanie godzin obrazu procesorem trwałoby za długo i przeszkadzało w grze.
+pub fn formaty() -> Vec<(String, String)> {
+    let mut l = vec![(BEZ_ZMIAN.to_string(), "Pełna jakość — bez zmian (największy plik)".to_string())];
+    for (wartosc, kodek, opis, _) in MNIEJSZE {
+        if crate::enkodery::sprzetowy_dla(*kodek).is_some() {
+            l.push((wartosc.to_string(), opis.to_string()));
+        }
+    }
+    l
+}
+
+/// Przerywa trwające zmniejszanie filmu (zamknięcie programu, instalacja aktualizacji).
+/// Film zostaje wtedy w pełnej jakości.
+pub fn przerwij_zmniejszanie() {
+    PRZERWIJ_ZMNIEJSZANIE.store(true, Ordering::SeqCst);
+}
+
+pub fn zmniejszanie_przerwane() -> bool {
+    PRZERWIJ_ZMNIEJSZANIE.load(Ordering::SeqCst)
+}
+
+/// Bitrate obrazu zmniejszonego filmu: część tego, co ma teraz (rozmiar pliku minus dźwięk).
+fn bitrate_zmniejszonego(rozmiar: u64, sekundy: f64, sciezki_audio: u32, udzial: f64) -> u64 {
+    let caly = rozmiar as f64 * 8.0 / sekundy.max(1.0);
+    let obraz = (caly - sciezki_audio as f64 * 160_000.0).max(0.0);
+    ((obraz * udzial) as u64).max(NAJMNIEJSZY_BITRATE)
+}
+
+/// Rozmiar filmu przed zmniejszeniem i po nim (bajty).
+pub struct Zmniejszony {
+    pub przed: u64,
+    pub po: u64,
+}
+
+/// Zapisuje film od nowa w mniejszym formacie (kartą graficzną, w tle) i zastępuje nim oryginał.
+/// Dźwięk i nazwy ścieżek zostają bez zmian. `postep` dostaje 0..1; gdy cokolwiek się nie uda,
+/// film zostaje w pełnej jakości. Ok(None) = nie było czego zmniejszać.
+pub fn zmniejsz(plik: &Path, format: &str, postep: &dyn Fn(f64)) -> Result<Option<Zmniejszony>, String> {
+    let Some((_, kodek, _, udzial)) = MNIEJSZE.iter().find(|m| m.0 == format) else { return Ok(None) };
+    let enkoder = crate::enkodery::sprzetowy_dla(*kodek)
+        .ok_or("Karta graficzna nie umie zapisać tego formatu — film został w pełnej jakości")?;
+    let _kolejka = ZMNIEJSZANIE.zablokuj();
+    let info = crate::klipy::info(plik)?;
+    let przed = std::fs::metadata(plik).map_err(|e| e.to_string())?.len();
+    let bps = bitrate_zmniejszonego(przed, info.dlugosc, info.sciezki_audio, *udzial);
+    let spodziewany = (bps + info.sciezki_audio as u64 * 160_000) as f64 / 8.0 * info.dlugosc;
+    // Nie ma sensu, gdy film już jest tak mały (bardzo niski bitrate w ustawieniach)
+    if spodziewany > przed as f64 * 0.85 {
+        return Ok(None);
+    }
+    if let Some(folder) = plik.parent() {
+        crate::zapis::sprawdz_miejsce(folder, spodziewany as u64 * 5 / 4 + 64 * 1024 * 1024)?;
+    }
+    // Do końca pracy porządki i usuwanie nie ruszą filmu
+    let _uzywany = crate::klipy::uzywaj(plik);
+    let tymczasowy = plik.with_extension("mp4.tmp");
+    let tekst = |p: &Path| p.to_string_lossy().into_owned();
+    // Dekodowanie też kartą (gdy się nie da, ffmpeg sam przechodzi na procesor)
+    let mut a: Vec<String> = ["-hwaccel", "d3d11va", "-i"].map(String::from).to_vec();
+    a.push(tekst(plik));
+    a.extend(["-map", "0", "-c:a", "copy"].map(String::from));
+    a.extend(crate::enkodery::argumenty_eksportu(enkoder, bps, false));
+    if *kodek == Kodek::Hevc {
+        // Z tym znacznikiem HEVC w MP4 odtwarzają też programy Apple
+        a.extend(["-tag:v", "hvc1"].map(String::from));
+    }
+    if (spodziewany as u64) < SZYBKI_START_DO {
+        a.extend(["-movflags", "+faststart"].map(String::from));
+    }
+    a.extend(["-f".to_string(), "mp4".to_string(), tekst(&tymczasowy)]);
+    let wynik = crate::edycja::uruchom_z_postepem(crate::ffmpeg::komenda_w_tle(), &a, info.dlugosc, &|p| {
+        postep(p);
+        !PRZERWIJ_ZMNIEJSZANIE.load(Ordering::SeqCst)
+    });
+    let po = std::fs::metadata(&tymczasowy).map(|m| m.len()).unwrap_or(0);
+    let wynik = wynik.and_then(|()| match po {
+        0 => Err("ffmpeg nie zapisał zmniejszonego filmu".to_string()),
+        po if po >= przed => Err("zmniejszony film nie wyszedł mniejszy".to_string()),
+        _ => Ok(()),
+    });
+    if let Err(e) = wynik {
+        let _ = std::fs::remove_file(&tymczasowy);
+        return Err(e);
+    }
+    // Jak przy „Zastąp oryginał”: oryginał znika dopiero, gdy nowy plik ma już jego nazwę
+    let odsuniety = plik.with_extension("mp4.oryginal");
+    if let Err(e) = std::fs::rename(plik, &odsuniety) {
+        let _ = std::fs::remove_file(&tymczasowy);
+        return Err(format!("film jest otwarty w innym programie ({e})"));
+    }
+    if let Err(e) = std::fs::rename(&tymczasowy, plik) {
+        let _ = std::fs::rename(&odsuniety, plik);
+        let _ = std::fs::remove_file(&tymczasowy);
+        return Err(e.to_string());
+    }
+    let _ = std::fs::remove_file(&odsuniety);
+    Ok(Some(Zmniejszony { przed, po }))
+}
+
 #[cfg(test)]
 mod testy {
     use super::*;
@@ -504,6 +626,19 @@ mod testy {
         assert!((tempo(&segment(600.0, 36_001)) - 60.0).abs() < 1e-9);
         // Pomiar bez sensu (prawie brak klatek): ustawione FPS
         assert_eq!(tempo(&segment(600.0, 100)), 60.0);
+    }
+
+    #[test]
+    fn zmniejszony_film_dostaje_czesc_bitrate_obrazu() {
+        // Godzina przy 20 Mb/s obrazu i trzech ścieżkach dźwięku
+        let sekundy = 3600.0;
+        let rozmiar = ((20_000_000.0 + 3.0 * 160_000.0) / 8.0 * sekundy) as u64;
+        let hevc = bitrate_zmniejszonego(rozmiar, sekundy, 3, 0.45);
+        assert!((hevc as i64 - 9_000_000).abs() < 10_000, "{hevc}");
+        // Bardzo mały film nie schodzi poniżej dolnej granicy
+        assert_eq!(bitrate_zmniejszonego(1_000_000, sekundy, 3, 0.33), NAJMNIEJSZY_BITRATE);
+        assert!(poprawny_format(BEZ_ZMIAN) && poprawny_format("hevc") && poprawny_format("av1"));
+        assert!(!poprawny_format("mkv"));
     }
 
     #[test]

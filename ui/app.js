@@ -254,6 +254,9 @@ function pokazFilm(s) {
   // Zajęty skrót filmu: uwaga w ustawieniach (film da się wtedy włączyć przyciskiem)
   $("skrot-filmu-uwaga").hidden = !s.skrot_filmu_blad;
   $("skrot-filmu-uwaga").textContent = s.skrot_filmu_blad || "";
+  // Zapisany film jest zmniejszany w tle do formatu z ustawień
+  $("film-zmniejszanie").hidden = s.film_zmniejszanie == null;
+  $("film-zmniejszanie").textContent = `Zmniejszam ostatni film: ${s.film_zmniejszanie ?? 0}%. Do końca jest w bibliotece w pełnej jakości.`;
 }
 
 const formatDlugi = (s) => {
@@ -274,6 +277,10 @@ function odswiezPrzyciskFilmu() {
 $("film").addEventListener("click", () => invoke("przelacz_film"));
 listen("film-zapisany", () => {
   dymek("Film zapisany");
+  if (!$("widok-klipy").hidden) wczytajKlipy();
+});
+listen("film-zmniejszony", () => {
+  dymek("Film zmniejszony");
   if (!$("widok-klipy").hidden) wczytajKlipy();
 });
 listen("film-blad", (e) => dymek(String(e.payload)));
@@ -1750,6 +1757,7 @@ const POLA = [
   ["ikona-zegar", "ikona_przy_zegarze", "tak"],
   ["aktualizacje", "sprawdzaj_aktualizacje", "tak"],
   ["animowane-tlo", "animowane_tlo", "tak"],
+  ["format-filmu", "format_filmu", "tekst"],
   ["enkoder", "enkoder", "tekst"],
   ["metoda", "metoda_przechwytywania", "tekst"],
   ["monitor", "monitor", "tekst"],
@@ -1802,6 +1810,7 @@ async function wczytajUstawienia() {
   wypelnijListe($("monitor-pulpitu"), ekrany, cfg.monitor_pulpitu, `${cfg.monitor_pulpitu} (niepodłączony)`);
   $("monitor").dataset.hdr = JSON.stringify(monitory.filter((m) => m.hdr).map((m) => m.id));
   wypelnijListe($("enkoder"), u.enkodery, cfg.enkoder);
+  wypelnijListe($("format-filmu"), u.formaty_filmu, cfg.format_filmu, "Wybrany format (ta karta go nie zapisuje)");
   wpiszPola(cfg);
 
   $("sprz-dni-wl").checked = cfg.sprzatanie_dni > 0;
@@ -1832,6 +1841,14 @@ function odswiezFormularz() {
   $("monitor-uwaga").textContent = zHdr
     ? "Ten monitor ma włączony HDR. Klipy zapisują się w zwykłych kolorach (SDR), więc mogą wyglądać na bledsze niż w grze."
     : "";
+  // Ile mniej więcej zajmie godzina filmu w wybranym formacie (bitrate trybu gry + dźwięk)
+  const naGodzine = (udzial) => formatMB(((Number($("bitrate").value) || 0) * 1e6 * udzial + 480e3) / 8 * 3600);
+  const film = {
+    bez_zmian: `Godzina filmu zajmie ok. ${naGodzine(1)}.`,
+    hevc: `Godzina filmu zajmie ok. ${naGodzine(0.45)} zamiast ${naGodzine(1)}. Podgląd HEVC w Clipeonie wymaga rozszerzenia HEVC z Microsoft Store.`,
+    av1: `Godzina filmu zajmie ok. ${naGodzine(0.33)} zamiast ${naGodzine(1)}. AV1 odtwarza Clipeon, przeglądarki i Discord; starsze programy mogą go nie otworzyć.`,
+  };
+  $("format-filmu-uwaga").textContent = film[$("format-filmu").value] || "";
   // Szacunek RAM bufora: obraz (bitrate) + dźwięk (160 kb/s na ścieżkę)
   const s = Number($("bufor").value);
   const sciezki = Number($("dzwiek").checked) + Number($("mikrofon").checked);

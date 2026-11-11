@@ -13,6 +13,11 @@
   - Film kończy się sam, gdy na dysku zostaje mniej niż 500 MB, gdy zmienisz ustawienia nagrywania albo
     zamkniesz Clipeona — i zawsze zapisuje to, co zdążył nagrać. Skrót filmu zmienisz (albo usuniesz)
     w Ustawieniach → Zapisywanie klipów.
+- **Mniejsze filmy.** Ustawienia → Zapisywanie klipów → „Rozmiar filmów”: po zakończeniu nagrania Clipeon
+  może zapisać film od nowa jako HEVC (ok. połowa rozmiaru) albo AV1 (ok. jedna trzecia). Robi to karta
+  graficzna, w tle i z niskim priorytetem, więc nagrywanie nie jest przez to cięższe; godzina filmu to
+  zwykle kilka–kilkanaście minut. Postęp widać w bibliotece, a do końca film leży tam w pełnej jakości.
+  Opcje pojawiają się tylko wtedy, gdy karta umie dany format. Domyślnie film zostaje bez zmian.
 - **Żółta ramka przy zmianie pełny ekran ↔ okno.** Gdy gra przełączała tryb ekranu, Desktop Duplication
   na chwilę gubiło obraz, a Clipeon po trzech takich potknięciach przechodził na stałe na tryb zgodności,
   który na Windows 10 rysuje żółtą ramkę. Teraz Clipeon po prostu ponawia Desktop Duplication, aż ekran się
@@ -25,10 +30,11 @@
   dopóki nie wciśniesz nowej kombinacji, nie anulujesz (Esc) albo nie przejdziesz do innego okna.
 - **Podgląd wciskanych klawiszy.** Przy ustawianiu skrótu pole pokazuje na szaro to, co już trzymasz
   („Ctrl + Shift + …”), a gotowy skrót robi się biały.
-- **Animowane tło.** W tle okna płyną fale znaków z napisem CLIPEON, a za myszką idzie płomyk symboli.
-  Płomyk gaśnie nad przyciskami, ustawieniami i klipami. Tło działa tylko wtedy, gdy okno Clipeona jest
-  otwarte i aktywne (w grze nie kosztuje nic), a wyłączysz je w Ustawieniach → System → „Animowane tło”.
-- **Napis „Clipeon” z zorzą** — po białych literach wędrują kolorowe plamy.
+- **Animowane tło.** W tle okna płyną fale znaków z napisem CLIPEON, a wokół myszki znaki gęstnieją
+  w miękką poświatę, która zostawia za kursorem gasnący ślad. Nad przyciskami, ustawieniami i klipami
+  poświata nie idzie za myszką. Tło działa tylko wtedy, gdy okno Clipeona jest otwarte i aktywne
+  (w grze nie kosztuje nic), a wyłączysz je w Ustawieniach → System → „Animowane tło”.
+- **Napis „Clipeon” z zorzą** — po białych literach wędrują kolorowe plamy (napis nie jest już pogrubiony).
 - Okno otwiera się trochę szersze (1200 px), żeby pasek z nową zakładką i przyciskiem filmu się mieścił.
 - **Poprawka:** ponowne uruchomienie po instalacji aktualizacji nie jest już zapisywane w dzienniku jako
   „uruchomiony ponownie po awarii”.

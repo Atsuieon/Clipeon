@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <!-- Tło: znaki ASCII i płomyk za myszką (rysuje tlo.js; wyłączane w Ustawieniach → System) -->
+  <!-- Tło: znaki ASCII i poświata wokół myszki (rysuje tlo.js; wyłączane w Ustawieniach → System) -->
   <canvas id="tlo" aria-hidden="true"></canvas>
   <!-- Własny pasek tytułu (okno nie ma systemowej ramki) -->
   <div class="belka" data-tauri-drag-region>
@@ -69,6 +69,7 @@
           <div>
             <h1 id="biblioteka-tytul">Klipy</h1>
             <p class="pomoc" id="podsumowanie"></p>
+            <p class="pomoc" id="film-zmniejszanie" role="status" hidden></p>
           </div>
           <div class="naglowek-akcje">
             <button class="przycisk ikonowy" id="odswiez" title="Odśwież"></button>
@@ -217,6 +218,14 @@
                 </div>
                 <div class="ust">
                   <div class="opis">
+                    <label for="format-filmu">Rozmiar filmów</label>
+                    <p class="pomoc">Mniejszy plik powstaje po zakończeniu filmu: Clipeon zapisuje go od nowa kartą graficzną, w tle (godzina filmu to zwykle kilka–kilkanaście minut). Do tego czasu film jest w bibliotece w pełnej jakości.</p>
+                    <p class="pomoc" id="format-filmu-uwaga"></p>
+                  </div>
+                  <div class="pole"><select id="format-filmu" aria-label="Rozmiar filmów"></select></div>
+                </div>
+                <div class="ust">
+                  <div class="opis">
                     <span>Gdzie zapisywać klipy</span>
                     <p class="pomoc sciezka" id="folder"></p>
                     <p class="pomoc">Nowe klipy trafiają do podfolderów z miesiącem, np. 2026-11.</p>
@@ -281,7 +290,7 @@
                 <div class="ust">
                   <div class="opis">
                     <label for="animowane-tlo">Animowane tło</label>
-                    <p class="pomoc">Znaki w tle okna i płomyk za myszką. Działa tylko, gdy okno Clipeona jest otwarte i aktywne.</p>
+                    <p class="pomoc">Znaki w tle okna, które gęstnieją wokół myszki. Działa tylko, gdy okno Clipeona jest otwarte i aktywne.</p>
                   </div>
                   <div class="pole"><label class="przelacznik"><input type="checkbox" id="animowane-tlo"><span class="suwak"></span></label></div>
                 </div>

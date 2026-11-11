@@ -759,7 +759,7 @@ input[type="number"]:focus-visible, select:focus-visible { outline: none; border
 .marka {
   --zorza: 62%;
   font-size: 26px;
-  font-weight: 700;
+  font-weight: 400;
   color: transparent;
   background:
     radial-gradient(closest-side, #00c2ff, transparent) 0% 0% / var(--zorza) 190% no-repeat,

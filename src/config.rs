@@ -24,7 +24,9 @@ pub struct Config {
     pub skrot: String,
     /// Skrót, który zaczyna i kończy długie nagrywanie (film); pusty = bez skrótu
     pub skrot_filmu: String,
-    /// Animowane tło okna (znaki ASCII i płomyk za myszką)
+    /// W jakim formacie film zostaje na dysku: "bez_zmian" albo mniejszy plik ("hevc", "av1")
+    pub format_filmu: String,
+    /// Animowane tło okna (znaki ASCII i poświata wokół myszki)
     pub animowane_tlo: bool,
     /// Ikona w zasobniku zawsze widoczna przy zegarze (a nie w ukrytych ikonach pod ^)
     pub ikona_przy_zegarze: bool,
@@ -85,6 +87,7 @@ impl Default for Config {
             folder_klipow: profil.join("Videos").join("Clipeon"),
             skrot: "Alt+F10".into(),
             skrot_filmu: "Alt+F9".into(),
+            format_filmu: crate::film::BEZ_ZMIAN.into(),
             animowane_tlo: true,
             ikona_przy_zegarze: true,
             ikona_ustawiona: false,
@@ -215,6 +218,9 @@ impl Config {
         }
         if self.sprzatanie_dni > 3650 || self.sprzatanie_gb > 100_000 {
             return Err("Nieprawidłowe ustawienia sprzątania".into());
+        }
+        if !crate::film::poprawny_format(&self.format_filmu) {
+            return Err(format!("Nieznany format filmu \"{}\"", self.format_filmu));
         }
         let klip = crate::skrot::parsuj(&self.skrot)?;
         if !self.skrot_filmu.is_empty() {

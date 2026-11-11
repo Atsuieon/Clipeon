@@ -16,7 +16,7 @@
 ## Funkcje
 
 - **Ostatnie sekundy gry jednym skrótem** — wciśnij **Alt+F10**, a ostatnie 30 s (do ustawienia od 5 s do 10 min) zapisze się jako MP4.
-- **Filmy** — „Nagraj film” albo **Alt+F9** nagrywa bez limitu czasu, aż wciśniesz jeszcze raz. Film nie obciąża gry dodatkowo, a klipy działają w jego trakcie jak zwykle.
+- **Filmy** — „Nagraj film” albo **Alt+F9** nagrywa bez limitu czasu, aż wciśniesz jeszcze raz. Film nie obciąża gry dodatkowo, a klipy działają w jego trakcie jak zwykle. Po nagraniu Clipeon może go sam zmniejszyć (HEVC albo AV1).
 - **Lekki** — obraz przechwytuje i koduje karta graficzna (AMD, NVIDIA, Intel), bez kopiowania klatek przez procesor; nic nie trafia na dysk, dopóki nie zapiszesz.
 - **Tryb pulpitu** — przełącznik „Gra | Pulpit” na pasku: pulpit ma własny ekran i lżejsze ustawienia (domyślnie 30 FPS, 12 Mb/s), a ekran wybierzesz jednym kliknięciem.
 - **Dźwięk gry i mikrofon osobno** — w edytorze dwie ścieżki z wykresem dźwięku: ściszysz albo wyciszysz jedno lub drugie i od razu to słychać.

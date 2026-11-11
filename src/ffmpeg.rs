@@ -10,6 +10,7 @@ use std::sync::{Mutex, OnceLock};
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const ABOVE_NORMAL_PRIORITY_CLASS: u32 = 0x0000_8000;
+const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
 
 /// Ścieżka do ffmpeg.exe, ustalana raz.
 pub fn sciezka() -> &'static PathBuf {
@@ -53,6 +54,14 @@ pub fn odcisk() -> String {
 pub fn komenda() -> Command {
     let mut cmd = Command::new(sciezka());
     cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
+}
+
+/// Polecenie ffmpeg do długiej pracy w tle (zmniejszanie filmu): priorytet poniżej normalnego,
+/// żeby nie zabierało procesora grze.
+pub fn komenda_w_tle() -> Command {
+    let mut cmd = Command::new(sciezka());
+    cmd.creation_flags(CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS);
     cmd
 }
 

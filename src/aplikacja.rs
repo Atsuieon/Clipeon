@@ -225,6 +225,16 @@ fn obsluz_zdarzenie(app: &AppHandle, z: Zdarzenie) {
             pokaz_dymek(app, cfg.aktywny_monitor().0, &format!("Film zapisany ({})", dlugosc_slowami(sekundy)), &opis, false, false);
             let _ = app.emit("film-zapisany", plik);
         }
+        Zdarzenie::FilmZmniejszony { plik, przed, po } => {
+            let gb = |b: u64| format!("{:.1} GB", b as f64 / 1e9).replace('.', ",");
+            let nazwa = plik.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            pokaz_dymek(app, cfg.aktywny_monitor().0, &format!("Film zmniejszony: {} → {}", gb(przed), gb(po)), &nazwa, false, false);
+            let _ = app.emit("film-zmniejszony", plik);
+        }
+        Zdarzenie::FilmNiezmniejszony(e) => {
+            pokaz_dymek(app, cfg.aktywny_monitor().0, "Film został w pełnej jakości", &format!("Nie udało się go zmniejszyć: {e}"), true, false);
+            let _ = app.emit("film-blad", format!("Film został w pełnej jakości: {e}"));
+        }
         Zdarzenie::BladFilmu(e) => {
             if cfg.dzwiek_zapisu {
                 crate::dzwiek::zagraj_blad();
@@ -284,6 +294,8 @@ struct Ustawienia {
     cfg: Config,
     autostart: bool,
     enkodery: Vec<(String, String)>,
+    /// Formaty filmu do wyboru: (wartość, opis) — mniejsze tylko, gdy karta je umie
+    formaty_filmu: Vec<(String, String)>,
     wersja: &'static str,
     repozytorium: &'static str,
 }
@@ -369,6 +381,7 @@ async fn ustawienia(app: AppHandle) -> Result<Ustawienia, String> {
         cfg: app.state::<Rdzen>().config(),
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
         enkodery: crate::enkodery::do_ustawien(),
+        formaty_filmu: crate::film::formaty(),
         wersja: crate::aktualizacje::WERSJA,
         repozytorium: crate::aktualizacje::REPOZYTORIUM,
     })
