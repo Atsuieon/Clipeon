@@ -19,7 +19,7 @@
 - **Lekki** — obraz przechwytuje i koduje karta graficzna (AMD, NVIDIA, Intel), bez kopiowania klatek przez procesor; nic nie trafia na dysk, dopóki nie zapiszesz.
 - **Tryb pulpitu** — przełącznik „Gra | Pulpit” na pasku: pulpit ma własny ekran i lżejsze ustawienia (domyślnie 30 FPS, 12 Mb/s), a ekran wybierzesz jednym kliknięciem.
 - **Dźwięk gry i mikrofon osobno** — w edytorze ściszysz jedno albo drugie albo zapiszesz klip bez swojego głosu.
-- **Edytor** — przycinanie i zmniejszanie do 10 / 20 / 50 / 100 MB, np. pod Discorda.
+- **Edytor** — przycinanie, kadrowanie, zmniejszanie do 10 / 20 / 50 / 100 MB i zapis jako zapętlony GIF / WebP, np. pod Discorda. Głośność słychać od razu, a `←` / `→` przewijają o 5 s, `,` / `.` o klatkę.
 - **Przeciągnij i upuść** — gotowy klip przeciągasz prosto do Discorda, przeglądarki albo folderu.
 - **Biblioteka** — klipy pogrupowane według dni, zaznaczanie wielu naraz, usuwanie do Kosza.
 - **Nie przestaje nagrywać po cichu** — sam wznawia nagrywanie po problemie ze sterownikiem, przechodzi na inny sposób przechwytywania, gdy któryś nie działa, i ostrzega, gdy coś jest nie tak.

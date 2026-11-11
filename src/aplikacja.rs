@@ -386,7 +386,7 @@ async fn miniatura(app: AppHandle, sciezka: PathBuf) -> Result<MiniaturaOkna, St
 
 #[tauri::command]
 fn pokaz_w_folderze(rdzen: State<'_, Rdzen>, sciezka: PathBuf) -> Result<(), String> {
-    let klip = klipy::sprawdz_sciezke(&rdzen.config().folder_klipow, &sciezka)?;
+    let klip = klipy::sprawdz_wynik(&rdzen.config().folder_klipow, &sciezka)?;
     klipy::pokaz_w_eksploratorze(&klip, true);
     Ok(())
 }
@@ -399,7 +399,7 @@ fn usun_klip(rdzen: State<'_, Rdzen>, sciezka: PathBuf) -> Result<(), String> {
 
 /// Przycięcie i/lub kompresja klipu. Postęp idzie zdarzeniem "postep" (0..1).
 #[tauri::command]
-async fn eksportuj(app: AppHandle, sciezka: PathBuf, zlecenie: crate::edycja::Zlecenie) -> Result<PathBuf, String> {
+async fn eksportuj(app: AppHandle, sciezka: PathBuf, zlecenie: crate::edycja::Zlecenie) -> Result<crate::edycja::Wynik, String> {
     let cfg = app.state::<Rdzen>().config();
     let klip = klipy::sprawdz_sciezke(&cfg.folder_klipow, &sciezka)?;
     let wynik = tauri::async_runtime::spawn_blocking(move || {
@@ -419,7 +419,7 @@ async fn eksportuj(app: AppHandle, sciezka: PathBuf, zlecenie: crate::edycja::Zl
 /// Okno wywołuje to na początku przeciągania; dalej prowadzi system (OLE drag & drop).
 #[tauri::command]
 fn przeciagnij(okno: tauri::WebviewWindow, rdzen: State<'_, Rdzen>, sciezka: PathBuf) -> Result<(), String> {
-    let klip = klipy::sprawdz_sciezke(&rdzen.config().folder_klipow, &sciezka)?;
+    let klip = klipy::sprawdz_wynik(&rdzen.config().folder_klipow, &sciezka)?;
     let obraz = klipy::obraz_przeciagania(&klip)
         .map(drag::Image::File)
         .unwrap_or_else(|| drag::Image::Raw(include_bytes!("../icons/icon.png").to_vec()));
@@ -446,6 +446,19 @@ async fn info_klipu(app: AppHandle, sciezka: PathBuf) -> Result<klipy::Info, Str
     let folder = app.state::<Rdzen>().config().folder_klipow;
     let klip = klipy::sprawdz_sciezke(&folder, &sciezka)?;
     tauri::async_runtime::spawn_blocking(move || klipy::info(&klip)).await.map_err(|e| e.to_string())?
+}
+
+/// Jedna ścieżka dźwięku klipu (plik M4A w bajtach) do podglądu głośności na żywo w edytorze.
+/// Bajty zamiast adresu `asset:`: okno robi z nich adres `blob:` z tego samego źródła, więc Web Audio
+/// może zmieniać ich głośność (z adresu z innego źródła dostałby ciszę).
+#[tauri::command]
+async fn dzwiek_podgladu(app: AppHandle, sciezka: PathBuf, nr: u32) -> Result<tauri::ipc::Response, String> {
+    let folder = app.state::<Rdzen>().config().folder_klipow;
+    let klip = klipy::sprawdz_sciezke(&folder, &sciezka)?;
+    let dane = tauri::async_runtime::spawn_blocking(move || klipy::dzwiek_podgladu(&klip, nr))
+        .await
+        .map_err(|e| e.to_string())??;
+    Ok(tauri::ipc::Response::new(dane))
 }
 
 /// Migracja z wersji 1.0 (nazwa „Clipper”): stary wpis autostartu wskazuje na stary program —
@@ -591,6 +604,7 @@ pub fn uruchom() {
             eksportuj,
             przeciagnij,
             info_klipu,
+            dzwiek_podgladu,
             monitory,
             ustaw_tryb,
             ustaw_gre,

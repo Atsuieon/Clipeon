@@ -111,6 +111,12 @@ impl Config {
         self.tryb == TRYB_PULPIT
     }
 
+    /// Gra, na którą czeka nagrywanie (nazwa pliku programu). W trybie Pulpit zawsze pusta:
+    /// pulpit nagrywa się bez względu na grę, a wybór gry zostaje zapamiętany na powrót do trybu Gra.
+    pub fn wybrana_gra(&self) -> &str {
+        if self.pulpit() { "" } else { &self.gra }
+    }
+
     /// Monitor nagrywany w bieżącym trybie: (nazwa urządzenia, stały identyfikator).
     pub fn aktywny_monitor(&self) -> (&str, &str) {
         if self.pulpit() {
@@ -205,5 +211,20 @@ impl Config {
             return Err("Nieprawidłowe ustawienia sprzątania".into());
         }
         crate::skrot::parsuj(&self.skrot).map(|_| ())
+    }
+}
+
+#[cfg(test)]
+mod testy {
+    use super::{Config, TRYB_PULPIT};
+
+    #[test]
+    fn pulpit_nie_czeka_na_gre() {
+        let mut c = Config { gra: "fcadefbneo.exe".into(), ..Config::default() };
+        assert_eq!(c.wybrana_gra(), "fcadefbneo.exe");
+        c.tryb = TRYB_PULPIT.into();
+        assert_eq!(c.wybrana_gra(), "");
+        // Wybór gry zostaje na powrót do trybu Gra
+        assert_eq!(c.gra, "fcadefbneo.exe");
     }
 }

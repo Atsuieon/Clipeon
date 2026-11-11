@@ -58,6 +58,11 @@ const ALARM_PO: Duration = Duration::from_secs(5);
 const ALARM_PO_CHWILOWYM: Duration = Duration::from_secs(60);
 /// Problem w tym czasie od startu sesji = ta droga przechwytywania nie działa na tym komputerze
 const ROZRUCH_DROGI: Duration = Duration::from_secs(15);
+/// Tyle czasu wybranej gry nie może być, zanim uznamy, że się zamknęła
+const GRA_ZNIKA_PO: Duration = Duration::from_secs(10);
+/// Tyle chwilowych awarii drogi w ffmpeg w tym czasie = przejście na następną drogę
+const AWARIE_CHWILOWE_DO_ZMIANY: usize = 3;
+const OKNO_AWARII_CHWILOWYCH: Duration = Duration::from_secs(120);
 /// Po tylu sekundach bez problemów zapamiętujemy drogę jako działającą
 const DROGA_DZIALA_PO: Duration = Duration::from_secs(30);
 
@@ -97,6 +102,11 @@ struct Wnetrze {
     gra: Option<crate::gra::Gra>,
     /// Wybrana gra nie działa — nagrywanie czeka na nią
     czeka_na_gre: bool,
+    /// Kiedy ostatnio droga w ffmpeg padła chwilowo (np. gra zmieniła tryb ekranu) — po kilku takich
+    /// awariach w krótkim czasie przechodzimy na następną drogę
+    awarie_chwilowe: Vec<Instant>,
+    /// Od kiedy wybranej gry nie ma na liście procesów (zatrzymujemy nagrywanie dopiero po chwili)
+    gra_znikla_od: Option<Instant>,
 }
 
 #[derive(Clone)]
@@ -120,6 +130,8 @@ impl Rdzen {
             lekki: false,
             gra: None,
             czeka_na_gre: false,
+            awarie_chwilowe: Vec::new(),
+            gra_znikla_od: None,
         };
         Rdzen { w: Arc::new(Mutex::new(w)), powiadom: Arc::new(powiadom) }
     }
@@ -192,7 +204,7 @@ impl Rdzen {
         // Błąd „nagrywanie” należy do strażnika — zostaje do czasu, aż nagrywanie znów ruszy
         self.zatrzymaj(&["config", "nagrywanie"]);
         // Wybrana gra nie działa — nagrywanie czeka na nią (bez alarmu i bez zużycia procesora)
-        let wybrana = self.config().gra;
+        let wybrana = self.config().wybrana_gra().to_string();
         let czeka = !wybrana.is_empty() && !crate::gra::dziala(&wybrana);
         let mut w = self.zamek();
         w.czeka_na_gre = czeka;
@@ -451,7 +463,7 @@ impl Rdzen {
     fn pilnuj_gry(&self) {
         let (wybrana, monitor, pauza, ma_sesje, czekal) = {
             let w = self.zamek();
-            (w.cfg.gra.clone(), w.cfg.aktywny_monitor().0.to_string(), w.pauza, w.sesja.is_some(), w.czeka_na_gre)
+            (w.cfg.wybrana_gra().to_string(), w.cfg.aktywny_monitor().0.to_string(), w.pauza, w.sesja.is_some(), w.czeka_na_gre)
         };
         if pauza {
             return;
@@ -476,16 +488,29 @@ impl Rdzen {
         }
 
         let dziala = crate::gra::dziala(&wybrana);
+        // Gra może na moment zniknąć (restart, zmiana trybu ekranu) — bufor wyrzucamy dopiero,
+        // gdy nie ma jej dłużej niż GRA_ZNIKA_PO
+        let zniknela_na_dobre = {
+            let mut w = self.zamek();
+            if dziala {
+                w.gra_znikla_od = None;
+                false
+            } else {
+                w.gra_znikla_od.get_or_insert_with(Instant::now).elapsed() >= GRA_ZNIKA_PO
+            }
+        };
         if dziala && czekal {
             crate::dziennik::info(&format!("Wybrana gra ({wybrana}) wystartowała — zaczynam nagrywać"));
             self.uruchom();
-        } else if !dziala && ma_sesje {
+        } else if zniknela_na_dobre && ma_sesje {
             crate::dziennik::info(&format!("Wybrana gra ({wybrana}) się zamknęła — czekam na nią"));
             let sesja = {
                 let mut w = self.zamek();
                 w.czeka_na_gre = true;
                 w.wznawianie = None;
+                // Błędy zatrzymanej sesji nie dotyczą czekania na grę (inaczej wisi czerwony baner)
                 w.bledy.remove("nagrywanie");
+                w.bledy.remove("wideo");
                 w.sesja.take()
             };
             drop(sesja);
@@ -642,14 +667,32 @@ impl Rdzen {
         let Some(s) = &w.sesja else { return };
         let droga = s._wideo.droga;
         let mlody = w.start_sesji.is_some_and(|t| t.elapsed() < ROZRUCH_DROGI);
-        if chwilowy || !mlody || !droga.w_ffmpeg() {
+        if !droga.w_ffmpeg() {
             return;
         }
         let monitor = s.monitor.clone();
-        crate::dziennik::info(&format!(
-            "Droga przechwytywania „{}” nie działa na tym komputerze ({powod}) — przechodzę na następną",
-            droga.nazwa()
-        ));
+        if chwilowy {
+            // Pojedyncza chwilowa awaria to nie powód do zmiany drogi, ale gra, która co chwilę
+            // przełącza tryb ekranu, potrafi raz za razem wywracać Desktop Duplication
+            let teraz = Instant::now();
+            w.awarie_chwilowe.retain(|t| teraz.duration_since(*t) < OKNO_AWARII_CHWILOWYCH);
+            w.awarie_chwilowe.push(teraz);
+            if w.awarie_chwilowe.len() < AWARIE_CHWILOWE_DO_ZMIANY {
+                return;
+            }
+            w.awarie_chwilowe.clear();
+            crate::dziennik::info(&format!(
+                "Droga przechwytywania „{}” traci obraz raz za razem ({powod}) — przechodzę na następną",
+                droga.nazwa()
+            ));
+        } else if !mlody {
+            return;
+        } else {
+            crate::dziennik::info(&format!(
+                "Droga przechwytywania „{}” nie działa na tym komputerze ({powod}) — przechodzę na następną",
+                droga.nazwa()
+            ));
+        }
         w.odrzucone.insert((monitor.clone(), droga));
         drop(w);
         let mut p = crate::pamiec::pamiec();

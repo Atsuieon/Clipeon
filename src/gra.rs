@@ -68,9 +68,32 @@ pub fn na_pierwszym_planie(monitor: &str) -> Option<Gra> {
     z_okna(okno)
 }
 
-/// Czy wybrany program ma teraz jakieś widoczne okno (czyli: czy gra jest uruchomiona).
+/// Czy wybrany program jest uruchomiony. Sprawdzamy listę procesów, nie okien: gra (np. emulator)
+/// przy przełączaniu pełnego ekranu albo po zminimalizowaniu na chwilę chowa okno, a to nie znaczy,
+/// że się zamknęła.
 pub fn dziala(proces: &str) -> bool {
-    lista().iter().any(|g| ten_sam(&g.proces, proces))
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
+    };
+    unsafe {
+        let Ok(migawka) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else {
+            // Bez listy procesów zostaje stary sposób: widoczne okna
+            return lista().iter().any(|g| ten_sam(&g.proces, proces));
+        };
+        let mut wpis = PROCESSENTRY32W { dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32, ..Default::default() };
+        let mut jest = false;
+        let mut dalej = Process32FirstW(migawka, &mut wpis).is_ok();
+        while dalej {
+            let dl = wpis.szExeFile.iter().position(|&c| c == 0).unwrap_or(wpis.szExeFile.len());
+            if ten_sam(&String::from_utf16_lossy(&wpis.szExeFile[..dl]), proces) {
+                jest = true;
+                break;
+            }
+            dalej = Process32NextW(migawka, &mut wpis).is_ok();
+        }
+        let _ = CloseHandle(migawka);
+        jest
+    }
 }
 
 /// Programy do wyboru w ustawieniach: widoczne, niezminimalizowane okna z tytułem.

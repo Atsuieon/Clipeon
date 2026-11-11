@@ -1,5 +1,29 @@
 # Zmiany
 
+## 1.3.5
+
+- **GIF i WebP z klipu.** W edytorze nowy wybór „Format: MP4 | GIF | WebP”. Animacja jest zapętlona
+  (na Discordzie gra w kółko), bez dźwięku i ma najwyżej 15 s (krótsza — dowolnie). Opcja
+  „Do 10 MB (Discord)” sama zmniejsza płynność, rozmiar i liczbę kolorów, aż plik się zmieści.
+- **Kadrowanie obrazu.** Przycisk kadru przy odtwarzaniu (albo klawisz `C`): ramkę na obrazie przesuwasz
+  i rozciągasz dowolnie, z opcjonalnymi proporcjami 16:9, 9:16 i 1:1. Kadr działa przy zapisie MP4, GIF i WebP.
+- **Głośność słychać od razu.** Suwaki „Gra” i „Mikrofon” oraz „Z moim głosem / Bez mojego głosu” zmieniają
+  dźwięk już w podglądzie, także powyżej 100%.
+- **Przewijanie klawiaturą:** `←` / `→` o 5 s, `,` / `.` (czyli `<` / `>`) o jedną klatkę.
+- **Pełny ekran:** wysokie przyciemnienie pod sterowaniem, więc przyciski i oś czasu widać na każdym obrazie.
+- **„Zachowaj oryginał” zamiast „Zastąp oryginał”.** Domyślnie zapisana wersja zastępuje oryginał
+  (oryginał trafia do Kosza, bez okienka z pytaniem). Zaznacz „Zachowaj oryginał”, żeby zapisać obok.
+- **Płynniejszy podgląd 60 FPS:** bez rozmycia tła pod odtwarzaczem. `Ctrl+Shift+D` w podglądzie pokazuje,
+  ile klatek na sekundę naprawdę wyświetla okno.
+- **Poprawka: tryb Pulpit czekał na grę.** Gra wybrana w trybie Gra nie zatrzymuje już nagrywania pulpitu.
+- **Poprawka: gry, które chowają okno** (np. emulatory przy przełączaniu pełnego ekranu), nie są już brane
+  za zamknięte — Clipeon sprawdza, czy działa proces, i daje grze 10 s zapasu, zanim wyrzuci bufor.
+- **Poprawka: Desktop Duplication po zmianie trybu ekranu w grze.** Taki błąd jest teraz chwilowy: Clipeon
+  od razu wznawia nagrywanie tym samym enkoderem, a po trzech takich awariach w 2 minuty przechodzi na
+  Windows Graphics Capture. Czerwony błąd nie wisi już w czasie czekania na grę.
+- **Poprawka: suwak „Ile ostatnich sekund” nie skacze** w górę i w dół przy przesuwaniu.
+- W ustawieniach (Zaawansowane) podpowiedź, jak pozbyć się żółtej ramki wokół ekranu na Windows 10.
+
 ## 1.3.4
 
 - **Okno znowu działa od startu.** W 1.3.2 jeden błąd w oknie zatrzymywał je zaraz po uruchomieniu:

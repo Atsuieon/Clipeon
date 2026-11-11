@@ -236,6 +236,13 @@ h2.sekcja { font-size: 26px; margin: 34px 0 16px; }
 .ust .pole { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-width: 0; }
 .ust .pole select, .ust .pole .pole-skrotu { min-width: 190px; max-width: 260px; }
 .ust .pole input[type="range"] { width: 150px; }
+/* Suwak z wartością obok: stała szerokość wartości i pole przyklejone do góry wiersza — inaczej
+   „5 s” → „2 min 15 s” zmienia szerokość kolumny, opis łamie się inaczej i suwak skacze pod kursorem */
+.ust.ust-suwak { align-items: start; }
+.ust.ust-suwak .pole { min-height: 40px; }
+/* Szacunek RAM na całą szerokość wiersza: „340 MB” → „1,2 GB” nie zmienia już łamania linii */
+.ust.ust-suwak > .pomoc { grid-column: 1 / -1; margin-top: -12px; }
+.ust.ust-suwak .wartosc { min-width: 10ch; white-space: nowrap; }
 .ust .pole input[type="number"] { width: 86px; }
 .ust .pole.pola { display: grid; grid-template-columns: auto auto; gap: 10px; }
 .ust .pole.pola label { display: flex; flex-direction: row; align-items: center; gap: 8px; color: var(--pomoc); font-size: 12.5px; }
@@ -330,15 +337,25 @@ select option { background: #0a0a0a; }
   width: 100%; height: 100%; max-height: none; border: 0; border-radius: 0;
   display: grid; grid-template-rows: minmax(0, 1fr) auto;
 }
-.okno-odtwarzacza.pelny .pasek, .okno-odtwarzacza.pelny .eksport { display: none; }
+.okno-odtwarzacza.pelny .pasek, .okno-odtwarzacza.pelny .eksport, .okno-odtwarzacza.pelny .wynik { display: none; }
+.okno-odtwarzacza.pelny .scena { height: 100%; min-height: 0; }
 .okno-odtwarzacza.pelny video { height: 100%; max-height: none; object-fit: contain; background: #000; }
-.okno-odtwarzacza.pelny .sterowanie {
-  position: absolute; left: 0; right: 0; bottom: 0;
-  background: linear-gradient(0deg, rgba(0, 0, 0, 0.85), transparent);
-  transition: opacity var(--czas);
+/* Pod sterowaniem wysokie przyciemnienie od dołu (jak w serwisach z filmami), żeby przyciski
+   i oś czasu było widać na każdym, także jasnym obrazie */
+.okno-odtwarzacza.pelny::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: min(42%, 360px); pointer-events: none;
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.92) 0%, rgba(0, 0, 0, 0.7) 30%, rgba(0, 0, 0, 0.3) 65%, transparent 100%);
+  transition: opacity 250ms;
 }
+.okno-odtwarzacza.pelny .sterowanie {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 1; padding-bottom: 22px;
+  background: none; transition: opacity 250ms;
+}
+.okno-odtwarzacza.pelny .sterowanie .czas { color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9); }
+.okno-odtwarzacza.pelny .sterowanie .ikona { filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.9)); }
 .okno-odtwarzacza.pelny { position: relative; }
-.okno-odtwarzacza.pelny.bez-sterowania .sterowanie { opacity: 0; pointer-events: none; }
+.okno-odtwarzacza.pelny.bez-sterowania .sterowanie,
+.okno-odtwarzacza.pelny.bez-sterowania::after { opacity: 0; pointer-events: none; }
 .okno-odtwarzacza.pelny.bez-sterowania { cursor: none; }
 
 /* Odtwarzacz */
@@ -397,7 +414,7 @@ select option { background: #0a0a0a; }
 .glos.wylaczony { opacity: 0.35; pointer-events: none; }
 #formularz > h2.sekcja:first-child { margin-top: 4px; }
 #formularz .karty + h2.sekcja { margin-top: 32px; }
-.wartosc-glosu { min-width: 44px; color: var(--pomoc); font-variant-numeric: tabular-nums; }
+.wartosc-glosu { min-width: 5ch; text-align: right; white-space: nowrap; color: var(--pomoc); font-variant-numeric: tabular-nums; }
 .przeciagany:active { cursor: grabbing; }
 
 /* Menu kontekstowe */
@@ -470,7 +487,8 @@ select option { background: #0a0a0a; }
 .segment:disabled { opacity: 1; color: #4d4d4d; border-color: #1a1a1a; }
 
 /* Edytor: tło pod nim ciemniejsze i rozmyte, równe odstępy, cienkie linie między sekcjami */
-.nakladka { background: rgba(0, 0, 0, 0.9); backdrop-filter: blur(6px); }
+/* Bez rozmycia tła (backdrop-filter): przeliczane przy każdej klatce wideo potrafiło zbić podgląd z 60 do 30 FPS */
+.nakladka { background: rgba(0, 0, 0, 0.94); }
 .okno-odtwarzacza { background: #050505; }
 .okno-odtwarzacza .pasek { padding: 16px 16px 16px 24px; }
 .sterowanie { padding: 16px 24px 8px; gap: 16px; }
@@ -639,3 +657,43 @@ input[type="number"]:focus-visible, select:focus-visible { outline: none; border
 @media (prefers-reduced-motion: reduce) {
   .pigulka:not(.bez-animacji) { transition: transform 160ms ease-out, width 160ms ease-out, height 160ms ease-out !important; }
 }
+
+/* ---------- Edytor: obraz z kadrowaniem i licznikiem klatek ---------- */
+.scena { position: relative; min-height: 0; }
+.kadr-warstwa { position: absolute; overflow: hidden; z-index: 2; touch-action: none; }
+.kadr {
+  position: absolute; border: 1.5px solid #fff; cursor: move;
+  /* Wszystko poza kadrem przyciemnione */
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6);
+}
+.kadr::before, .kadr::after {
+  /* Linie trójpodziału — łatwiej ustawić kadr */
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background:
+    linear-gradient(90deg, transparent calc(33.33% - 0.5px), rgba(255, 255, 255, 0.25) calc(33.33% - 0.5px), rgba(255, 255, 255, 0.25) calc(33.33% + 0.5px), transparent calc(33.33% + 0.5px), transparent calc(66.66% - 0.5px), rgba(255, 255, 255, 0.25) calc(66.66% - 0.5px), rgba(255, 255, 255, 0.25) calc(66.66% + 0.5px), transparent calc(66.66% + 0.5px)),
+    linear-gradient(0deg, transparent calc(33.33% - 0.5px), rgba(255, 255, 255, 0.25) calc(33.33% - 0.5px), rgba(255, 255, 255, 0.25) calc(33.33% + 0.5px), transparent calc(33.33% + 0.5px), transparent calc(66.66% - 0.5px), rgba(255, 255, 255, 0.25) calc(66.66% - 0.5px), rgba(255, 255, 255, 0.25) calc(66.66% + 0.5px), transparent calc(66.66% + 0.5px));
+}
+.kadr::after { display: none; }
+.kadr-uchwyt { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5); }
+/* Uchwyty w środku ramki: przy kadrze na całą wysokość / szerokość nie chowają się za krawędzią obrazu */
+.kadr-uchwyt[data-u="nw"] { left: 2px; top: 2px; cursor: nwse-resize; }
+.kadr-uchwyt[data-u="n"] { left: calc(50% - 7px); top: 2px; cursor: ns-resize; }
+.kadr-uchwyt[data-u="ne"] { right: 2px; top: 2px; cursor: nesw-resize; }
+.kadr-uchwyt[data-u="w"] { left: 2px; top: calc(50% - 7px); cursor: ew-resize; }
+.kadr-uchwyt[data-u="e"] { right: 2px; top: calc(50% - 7px); cursor: ew-resize; }
+.kadr-uchwyt[data-u="sw"] { left: 2px; bottom: 2px; cursor: nesw-resize; }
+.kadr-uchwyt[data-u="s"] { left: calc(50% - 7px); bottom: 2px; cursor: ns-resize; }
+.kadr-uchwyt[data-u="se"] { right: 2px; bottom: 2px; cursor: nwse-resize; }
+.kadr-wymiary {
+  position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); padding: 3px 9px; border-radius: 999px;
+  background: rgba(0, 0, 0, 0.7); color: #fff; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none;
+}
+#kadruj[aria-pressed="true"] { background: #fff; color: #000; }
+.licznik-klatek {
+  position: absolute; top: 10px; left: 10px; z-index: 3; padding: 6px 10px; border-radius: 10px;
+  background: rgba(0, 0, 0, 0.75); color: #fff; font-size: 12px; line-height: 1.5; font-variant-numeric: tabular-nums; white-space: pre; pointer-events: none;
+}
+/* GIF / WebP: bez dźwięku i bez przełącznika dokładnego cięcia */
+.eksport-opcje.animacja #glos-wiersz, .eksport-opcje.animacja #mik-grupa, .eksport-opcje.animacja #dokladnie-wiersz { display: none; }
+.kadr-warstwa.podglad { pointer-events: none; }
+.kadr-warstwa.podglad .kadr-uchwyt, .kadr-warstwa.podglad .kadr::before { display: none; }

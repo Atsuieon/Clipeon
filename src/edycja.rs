@@ -1,7 +1,8 @@
-// Edycja klipów: przycinanie (szybkie bez kodowania albo dokładne z kodowaniem) i kompresja
-// do docelowego rozmiaru pliku (np. 10 MB na Discorda). Wynik zawsze trafia do nowego pliku,
-// chyba że użytkownik wybierze zastąpienie oryginału.
-use serde::Deserialize;
+// Edycja klipów: przycinanie (szybkie bez kodowania albo dokładne z kodowaniem), kadrowanie,
+// kompresja do docelowego rozmiaru pliku (np. 10 MB na Discorda) i zapis jako zapętlony GIF/WebP.
+// Wynik trafia do nowego pliku albo (gdy użytkownik nie zaznaczy „Zachowaj oryginał”) zastępuje
+// oryginał, który idzie do Kosza. GIF i WebP nigdy nie zastępują klipu.
+use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -23,6 +24,53 @@ pub struct Zlecenie {
     /// pusta lista = bez zmian
     #[serde(default)]
     pub glosnosci: Vec<f64>,
+    /// Wycinek obrazu w pikselach klipu (None = cały obraz)
+    #[serde(default)]
+    pub kadr: Option<Kadr>,
+    /// "mp4" (domyślnie), "gif" albo "webp"
+    #[serde(default)]
+    pub format: String,
+}
+
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct Kadr {
+    pub x: u32,
+    pub y: u32,
+    pub szer: u32,
+    pub wys: u32,
+}
+
+/// Wynik eksportu: ścieżka i rozmiar pliku (GIF/WebP nie trafiają do biblioteki, więc rozmiar
+/// podajemy od razu).
+#[derive(Serialize)]
+pub struct Wynik {
+    pub sciezka: PathBuf,
+    pub rozmiar: u64,
+}
+
+/// GIF i WebP: najdłuższy fragment w sekundach (dłuższe ważą za dużo i Discord ich nie pokaże).
+pub const ANIMACJA_MAX_S: f64 = 15.0;
+
+/// Kolejne próby zmieszczenia animacji w 10 MB: (FPS, szerokość, kolory GIF / jakość WebP).
+const STOPNIE_ANIMACJI: &[(u32, u32, u32)] = &[(15, 480, 256), (12, 420, 192), (10, 360, 128), (10, 320, 96), (8, 280, 64)];
+
+impl Zlecenie {
+    fn animacja(&self) -> bool {
+        self.format == "gif" || self.format == "webp"
+    }
+}
+
+/// Filtr kadrowania (wymiary parzyste — H.264 i yuv420p nie przyjmą nieparzystych), dopasowany
+/// do obrazu o rozmiarze `w`×`h` (0 = nieznany, wtedy bez dopasowania).
+fn filtr_kadru(k: &Kadr, w: u32, h: u32) -> String {
+    let (mut x, mut y, mut szer, mut wys) = (k.x, k.y, k.szer.max(16), k.wys.max(16));
+    if w > 0 && h > 0 {
+        szer = szer.min(w);
+        wys = wys.min(h);
+        x = x.min(w - szer);
+        y = y.min(h - wys);
+    }
+    format!("crop={}:{}:{}:{}", szer & !1, wys & !1, x & !1, y & !1)
 }
 
 /// Parametry kodowania wyliczone z docelowego rozmiaru.
@@ -53,23 +101,27 @@ fn kompresja(rozmiar_mb: u32, dlugosc: f64, zapas: f64) -> Result<Kompresja, Str
     Ok(Kompresja { wideo_bps: wideo as u64, audio_kbps, wysokosc, fps })
 }
 
-/// Wolna nazwa: klip_cut.mp4, klip_10MB.mp4, klip_cut_10MB.mp4 (z numerem, jeśli zajęta).
+/// Wolna nazwa: klip_cut.mp4, klip_10MB.mp4, klip_cut_kadr.mp4, klip_cut.gif (z numerem, jeśli zajęta).
 fn nazwa_wyniku(zrodlo: &Path, z: &Zlecenie) -> PathBuf {
     let mut baza = zrodlo.file_stem().unwrap_or_default().to_string_lossy().into_owned();
     if z.przyciete {
         baza.push_str("_cut");
     }
+    if z.kadr.is_some() {
+        baza.push_str("_kadr");
+    }
     if let Some(mb) = z.rozmiar_mb {
         baza.push_str(&format!("_{mb}MB"));
     }
-    if !z.przyciete && z.rozmiar_mb.is_none() {
+    if !z.przyciete && z.rozmiar_mb.is_none() && z.kadr.is_none() && !z.animacja() {
         baza.push_str("_audio");
     }
+    let rozszerzenie = if z.animacja() { z.format.as_str() } else { "mp4" };
     let folder = zrodlo.parent().unwrap();
-    let mut plik = folder.join(format!("{baza}.mp4"));
+    let mut plik = folder.join(format!("{baza}.{rozszerzenie}"));
     let mut i = 2;
     while plik.exists() {
-        plik = folder.join(format!("{baza}_{i}.mp4"));
+        plik = folder.join(format!("{baza}_{i}.{rozszerzenie}"));
         i += 1;
     }
     plik
@@ -106,7 +158,13 @@ fn ffmpeg_z_postepem(args: &[String], dlugosc: f64, postep: &dyn Fn(f64)) -> Res
 }
 
 /// Wykonuje zlecenie i zwraca ścieżkę wyniku. `postep` dostaje wartości 0..1.
-pub fn eksportuj(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dyn Fn(f64)) -> Result<PathBuf, String> {
+pub fn eksportuj(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dyn Fn(f64)) -> Result<Wynik, String> {
+    let sciezka = eksportuj_plik(zrodlo, z, nazwa_enkodera, postep)?;
+    let rozmiar = std::fs::metadata(&sciezka).map(|m| m.len()).unwrap_or(0);
+    Ok(Wynik { sciezka, rozmiar })
+}
+
+fn eksportuj_plik(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dyn Fn(f64)) -> Result<PathBuf, String> {
     // koniec = 0 oznacza „do końca klipu”; zakres przycinamy do prawdziwej długości pliku
     let info = crate::klipy::info(zrodlo)?;
     let pelna = info.dlugosc;
@@ -118,9 +176,19 @@ pub fn eksportuj(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dyn
     if dlugosc.is_nan() || dlugosc < 0.5 {
         return Err("Zaznaczony fragment jest za krótki (minimum 0,5 s)".into());
     }
-    if !z.przyciete && z.rozmiar_mb.is_none() && z.glosnosci.is_empty() {
+    if !z.przyciete && z.rozmiar_mb.is_none() && z.glosnosci.is_empty() && z.kadr.is_none() && !z.animacja() {
         return Err("Nic do zrobienia — przytnij klip, wybierz rozmiar albo zmień głośność".into());
     }
+    if !matches!(z.format.as_str(), "" | "mp4" | "gif" | "webp") {
+        return Err(format!("Nieznany format „{}”", z.format));
+    }
+    if z.animacja() && dlugosc > ANIMACJA_MAX_S + 0.05 {
+        return Err(format!("{} może mieć najwyżej {} s — przytnij klip", z.format.to_uppercase(), ANIMACJA_MAX_S as u32));
+    }
+    if z.format == "webp" && !crate::ffmpeg::ma_enkoder("libwebp_anim") {
+        return Err("Ten ffmpeg nie umie zapisać WebP — wybierz GIF".into());
+    }
+    let kadr = z.kadr.map(|k| filtr_kadru(&k, info.szerokosc, info.wysokosc));
     // Do końca eksportu porządki i usuwanie nie ruszą źródła
     let _uzywany = crate::klipy::uzywaj(zrodlo);
     let wynik = nazwa_wyniku(zrodlo, z);
@@ -131,7 +199,7 @@ pub fn eksportuj(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dyn
     }
     // Najpierw do pliku tymczasowego (bez .mp4, żeby nie pojawił się w bibliotece),
     // żeby przerwany eksport nie zostawił połowy klipu
-    let tymczasowy = wynik.with_extension("mp4.tmp");
+    let tymczasowy = wynik.with_extension(if z.animacja() { format!("{}.tmp", z.format) } else { "mp4.tmp".into() });
     let wyjscie = |args: &mut Vec<String>| {
         args.extend(["-movflags".into(), "+faststart".into(), "-f".into(), "mp4".into()]);
         args.push(tymczasowy.to_string_lossy().into_owned());
@@ -144,8 +212,12 @@ pub fn eksportuj(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dyn
     };
 
     let rezultat = (|| {
+        if z.animacja() {
+            return animacja(zrodlo, z, start, dlugosc, kadr.as_deref(), &tymczasowy, postep);
+        }
         match z.rozmiar_mb {
-            None if !z.dokladnie => {
+            // Kadrowanie zawsze wymaga kodowania obrazu
+            None if !z.dokladnie && kadr.is_none() => {
                 // Szybkie cięcie bez kodowania: zaczyna się od najbliższej wcześniejszej klatki kluczowej
                 let mut a = Vec::new();
                 zakres(&mut a);
@@ -160,6 +232,9 @@ pub fn eksportuj(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dyn
                     / pelna.max(1.0)) as u64;
                 let mut a = Vec::new();
                 zakres(&mut a);
+                if let Some(k) = &kadr {
+                    a.extend(["-vf".into(), k.clone()]);
+                }
                 a.extend(crate::enkodery::argumenty_eksportu(nazwa_enkodera, bps.clamp(4_000_000, 60_000_000), false));
                 a.extend(audio(false, false, 160));
                 wyjscie(&mut a);
@@ -172,6 +247,9 @@ pub fn eksportuj(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dyn
                 for proba in 0..3 {
                     let k = kompresja(mb, dlugosc, zapas)?;
                     let mut filtry = Vec::new();
+                    if let Some(kf) = &kadr {
+                        filtry.push(kf.clone());
+                    }
                     if let Some(h) = k.wysokosc {
                         filtry.push(format!("scale=-2:'min({h},ih)'"));
                     }
@@ -205,7 +283,7 @@ pub fn eksportuj(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dyn
         return Err(e);
     }
 
-    if z.zastap {
+    if z.zastap && !z.animacja() {
         // Najpierw odsuwamy oryginał pod inną nazwę, potem nowa wersja dostaje jego nazwę, a dopiero
         // na końcu oryginał idzie do Kosza — przy każdym błędzie po drodze nic nie ginie
         let odsuniety = zrodlo.with_extension("mp4.oryginal");
@@ -225,6 +303,66 @@ pub fn eksportuj(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dyn
     }
     std::fs::rename(&tymczasowy, &wynik).map_err(|e| format!("Nie udało się zapisać wyniku: {e}"))?;
     Ok(wynik)
+}
+
+/// GIF albo WebP: zapętlony (Discord odtwarza go w kółko), bez dźwięku. Przy `rozmiar_mb` kolejne
+/// próby zmniejszają FPS, szerokość i liczbę kolorów, aż plik się zmieści.
+fn animacja(zrodlo: &Path, z: &Zlecenie, start: f64, dlugosc: f64, kadr: Option<&str>, wyjscie: &Path, postep: &dyn Fn(f64)) -> Result<(), String> {
+    let limit = z.rozmiar_mb.map(|mb| mb as u64 * 1_000_000);
+    let stopnie = if limit.is_some() { STOPNIE_ANIMACJI } else { &STOPNIE_ANIMACJI[..1] };
+    let mut ostatni = 0u64;
+    for &(fps, szer, kolory) in stopnie {
+        let a = argumenty_animacji(zrodlo, &z.format, start, dlugosc, kadr, fps, szer, kolory, wyjscie);
+        ffmpeg_z_postepem(&a, dlugosc, postep)?;
+        ostatni = std::fs::metadata(wyjscie).map(|m| m.len()).unwrap_or(u64::MAX);
+        match limit {
+            Some(l) if ostatni > l => {
+                eprintln!("{}: {fps} FPS, {szer} px dało {:.1} MB — zmniejszam", z.format, ostatni as f64 / 1e6);
+            }
+            _ => return Ok(()),
+        }
+    }
+    Err(format!(
+        "{} wychodzi {:.1} MB nawet w najmniejszej wersji — przytnij fragment albo wykadruj mniejszy obraz",
+        z.format.to_uppercase(),
+        ostatni as f64 / 1e6
+    ))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn argumenty_animacji(
+    zrodlo: &Path,
+    format: &str,
+    start: f64,
+    dlugosc: f64,
+    kadr: Option<&str>,
+    fps: u32,
+    szer: u32,
+    kolory: u32,
+    wyjscie: &Path,
+) -> Vec<String> {
+    let mut filtry: Vec<String> = kadr.map(|k| vec![k.to_string()]).unwrap_or_default();
+    filtry.push(format!("fps={fps}"));
+    // Nie powiększamy: mały wycinek zostaje w swoim rozmiarze
+    filtry.push(format!("scale='min({szer},iw)':-2:flags=lanczos"));
+    let mut a: Vec<String> = vec!["-ss".into(), format!("{start:.3}"), "-t".into(), format!("{dlugosc:.3}"), "-i".into()];
+    a.push(zrodlo.to_string_lossy().into_owned());
+    if format == "gif" {
+        // Własna paleta kolorów dla tego fragmentu = dużo ładniejszy GIF niż paleta domyślna
+        let graf = format!(
+            "[0:v:0]{},split[a][b];[a]palettegen=max_colors={kolory}:stats_mode=diff[p];[b][p]paletteuse=dither=sierra2_4a:diff_mode=rectangle",
+            filtry.join(",")
+        );
+        a.extend(["-filter_complex".into(), graf, "-an".into(), "-loop".into(), "0".into(), "-f".into(), "gif".into()]);
+    } else {
+        // WebP: `kolory` z tej samej drabinki służy jako jakość (256 → 75, 64 → 45)
+        let jakosc = (45 + (kolory.saturating_sub(64)) * 30 / 192).min(75);
+        a.extend(["-map".into(), "0:v:0".into(), "-vf".into(), filtry.join(","), "-an".into()]);
+        a.extend(["-c:v".into(), "libwebp_anim".into(), "-quality".into(), jakosc.to_string(), "-compression_level".into(), "4".into()]);
+        a.extend(["-loop".into(), "0".into(), "-f".into(), "webp".into()]);
+    }
+    a.push(wyjscie.to_string_lossy().into_owned());
+    a
 }
 
 /// Argumenty dźwięku. Klip z osobnymi ścieżkami ma: 0 = miks, 1 = gra, 2 = mikrofon.
