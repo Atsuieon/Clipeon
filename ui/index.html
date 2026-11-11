@@ -109,7 +109,7 @@
                   </div>
                 </div>
 
-                <div class="ust">
+                <div class="ust ust-pod">
                   <div class="opis">
                     <span>Jakość obrazu w grze</span>
                     <p class="pomoc">Dotyczy ekranu 1080p — przy 1440p i 4K Clipeon sam ją podnosi.</p>
@@ -177,10 +177,16 @@
                 </div>
                 <div class="ust">
                   <div class="opis">
-                    <label for="glos-w-edytorze">Mój głos w zapisywanych wersjach</label>
-                    <p class="pomoc">W edytorze zmienisz to dla każdego klipu osobno.</p>
+                    <span>Edytor zaczyna od</span>
+                    <p class="pomoc">Dotyczy przyciętych i skompresowanych kopii. W edytorze zmienisz to dla każdego klipu, a oryginał zawsze ma głos.</p>
                   </div>
-                  <div class="pole"><label class="przelacznik"><input type="checkbox" id="glos-w-edytorze"><span class="suwak"></span></label></div>
+                  <div class="pole">
+                    <div class="segmenty dwojka" data-pole="glos-w-edytorze" role="radiogroup" aria-label="Mój głos w kopiach z edytora">
+                      <button type="button" class="segment" data-wartosc="tak">Z moim głosem</button>
+                      <button type="button" class="segment" data-wartosc="nie">Bez głosu</button>
+                    </div>
+                    <input type="checkbox" id="glos-w-edytorze" hidden>
+                  </div>
                 </div>
               </div>
             </section>
@@ -269,43 +275,46 @@
               </div>
             </section>
 
-            <!-- Zaawansowane: ustawiane raz i rzadko ruszane -->
-            <details class="grupa zaawansowane">
-              <summary><h2>Zaawansowane</h2><span class="pomoc">Format wideo, sposób przechwytywania, diagnostyka</span></summary>
+            <!-- Zaawansowane: ustawiane raz i rzadko ruszane, domyślnie zwinięte -->
+            <section class="grupa">
+              <h2>Zaawansowane</h2>
               <div class="karta ustawienia-lista">
-                <div class="ust">
-                  <div class="opis">
-                    <label for="enkoder">Format wideo</label>
-                    <p class="pomoc" id="enkoder-uwaga"></p>
+                <details class="ust-rozwijane zaawansowane">
+                  <summary>Format wideo, przechwytywanie obrazu, diagnostyka</summary>
+                  <div class="ust">
+                    <div class="opis">
+                      <label for="enkoder">Format wideo</label>
+                      <p class="pomoc" id="enkoder-uwaga"></p>
+                    </div>
+                    <div class="pole"><select id="enkoder" aria-label="Format wideo"></select></div>
                   </div>
-                  <div class="pole"><select id="enkoder" aria-label="Format wideo"></select></div>
-                </div>
-                <div class="ust">
-                  <div class="opis">
-                    <label for="metoda">Sposób przechwytywania obrazu</label>
-                    <p class="pomoc">Zostaw „Automatycznie”, chyba że nagrania się zacinają albo są czarne.</p>
+                  <div class="ust">
+                    <div class="opis">
+                      <label for="metoda">Sposób przechwytywania obrazu</label>
+                      <p class="pomoc">Zostaw „Automatycznie”, chyba że nagrania się zacinają albo są czarne.</p>
+                    </div>
+                    <div class="pole">
+                      <select id="metoda" aria-label="Sposób przechwytywania obrazu">
+                        <option value="auto">Automatycznie (polecane)</option>
+                        <option value="dda">Desktop Duplication — najlżejszy</option>
+                        <option value="gfx">Windows Graphics Capture</option>
+                        <option value="potok">Tryb zgodności</option>
+                      </select>
+                    </div>
                   </div>
-                  <div class="pole">
-                    <select id="metoda" aria-label="Sposób przechwytywania obrazu">
-                      <option value="auto">Automatycznie (polecane)</option>
-                      <option value="dda">Desktop Duplication — najlżejszy</option>
-                      <option value="gfx">Windows Graphics Capture</option>
-                      <option value="potok">Tryb zgodności</option>
-                    </select>
+                  <div class="ust">
+                    <div class="opis">
+                      <span>Zgłaszanie problemów</span>
+                      <p class="pomoc">Kopiuje opis sprzętu, ustawień i ostatnich zdarzeń. Nic nie jest wysyłane automatycznie.</p>
+                    </div>
+                    <div class="pole">
+                      <button type="button" class="przycisk drugorzedny" id="kopiuj-diagnostyke">Kopiuj diagnostykę</button>
+                      <button type="button" class="przycisk drugorzedny" id="pokaz-dziennik">Pokaż dziennik</button>
+                    </div>
                   </div>
-                </div>
-                <div class="ust">
-                  <div class="opis">
-                    <span>Zgłaszanie problemów</span>
-                    <p class="pomoc">Kopiuje opis sprzętu, ustawień i ostatnich zdarzeń. Nic nie jest wysyłane automatycznie.</p>
-                  </div>
-                  <div class="pole">
-                    <button type="button" class="przycisk drugorzedny" id="kopiuj-diagnostyke">Kopiuj diagnostykę</button>
-                    <button type="button" class="przycisk drugorzedny" id="pokaz-dziennik">Pokaż dziennik</button>
-                  </div>
-                </div>
+                </details>
               </div>
-            </details>
+            </section>
           </div>
         </form>
         <p class="o-programie">Clipeon <span id="wersja"></span> · by <a href="#" id="autor">Atsuieon</a></p>
@@ -363,7 +372,11 @@
           </div>
           <div class="grupa" id="mik-grupa" hidden>
             <span class="etykieta">Mój głos</span>
-            <label class="przelacznik"><input type="checkbox" id="z-mikrofonem"><span class="suwak"></span><span id="mik-opis">Z moim głosem</span></label>
+            <div class="segmenty dwojka" data-pole="z-mikrofonem" role="radiogroup" aria-label="Mój głos w zapisanej kopii">
+              <button type="button" class="segment" data-wartosc="tak">Z moim głosem</button>
+              <button type="button" class="segment" data-wartosc="nie">Bez mojego głosu</button>
+            </div>
+            <input type="checkbox" id="z-mikrofonem" hidden>
             <span class="pomoc" id="mik-uwaga"></span>
           </div>
           <div class="grupa">

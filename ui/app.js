@@ -78,6 +78,32 @@ const formatCzas = (s) => {
 const formatData = (ms) =>
   new Date(ms).toLocaleString("pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
+// Dwa przyciski „tak | nie” zamiast przełącznika (np. „Z moim głosem | Bez głosu”).
+// Stan trzyma ukryte pole wyboru z data-pole, więc reszta kodu czyta je jak zwykły przełącznik;
+// kto ustawia je z kodu, wysyła potem zdarzenie input.
+function odswiezDwojke(kont) {
+  const pole = $(kont.dataset.pole);
+  for (const b of kont.querySelectorAll("button")) {
+    const wybrany = (b.dataset.wartosc === "tak") === pole.checked;
+    b.classList.toggle("wybrany", wybrany);
+    b.setAttribute("aria-checked", String(wybrany));
+    b.disabled = pole.disabled;
+  }
+}
+
+for (const kont of document.querySelectorAll(".dwojka")) {
+  const pole = $(kont.dataset.pole);
+  for (const b of kont.querySelectorAll("button")) {
+    b.setAttribute("role", "radio");
+    b.addEventListener("click", () => {
+      pole.checked = b.dataset.wartosc === "tak";
+      pole.dispatchEvent(new Event("input"));
+    });
+  }
+  pole.addEventListener("input", () => odswiezDwojke(kont));
+  odswiezDwojke(kont);
+}
+
 // ---------- Pigułka: podświetlenie przesuwające się między przyciskami grupy ----------
 // Jeden element na grupę, przesuwany transformacją (karta graficzna, bez przeliczania układu).
 // Każde kliknięcie ustawia tylko cel, a przejście CSS rusza z miejsca, w którym pigułka akurat jest,
@@ -910,7 +936,6 @@ const glosnosciZmienione = () => glosnosci().some((g) => g !== 1);
 $("z-mikrofonem").addEventListener("input", () => {
   // Suwak głosu nie ma sensu, gdy głos jest wyłączony
   if (suwakiGlosu[1]) suwakiGlosu[1].closest(".glos").classList.toggle("wylaczony", !zGlosem());
-  $("mik-opis").textContent = zGlosem() ? "Z moim głosem" : "Bez mojego głosu";
   odswiezEdytor();
 });
 const zmiany = () => przyciete() || rozmiarDocelowy !== null || glosnosciZmienione();
@@ -1164,6 +1189,7 @@ async function wczytajUstawienia() {
   $("metoda").value = cfg.metoda_przechwytywania;
   $("dzwiek-zapisu").checked = cfg.dzwiek_zapisu;
   $("glos-w-edytorze").checked = cfg.glos_w_edytorze;
+  $("glos-w-edytorze").dispatchEvent(new Event("input"));
   $("powiadomienie-zapisu").checked = cfg.powiadomienie_zapisu;
   $("sprz-dni-wl").checked = cfg.sprzatanie_dni > 0;
   $("sprz-dni").value = cfg.sprzatanie_dni || 30;

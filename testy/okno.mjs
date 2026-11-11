@@ -9,6 +9,8 @@ const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 const ui = fileURLToPath(new URL("../ui/", import.meta.url));
 const bledy = [];
+// ZRZUTY=folder zapisuje zrzuty okna do obejrzenia (np. ZRZUTY=/tmp node testy/okno.mjs)
+const zrzut = async (nazwa) => process.env.ZRZUTY && strona.screenshot({ path: `${process.env.ZRZUTY}/${nazwa}.png`, fullPage: true });
 const sprawdz = (warunek, opis) => {
   if (!warunek) bledy.push(opis);
 };
@@ -75,6 +77,7 @@ for (const id of ["okno-min", "okno-max", "okno-zamknij"]) {
 // Tryb gry: zamiast wyboru ekranu lista działających gier
 await strona.click("#wybor");
 await strona.waitForSelector("#lista-wyboru [role=option]", { timeout: 3000 }).catch(() => {});
+await zrzut("1-pasek-gry");
 const gry = await strona.locator("#lista-wyboru [role=option]").allTextContents();
 sprawdz(gry.some((t) => t.includes("Druga gra")), `lista na pasku nie pokazuje gier: ${JSON.stringify(gry)}`);
 const druga = strona.locator("#lista-wyboru [role=option]", { hasText: "Druga gra" });
@@ -85,12 +88,25 @@ sprawdz((await strona.evaluate(() => window.__wybranaGra?.proces)) === "druga.ex
 // Ustawienia: wybór mikrofonu działa także przy wyłączonym „Mój mikrofon”
 await strona.click('[data-zakladka="ustawienia"]');
 await strona.waitForTimeout(300);
+await zrzut("2-ustawienia");
 const mik = strona.locator("#mikrofon-urzadzenie");
 sprawdz(!(await mik.isDisabled()), "lista mikrofonów jest wyłączona");
 sprawdz((await mik.locator("option").count()) === 3, "lista mikrofonów nie ma wszystkich urządzeń");
 if (!(await mik.isDisabled())) await mik.selectOption("m2");
 sprawdz(await strona.isChecked("#mikrofon"), "wybranie mikrofonu nie włączyło „Mój mikrofon”");
 sprawdz((await strona.locator("#gra").count()) === 0, "pole „Gra” zostało w ustawieniach");
+
+// „Mój głos”: dwa przyciski zamiast przełącznika
+const dwojka = strona.locator('[data-pole="glos-w-edytorze"]');
+sprawdz((await dwojka.locator(".wybrany").textContent()) === "Z moim głosem", "„Edytor zaczyna od” nie pokazuje zapisanego wyboru");
+await dwojka.locator('[data-wartosc="nie"]').click();
+sprawdz(!(await strona.isChecked("#glos-w-edytorze")), "przycisk „Bez głosu” nie zmienia ustawienia");
+
+// „Zaawansowane” to karta jak inne grupy i da się ją rozwinąć
+await strona.click(".zaawansowane > summary");
+sprawdz(await strona.isVisible("#enkoder"), "„Zaawansowane” się nie rozwija");
+await zrzut("3-zaawansowane");
+sprawdz((await strona.locator(".karta .zaawansowane").count()) === 1, "„Zaawansowane” nie są w karcie");
 
 await przegladarka.close();
 if (bledy.length) {

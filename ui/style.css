@@ -213,7 +213,7 @@ h2.sekcja { font-size: 26px; margin: 34px 0 16px; }
 
 /* Ustawienia: grupy obok siebie, w każdej wiersz na ustawienie (nazwa z lewej, pole z prawej) */
 .grupy { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 22px 18px; align-items: start; }
-.grupa > h2, .grupa > summary > h2 {
+.grupa > h2 {
   font-size: 12.5px; font-weight: 500; letter-spacing: 0.09em; text-transform: uppercase;
   color: var(--pomoc); margin: 0 0 10px 4px;
 }
@@ -226,6 +226,9 @@ h2.sekcja { font-size: 26px; margin: 34px 0 16px; }
 .ustawienia-lista > .ust:first-child, .ust-rozwijane .ust:first-of-type { border-top-width: 0; }
 .ust-rozwijane .ust { border-top: 1px solid var(--ramka-karty); }
 .ust .opis { min-width: 0; }
+/* Wiersz z kilkoma przyciskami do wyboru: przyciski pod opisem, nie obok */
+.ust.ust-pod { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.ust.ust-pod .pole { justify-content: flex-start; }
 .ust .opis > label, .ust .opis > span { display: block; color: var(--tytul); cursor: default; }
 .ust .opis > label { cursor: pointer; }
 .ust .pomoc { font-size: 12.5px; line-height: 1.35; margin-top: 3px; }
@@ -239,23 +242,22 @@ h2.sekcja { font-size: 26px; margin: 34px 0 16px; }
 .ust .pole .przycisk { white-space: nowrap; }
 .jednostka { color: var(--pomoc); font-size: 13px; }
 
-/* Rozwijane: tryb pulpitu w grupie i cała sekcja „Zaawansowane” */
-.ust-rozwijane > summary, .zaawansowane > summary {
+/* Rozwijane wiersze w karcie: tryb pulpitu i „Zaawansowane” */
+.ust-rozwijane > summary {
   display: flex; align-items: baseline; gap: 10px; cursor: pointer; list-style: none;
+  padding: 13px 20px; border-top: 1px solid var(--ramka-karty);
   color: var(--tytul); transition: background var(--czas);
 }
-.ust-rozwijane > summary::-webkit-details-marker, .zaawansowane > summary::-webkit-details-marker { display: none; }
-.ust-rozwijane > summary { padding: 13px 20px; border-top: 1px solid var(--ramka-karty); }
-.ust-rozwijane > summary:hover, .zaawansowane > summary:hover { background: var(--hover); }
-.ust-rozwijane > summary::before, .zaawansowane > summary::before {
+.ustawienia-lista > .ust-rozwijane:first-child > summary { border-top-width: 0; }
+.ust-rozwijane > summary::-webkit-details-marker { display: none; }
+.ust-rozwijane > summary:hover { background: var(--hover); }
+.ust-rozwijane > summary::before {
   content: ""; width: 7px; height: 7px; flex: none; align-self: center;
   border-right: 1.5px solid var(--pomoc); border-bottom: 1.5px solid var(--pomoc);
   transform: rotate(-45deg); transition: transform var(--czas);
 }
-.ust-rozwijane[open] > summary::before, .zaawansowane[open] > summary::before { transform: rotate(45deg); }
-.ust-rozwijane > summary .pomoc, .zaawansowane > summary .pomoc { font-size: 12.5px; }
-.zaawansowane > summary { padding: 0 4px 10px; border-radius: 12px; }
-.zaawansowane > summary h2 { margin: 0; }
+.ust-rozwijane[open] > summary::before { transform: rotate(45deg); }
+.ust-rozwijane > summary .pomoc { font-size: 12.5px; }
 
 .wiersz { display: flex; align-items: center; gap: 16px; }
 .wartosc { min-width: 56px; text-align: right; font-size: 18px; color: var(--tytul); font-variant-numeric: tabular-nums; }
