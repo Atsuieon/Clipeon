@@ -39,6 +39,7 @@
         </div>
         <div class="status" id="status" title="">
           <span class="kropka" id="kropka"></span><span id="status-tekst">Łączenie…</span>
+          <span class="status-mik" id="status-mik" title="Mikrofon nie jest nagrywany — włączysz go w Ustawieniach → Dźwięk" hidden></span>
         </div>
         <button class="przycisk drugorzedny" id="pauza"></button>
         <button class="przycisk glowny" id="zapisz-klip"></button>
@@ -368,6 +369,8 @@
         </div>
         <span class="czas zakres-tekst" id="zakres-tekst"></span>
       </div>
+      <!-- Ścieżki dźwięku pod osią czasu: wykres głośności i linia głośności do przeciągania -->
+      <div class="sciezki-dzwieku" id="sciezki-dzwieku" hidden></div>
       <div class="eksport">
         <div class="eksport-opcje" id="eksport-opcje">
           <div class="grupa">
@@ -398,19 +401,6 @@
           <div class="grupa">
             <span class="etykieta">Rozmiar pliku</span>
             <div class="segmenty" id="rozmiary"></div>
-          </div>
-          <div class="grupa" id="glos-wiersz" hidden>
-            <span class="etykieta">Głośność</span>
-            <div class="glosnosci" id="glosnosci"></div>
-          </div>
-          <div class="grupa" id="mik-grupa" hidden>
-            <span class="etykieta">Mój głos</span>
-            <div class="segmenty dwojka" data-pole="z-mikrofonem" role="radiogroup" aria-label="Mój głos w zapisanej kopii">
-              <button type="button" class="segment" data-wartosc="tak">Z moim głosem</button>
-              <button type="button" class="segment" data-wartosc="nie">Bez mojego głosu</button>
-            </div>
-            <input type="checkbox" id="z-mikrofonem" hidden>
-            <span class="pomoc" id="mik-uwaga"></span>
           </div>
           <div class="grupa" id="opcje-zapisu">
             <label class="przelacznik" id="dokladnie-wiersz" title="Bez tego cięcie jest natychmiastowe, ale zaczyna się od najbliższej klatki kluczowej (do 1 s wcześniej)"><input type="checkbox" id="dokladnie" checked><span class="suwak"></span>Dokładne cięcie</label>

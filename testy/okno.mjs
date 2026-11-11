@@ -38,7 +38,7 @@ function udawanyTauri() {
   };
   const stan = {
     nagrywa: true, pauza: false, bledy: [], wznawianie: null, tryb: "gra", ekran: "Ekran 1", monitor: "",
-    droga: "dda", gra: "Gra testowa", wybrana_gra: "", gra_proces: "", czeka_na_gre: false,
+    droga: "dda", gra: "Gra testowa", wybrana_gra: "", gra_proces: "", czeka_na_gre: false, mikrofon: true,
   };
   const odpowiedzi = {
     stan: () => stan,
@@ -60,6 +60,8 @@ function udawanyTauri() {
       for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i);
       return u.buffer;
     },
+    // Wykres głośności: cisza, potem coraz głośniej
+    fala_dzwieku: (a) => Array.from({ length: a.kubelki }, (_, i) => (i < a.kubelki / 4 ? 0 : Math.round((i / a.kubelki) * 255))),
     eksportuj: (a) => {
       window.__zlecenia = [...(window.__zlecenia || []), a.zlecenie];
       return { sciezka: a.zlecenie.format === "gif" ? "C:\\Klipy\\klip_cut.gif" : a.sciezka, rozmiar: 1234567 };
@@ -104,6 +106,12 @@ for (const zmiana of [
   await strona.evaluate((z) => pokazStan({ ...stan, ...z }), zmiana);
 }
 sprawdz((await strona.textContent("#wybor")).includes("Ekran 2"), "w trybie pulpitu przycisk nie pokazuje ekranu");
+// Przekreślony mikrofon przy statusie tylko wtedy, gdy mikrofon nie jest nagrywany
+sprawdz(await strona.isHidden("#status-mik"), "ikona wyłączonego mikrofonu widoczna przy włączonym mikrofonie");
+await strona.evaluate(() => pokazStan({ ...stan, mikrofon: false }));
+sprawdz((await strona.isVisible("#status-mik")) && (await strona.locator("#status-mik svg").count()) === 1, "brak ikony przekreślonego mikrofonu przy wyłączonym mikrofonie");
+await zrzut("0-mikrofon-wylaczony");
+await strona.evaluate(() => pokazStan({ ...stan, mikrofon: true }));
 await strona.evaluate(() => pokazStan({ ...stan, tryb: "gra", pauza: false, czeka_na_gre: false, bledy: [], wznawianie: null, nagrywa: true }));
 
 // Tryb gry: zamiast wyboru ekranu lista działających gier
@@ -183,21 +191,62 @@ sprawdz((await v(() => Math.round(dlugosc))) === 20, "podgląd nie wczytał klip
 sprawdz((await v(() => dzwiek.sciezki.length)) === 2, "głośność na żywo: nie ma dwóch ścieżek (gra, mikrofon)");
 sprawdz(await v(() => $("wideo").muted), "głośność na żywo: wideo nie jest wyciszone (dźwięk grałby podwójnie)");
 
-// Głośność słychać od razu: suwak gry na 50% i „Bez mojego głosu” zmieniają wzmocnienie ścieżek
-await v(() => {
-  const s = suwakiGlosu[0];
-  s.value = 50;
-  s.dispatchEvent(new Event("input"));
+// Ścieżki dźwięku pod osią czasu: Gra i Mikrofon z wykresem, bez starych suwaków i „Mój głos”
+sprawdz((await strona.locator("#sciezki-dzwieku .sciezka").count()) === 2, "nie ma dwóch ścieżek dźwięku (Gra, Mikrofon)");
+sprawdz((await strona.locator("#glos-wiersz, #mik-grupa, #z-mikrofonem").count()) === 0, "zostały stare opcje „Głośność” / „Mój głos”");
+await strona.waitForFunction(() => sciezkiGlosu.every((s) => s.fala), null, { timeout: 3000 }).catch(() => {});
+sprawdz(await v(() => sciezkiGlosu.every((s) => s.fala && s.fala.length === KUBELKI_FALI)), "ścieżki nie dostały wykresu głośności");
+// Wykres jest narysowany: w cichej części klipu pusto, w głośnej są słupki
+const narysowane = await v(() => {
+  const c = sciezkiGlosu[0].plotno;
+  const g = c.getContext("2d");
+  const ile = (od, doo) => {
+    const d = g.getImageData(Math.floor(c.width * od), 0, Math.max(1, Math.floor(c.width * (doo - od))), c.height).data;
+    let n = 0;
+    for (let i = 3; i < d.length; i += 4) if (d[i]) n++;
+    return n;
+  };
+  return [ile(0.02, 0.2), ile(0.6, 0.95)];
 });
-await strona.click('[data-pole="z-mikrofonem"] [data-wartosc="nie"]');
+sprawdz(narysowane[0] === 0 && narysowane[1] > 50, `wykres głośności nie pokazuje, gdzie jest dźwięk: ${narysowane}`);
+// Wykres leży dokładnie pod osią czasu
+const [osR, falaR] = [await strona.locator("#os").boundingBox(), await strona.locator(".fala").first().boundingBox()];
+sprawdz(Math.abs(osR.x - falaR.x) < 1.5 && Math.abs(osR.width - falaR.width) < 1.5, `ścieżka dźwięku nie leży pod osią czasu: ${JSON.stringify([osR, falaR])}`);
+
+// Ustawienie „Edytor zaczyna od: Bez głosu” (zapisane wyżej w teście ustawień) = mikrofon od razu wyciszony
+sprawdz(await v(() => sciezkiGlosu[1].glosnosc === 0 && sciezkiGlosu[1].el.classList.contains("wyciszona")), "„Bez głosu” w ustawieniach nie wycisza ścieżki mikrofonu na starcie");
+sprawdz((await strona.textContent("#eksportuj")) === "Zapisz bez mojego głosu", "wyciszony mikrofon nie daje „Zapisz bez mojego głosu”");
+await strona.locator(".sciezka .wycisz").nth(1).click();
+sprawdz(await v(() => sciezkiGlosu[1].glosnosc === 1), "przycisk przy ścieżce nie włącza mikrofonu");
+
+// Przeciągnięcie linii głośności w dół = ciszej, i słychać to od razu
+await strona.mouse.move(falaR.x + falaR.width / 2, falaR.y + falaR.height / 2);
+await strona.mouse.down();
+await strona.mouse.move(falaR.x + falaR.width / 2, falaR.y + falaR.height * 0.75, { steps: 4 });
+await strona.mouse.up();
+sprawdz((await v(() => sciezkiGlosu[0].glosnosc)) === 0.5, `przeciągnięcie linii głośności: ${await v(() => sciezkiGlosu[0].glosnosc)} zamiast 0.5`);
+sprawdz((await strona.locator(".fala-procent").first().textContent()) === "50%", "linia głośności nie pokazuje procentu");
+// Wyciszenie mikrofonu przyciskiem przy ścieżce
+await strona.locator(".sciezka .wycisz").nth(1).click();
 await strona.waitForTimeout(200);
 const wzmocnienia = await v(() => dzwiek.sciezki.map((s) => Math.round(s.g.gain.value * 100) / 100));
 sprawdz(wzmocnienia[0] === 0.5 && wzmocnienia[1] === 0, `głośność na żywo nie działa: ${JSON.stringify(wzmocnienia)}`);
-await strona.click('[data-pole="z-mikrofonem"] [data-wartosc="tak"]');
-await v(() => {
-  suwakiGlosu[0].value = 100;
-  suwakiGlosu[0].dispatchEvent(new Event("input"));
-});
+sprawdz((await strona.textContent("#eksportuj")) === "Zapisz z nową głośnością", "przycisk zapisu nie reaguje na zmianę głośności");
+await zrzut("3b-sciezki");
+// Strzałki na ścieżce, powrót do 100% dwuklikiem, odciszenie przywraca poprzednią głośność
+await strona.locator(".fala").first().focus();
+await strona.keyboard.press("ArrowUp");
+sprawdz((await v(() => sciezkiGlosu[0].glosnosc)) === 0.55, "strzałka w górę na ścieżce nie podgłaśnia o 5%");
+await strona.locator(".fala").first().dblclick();
+sprawdz((await v(() => sciezkiGlosu[0].glosnosc)) === 1, "dwuklik nie przywraca 100%");
+sprawdz((await strona.textContent("#eksportuj")) === "Zapisz bez mojego głosu", "po powrocie gry do 100% przycisk nie mówi „Zapisz bez mojego głosu”");
+await strona.locator(".sciezka .wycisz").nth(1).click();
+sprawdz(await v(() => sciezkiGlosu[1].glosnosc === 1), "odciszenie mikrofonu nie przywraca głośności");
+// Kliknięcie w ścieżkę (bez przeciągania) przewija klip
+await strona.mouse.click(falaR.x + falaR.width / 2, falaR.y + falaR.height / 2);
+await strona.waitForTimeout(100);
+sprawdz(Math.abs((await v(() => $("wideo").currentTime)) - 10) < 0.3, "kliknięcie w ścieżkę dźwięku nie przewija klipu");
+sprawdz(await v(() => sciezkiGlosu[0].glosnosc === 1), "samo kliknięcie w ścieżkę zmieniło głośność");
 
 // Dźwięk idzie za obrazem
 await v(() => $("wideo").play());
@@ -289,7 +338,7 @@ sprawdz(z.koniec - z.start <= 15.001, "uchwytem da się zaznaczyć GIF dłuższy
 await v(() => przesun("koniec", zakres.start + 4));
 z = await v(() => zakres);
 sprawdz(Math.abs(z.koniec - z.start - 4) < 0.01, "nie da się zrobić krótszego GIF-a");
-sprawdz(await strona.isHidden("#glos-wiersz"), "GIF pokazuje głośność (GIF nie ma dźwięku)");
+sprawdz(await strona.isHidden("#sciezki-dzwieku"), "GIF pokazuje ścieżki dźwięku (GIF nie ma dźwięku)");
 sprawdz(await strona.isHidden("#zachowaj-wiersz"), "GIF pokazuje „Zachowaj oryginał”");
 const rozmiaryGif = await strona.locator("#rozmiary .segment").allTextContents();
 sprawdz(rozmiaryGif.join("|") === "Bez limitu|Do 10 MB (Discord)", `GIF: zły wybór rozmiaru ${rozmiaryGif}`);
@@ -305,8 +354,19 @@ await zrzut("5-gif");
 await v(() => $("okno-odtwarzacza").classList.add("pelny"));
 const fade = await v(() => getComputedStyle($("okno-odtwarzacza"), "::after").backgroundImage);
 sprawdz(fade.includes("gradient"), "brak przyciemnienia pod sterowaniem w pełnym ekranie");
+// W pełnym ekranie kadrowanie znika (wraca po wyjściu), tak samo ścieżki dźwięku
+await v(() => {
+  formatZapisu = "mp4";
+  kadr = kadrNaSrodku();
+  kadrowanie = true;
+  ulozKadr();
+  odswiezEdytor();
+});
+sprawdz((await strona.isHidden("#kadr")) && (await strona.isHidden("#kadruj")) && (await strona.isHidden("#sciezki-dzwieku")), "w pełnym ekranie widać kadrowanie albo ścieżki dźwięku");
 await zrzut("6-pelny");
 await v(() => $("okno-odtwarzacza").classList.remove("pelny"));
+sprawdz((await strona.isVisible("#kadr")) && (await strona.isVisible("#sciezki-dzwieku")), "po wyjściu z pełnego ekranu kadr albo ścieżki nie wracają");
+await strona.click("#kadr-usun");
 
 // Licznik klatek
 await strona.keyboard.press("Control+Shift+D");

@@ -287,6 +287,34 @@ fn obraz_z_opisu(opis: &str) -> (f64, u32, u32) {
     (fps, w, h)
 }
 
+/// Wykres głośności jednej ścieżki dźwięku: `kubelki` wartości 0–255 (szczyt w danym kawałku klipu),
+/// do rysowania ścieżek „Gra” i „Mikrofon” w edytorze. ffmpeg dekoduje ścieżkę do mono 4 kHz —
+/// do wykresu wystarczy, a 10-minutowy klip to niecałe 5 MB próbek.
+pub fn fala(klip: &Path, nr: u32, kubelki: usize) -> Result<Vec<u8>, String> {
+    let wynik = crate::ffmpeg::komenda()
+        .args(["-hide_banner", "-loglevel", "error", "-i"])
+        .arg(klip)
+        .args(["-map", &format!("0:a:{nr}"), "-vn", "-ac", "1", "-ar", "4000", "-f", "s16le", "pipe:1"])
+        .output()
+        .map_err(|e| format!("Nie udało się uruchomić ffmpeg: {e}"))?;
+    if !wynik.status.success() {
+        return Err("ffmpeg nie odczytał ścieżki dźwięku".into());
+    }
+    let probki: Vec<i16> = wynik.stdout.chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]])).collect();
+    Ok(szczyty(&probki, kubelki.clamp(1, 4000)))
+}
+
+/// Dzieli próbki na `kubelki` równych kawałków i z każdego bierze największe wychylenie (0–255).
+fn szczyty(probki: &[i16], kubelki: usize) -> Vec<u8> {
+    (0..kubelki)
+        .map(|i| {
+            let (od, do_) = (i * probki.len() / kubelki, (i + 1) * probki.len() / kubelki);
+            let szczyt = probki[od..do_.max(od)].iter().map(|p| p.unsigned_abs() as u32).max().unwrap_or(0);
+            (szczyt * 255 / 32768).min(255) as u8
+        })
+        .collect()
+}
+
 /// Jedna ścieżka dźwięku klipu jako osobny plik M4A (bez ponownego kodowania), do podglądu
 /// głośności na żywo w edytorze. `nr` liczy ścieżki od 0 (0 = miks, 1 = gra, 2 = mikrofon).
 pub fn dzwiek_podgladu(klip: &Path, nr: u32) -> Result<Vec<u8>, String> {
@@ -315,7 +343,19 @@ fn dlugosc_z_opisu(opis: &str) -> Option<f64> {
 
 #[cfg(test)]
 mod testy {
-    use super::{lista, nazwa_gry_z_opisu, obraz_z_opisu, sprawdz_sciezke};
+    use super::{lista, nazwa_gry_z_opisu, obraz_z_opisu, sprawdz_sciezke, szczyty};
+
+    #[test]
+    fn szczyty_fali() {
+        // Cisza, potem głośno, potem ciszej — po jednym kubełku na każdą część
+        let mut p = vec![0i16; 100];
+        p.extend([i16::MIN; 100]);
+        p.extend([-8192i16, 8192].repeat(50));
+        assert_eq!(szczyty(&p, 3), vec![0, 255, 63]);
+        // Więcej kubełków niż próbek i brak próbek nie wywracają programu
+        assert_eq!(szczyty(&[16384], 4).len(), 4);
+        assert_eq!(szczyty(&[], 5), vec![0; 5]);
+    }
 
     #[test]
     fn fps_i_rozmiar_z_opisu() {

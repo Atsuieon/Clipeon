@@ -38,6 +38,8 @@ pub struct Stan {
     pub gra_proces: String,
     /// Czekamy, aż wybrana gra wystartuje (nagrywanie jest wtedy wstrzymane)
     pub czeka_na_gre: bool,
+    /// Czy mikrofon jest nagrywany (wyłączony = przekreślony mikrofon przy statusie)
+    pub mikrofon: bool,
 }
 
 pub enum Zdarzenie {
@@ -161,6 +163,7 @@ impl Rdzen {
             wybrana_gra: nazwa_wybranej(&w.cfg),
             gra_proces: w.cfg.gra.clone(),
             czeka_na_gre: w.czeka_na_gre,
+            mikrofon: w.cfg.mikrofon,
         }
     }
 

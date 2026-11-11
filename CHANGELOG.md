@@ -7,10 +7,15 @@
   „Do 10 MB (Discord)” sama zmniejsza płynność, rozmiar i liczbę kolorów, aż plik się zmieści.
 - **Kadrowanie obrazu.** Przycisk kadru przy odtwarzaniu (albo klawisz `C`): ramkę na obrazie przesuwasz
   i rozciągasz dowolnie, z opcjonalnymi proporcjami 16:9, 9:16 i 1:1. Kadr działa przy zapisie MP4, GIF i WebP.
-- **Głośność słychać od razu.** Suwaki „Gra” i „Mikrofon” oraz „Z moim głosem / Bez mojego głosu” zmieniają
-  dźwięk już w podglądzie, także powyżej 100%.
+- **Ścieżki dźwięku w edytorze.** Pod osią czasu są dwie ścieżki, „Gra” i „Mikrofon”, z wykresem, na którym
+  widać, w którym momencie klipu co słychać. Linię na ścieżce przeciągasz w górę lub w dół (0–200%, obok
+  procent), ikona przy nazwie wycisza ścieżkę, dwuklik wraca do 100%, kliknięcie przewija klip. Zastępuje to
+  suwaki „Głośność” i przyciski „Mój głos”.
+- **Głośność słychać od razu** — zmiana na ścieżce działa już w podglądzie, także powyżej 100%.
+- **Przekreślony mikrofon przy statusie** („Nagrywa”), gdy Clipeon nie nagrywa mikrofonu.
 - **Przewijanie klawiaturą:** `←` / `→` o 5 s, `,` / `.` (czyli `<` / `>`) o jedną klatkę.
 - **Pełny ekran:** wysokie przyciemnienie pod sterowaniem, więc przyciski i oś czasu widać na każdym obrazie.
+  Kadrowanie i ścieżki dźwięku chowają się na czas pełnego ekranu i wracają po wyjściu.
 - **„Zachowaj oryginał” zamiast „Zastąp oryginał”.** Domyślnie zapisana wersja zastępuje oryginał
   (oryginał trafia do Kosza, bez okienka z pytaniem). Zaznacz „Zachowaj oryginał”, żeby zapisać obok.
 - **Płynniejszy podgląd 60 FPS:** bez rozmycia tła pod odtwarzaczem. `Ctrl+Shift+D` w podglądzie pokazuje,

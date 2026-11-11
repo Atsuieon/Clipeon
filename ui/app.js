@@ -26,6 +26,10 @@ const IKONY = {
   monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>',
   strzalka: '<path d="m6 9 6 6 6-6"/>',
   gra: '<line x1="6" x2="10" y1="11" y2="11"/><line x1="8" x2="8" y1="9" y2="13"/><line x1="15" x2="15.01" y1="12" y2="12"/><line x1="18" x2="18.01" y1="10" y2="10"/><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z"/>',
+  mikrofon: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>',
+  mikrofonWyl: '<line x1="2" x2="22" y1="2" y2="22"/><path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2"/><path d="M5 10v2a7 7 0 0 0 12 5"/><path d="M15 9.34V5a3 3 0 0 0-5.68-1.33"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12"/><line x1="12" x2="12" y1="19" y2="22"/>',
+  glosnik: '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/>',
+  glosnikWyl: '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/>',
   kadr: '<path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/>',
   film: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/>',
 };
@@ -201,6 +205,9 @@ function pokazStan(s) {
     $("baner-kropka").className = "kropka " + (s.bledy.length ? "blad" : "wznawianie");
   }
   $("status-tekst").textContent = tekst;
+  // Przekreślony mikrofon, gdy Clipeon nagrywa bez mikrofonu
+  $("status-mik").innerHTML = ikona("mikrofonWyl");
+  $("status-mik").hidden = s.mikrofon !== false;
   $("status").title = s.bledy.join("\n");
   $("pauza").innerHTML = s.pauza ? zIkona("graj", "Wznów") : zIkona("pauza", "Wstrzymaj");
   $("zapisz-klip").disabled = !s.nagrywa;
@@ -767,6 +774,7 @@ const procent = (t) => (dlugosc ? (t / dlugosc) * 100 : 0);
 function odswiezGlowice() {
   const t = $("wideo").currentTime;
   $("os-glowica").style.left = `${procent(t)}%`;
+  for (const s of sciezkiGlosu) s.pole.querySelector(".fala-glowica").style.left = `${procent(t)}%`;
   $("czas").textContent = `${formatCzas(t)} / ${formatCzas(dlugosc)}`;
 }
 
@@ -827,7 +835,7 @@ function odswiezEdytor() {
   else if (rozmiarDocelowy !== null) b.textContent = `Zapisz jako ${rozmiarDocelowy} MB`;
   else if (kadr) b.textContent = "Zapisz wykadrowany";
   else if (przyciete()) b.textContent = "Zapisz przycięty";
-  else if (maMikrofon && !zGlosem() && glosnosci()[0] === 1) b.textContent = "Zapisz bez mojego głosu";
+  else if (maMikrofon && glosnosci()[1] === 0 && glosnosci()[0] === 1) b.textContent = "Zapisz bez mojego głosu";
   else if (glosnosciZmienione()) b.textContent = "Zapisz z nową głośnością";
   else b.textContent = "Zapisz";
   b.disabled = eksportTrwa || !zmiany() || zaDlugi;
@@ -840,6 +848,9 @@ function odswiezEdytor() {
           ? "Nowa wersja zastąpi oryginał (oryginał trafi do Kosza)."
           : "";
   }
+  // GIF / WebP nie mają dźwięku
+  $("sciezki-dzwieku").hidden = !sciezkiGlosu.length || animacja();
+  odswiezZakresSciezek();
   ustawGlosnoscNaZywo();
   odswiezGlowice();
 }
@@ -906,13 +917,18 @@ listen("postep", (e) => {
   $("eksport-info").textContent = `Zapisuję… ${p}%`;
 });
 
-// Głośność ścieżek dźwięku (Gra / Mikrofon albo jedna ścieżka), 0–200%
-let suwakiGlosu = [];
+// ---------- Edytor: ścieżki dźwięku (Gra / Mikrofon albo jedna) ----------
+// Każda ścieżka to wykres głośności na osi czasu klipu, z poziomą linią głośności (0–200%).
+// Linię przeciąga się w górę i w dół, a zmianę słychać od razu (patrz „głośność słychać od razu”).
+// Każdy wpis: { nazwa, glosnosc (0..2), przed (głośność sprzed wyciszenia), fala (0–255 albo null), el, … }
+let sciezkiGlosu = [];
+let maMikrofon = false;
+const KUBELKI_FALI = 800;
 
 async function przygotujGlosnosc(klip) {
-  const kont = $("glosnosci");
+  const kont = $("sciezki-dzwieku");
   kont.replaceChildren();
-  suwakiGlosu = [];
+  sciezkiGlosu = [];
   let info = { sciezki_audio: 1, fps: 0, szerokosc: 0, wysokosc: 0, webp: false };
   try {
     info = await invoke("info_klipu", { sciezka: klip.sciezka });
@@ -923,63 +939,163 @@ async function przygotujGlosnosc(klip) {
   if (!dlugosc && info.dlugosc) {
     dlugosc = info.dlugosc;
     zakres = { start: 0, koniec: dlugosc };
-    odswiezEdytor();
   }
   // Klip z osobnymi ścieżkami ma: miks, gra, mikrofon
   maMikrofon = info.sciezki_audio >= 3;
-  const nazwy = maMikrofon ? ["Gra", "Mikrofon"] : info.sciezki_audio >= 1 ? ["Dźwięk"] : [];
-  $("mik-grupa").hidden = !nazwy.length;
-  $("z-mikrofonem").disabled = !maMikrofon;
-  $("z-mikrofonem").checked = maMikrofon && (!cfg || cfg.glos_w_edytorze);
-  $("mik-uwaga").textContent = maMikrofon ? "" : "Ten klip nagrano bez mikrofonu.";
-  $("glos-wiersz").hidden = !nazwy.length;
-  for (const nazwa of nazwy) {
-    const wiersz = document.createElement("label");
-    wiersz.className = "glos";
-    const opis = document.createElement("span");
-    opis.textContent = nazwa;
-    const suwak = document.createElement("input");
-    suwak.type = "range";
-    suwak.min = 0;
-    suwak.max = 200;
-    suwak.step = 5;
-    suwak.value = 100;
-    suwak.setAttribute("aria-label", `Głośność: ${nazwa}`);
-    const wartosc = document.createElement("span");
-    wartosc.className = "wartosc-glosu";
-    const wycisz = document.createElement("button");
-    wycisz.type = "button";
-    wycisz.className = "segment";
-    const odswiez = () => {
-      wartosc.textContent = `${suwak.value}%`;
-      wycisz.textContent = Number(suwak.value) === 0 ? "Przywróć" : "Wycisz";
-      odswiezEdytor();
-    };
-    suwak.addEventListener("input", odswiez);
-    wycisz.addEventListener("click", () => {
-      suwak.value = Number(suwak.value) === 0 ? 100 : 0;
-      odswiez();
-    });
-    wiersz.append(opis, suwak, wartosc, wycisz);
-    kont.append(wiersz);
-    suwakiGlosu.push(suwak);
-    odswiez();
-  }
-  $("z-mikrofonem").dispatchEvent(new Event("input"));
+  const opisy = maMikrofon ? [["Gra", "glosnik"], ["Mikrofon", "mikrofon"]] : info.sciezki_audio >= 1 ? [["Dźwięk", "glosnik"]] : [];
+  const numery = maMikrofon ? [1, 2] : [0];
+  const moje = opisy.map(([nazwa, ikonaNazwa], i) => {
+    // Ustawienie „Edytor zaczyna od: Bez głosu” = ścieżka mikrofonu od razu wyciszona
+    const bezGlosu = maMikrofon && i === 1 && cfg && !cfg.glos_w_edytorze;
+    const s = { nazwa, ikonaNazwa, glosnosc: bezGlosu ? 0 : 1, przed: 1, fala: null };
+    s.el = document.createElement("div");
+    s.el.className = "sciezka";
+    s.el.innerHTML =
+      `<div class="sciezka-opis"><span>${nazwa}</span><button type="button" class="wycisz"></button></div>` +
+      `<div class="fala" role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="200" aria-label="Głośność: ${nazwa} (przeciągnij w górę lub w dół, strzałki ↑ ↓)">` +
+      `<canvas></canvas><div class="fala-poza"></div><div class="fala-poza"></div><div class="fala-glowica"></div>` +
+      `<div class="fala-linia"><span class="fala-procent"></span></div></div><div></div>`;
+    s.pole = s.el.querySelector(".fala");
+    s.plotno = s.el.querySelector("canvas");
+    s.linia = s.el.querySelector(".fala-linia");
+    s.wycisz = s.el.querySelector(".wycisz");
+    s.wycisz.addEventListener("click", () => ustawGlosnosc(s, s.glosnosc === 0 ? s.przed : 0));
+    podepnijFale(s);
+    kont.append(s.el);
+    return s;
+  });
+  sciezkiGlosu = moje;
+  odswiezEdytor();
+  ulozSciezki();
+  odswiezSciezki();
   przygotujDzwiekNaZywo(klip, info);
+  // Wykresy dochodzą po chwili (ffmpeg musi przejść przez dźwięk klipu); bez nich zostaje sama linia głośności
+  moje.forEach(async (s, i) => {
+    try {
+      const fala = await invoke("fala_dzwieku", { sciezka: klip.sciezka, nr: numery[i], kubelki: KUBELKI_FALI });
+      if (odtwarzany !== klip || !fala) return;
+      s.fala = Array.from(fala);
+      rysujFale(s);
+    } catch {}
+  });
 }
 
-// Bez głosu = ścieżka mikrofonu wyciszona przy zapisie
-let maMikrofon = false;
-const zGlosem = () => !maMikrofon || $("z-mikrofonem").checked;
-const glosnosci = () => suwakiGlosu.map((s, i) => (maMikrofon && i === 1 && !zGlosem() ? 0 : Number(s.value) / 100));
-const glosnosciZmienione = () => glosnosci().some((g) => g !== 1);
-
-$("z-mikrofonem").addEventListener("input", () => {
-  // Suwak głosu nie ma sensu, gdy głos jest wyłączony
-  if (suwakiGlosu[1]) suwakiGlosu[1].closest(".glos").classList.toggle("wylaczony", !zGlosem());
+function ustawGlosnosc(s, v) {
+  // Co 5%, od 0 do 200%
+  s.glosnosc = Math.min(Math.max(Math.round(v * 20) / 20, 0), 2);
+  if (s.glosnosc > 0) s.przed = s.glosnosc;
+  odswiezSciezki();
   odswiezEdytor();
-});
+}
+
+function odswiezSciezki() {
+  for (const s of sciezkiGlosu) {
+    const p = Math.round(s.glosnosc * 100);
+    s.linia.style.bottom = `${p / 2}%`;
+    s.linia.classList.toggle("nisko", p < 45);
+    s.linia.classList.toggle("wysoko", p > 165);
+    s.linia.firstChild.textContent = `${p}%`;
+    s.pole.setAttribute("aria-valuenow", p);
+    s.pole.setAttribute("aria-valuetext", p === 0 ? "wyciszona" : `${p}%`);
+    s.el.classList.toggle("wyciszona", p === 0);
+    s.wycisz.innerHTML = ikona(p === 0 ? (s.ikonaNazwa === "mikrofon" ? "mikrofonWyl" : "glosnikWyl") : s.ikonaNazwa);
+    s.wycisz.title = p === 0 ? `Włącz: ${s.nazwa}` : `Wycisz: ${s.nazwa}`;
+    s.wycisz.setAttribute("aria-label", s.wycisz.title);
+    rysujFale(s);
+  }
+}
+
+// Wykres: słupki od dołu; pełna wysokość = 200%, więc przy 100% najgłośniejsze miejsca sięgają linii
+function rysujFale(s) {
+  const c = s.plotno;
+  const dpr = window.devicePixelRatio || 1;
+  const [w, h] = [c.clientWidth, c.clientHeight];
+  if (!w || !h) return;
+  if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
+    c.width = Math.round(w * dpr);
+    c.height = Math.round(h * dpr);
+  }
+  const g = c.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  if (!s.fala) return;
+  // Wyciszona ścieżka dalej pokazuje (blado), gdzie jest dźwięk
+  const glosnosc = s.glosnosc === 0 ? 1 : s.glosnosc;
+  g.fillStyle = s.glosnosc === 0 ? "rgba(255, 255, 255, 0.16)" : "rgba(255, 255, 255, 0.5)";
+  const krok = 3;
+  for (let x = 0; x < w; x += krok) {
+    // Najgłośniejsze miejsce z kawałka klipu pod tym słupkiem
+    const od = Math.floor((x / w) * s.fala.length);
+    const ile = Math.max(1, Math.ceil((krok / w) * s.fala.length));
+    let szczyt = 0;
+    for (let i = od; i < od + ile && i < s.fala.length; i++) szczyt = Math.max(szczyt, s.fala[i]);
+    // Pierwiastek, żeby ciche dźwięki (rozmowa, kroki) też było widać
+    const wys = Math.min(h, Math.sqrt(szczyt / 255) * glosnosc * (h / 2));
+    if (wys >= 0.5) g.fillRect(x, h - wys, krok - 1, wys);
+  }
+}
+
+// Przeciąganie w górę / w dół = głośność; samo kliknięcie = przewinięcie w to miejsce klipu
+function podepnijFale(s) {
+  const pole = s.pole;
+  pole.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    pole.setPointerCapture(e.pointerId);
+    const y0 = e.clientY;
+    let ciagnie = false;
+    const ruch = (m) => {
+      if (!ciagnie && Math.abs(m.clientY - y0) < 3) return;
+      ciagnie = true;
+      const r = pole.getBoundingClientRect();
+      ustawGlosnosc(s, ((r.bottom - m.clientY) / r.height) * 2);
+    };
+    const koniec = (k) => {
+      pole.removeEventListener("pointermove", ruch);
+      pole.removeEventListener("pointerup", koniec);
+      pole.removeEventListener("pointercancel", koniec);
+      if (ciagnie || k.type !== "pointerup" || !dlugosc) return;
+      const r = pole.getBoundingClientRect();
+      const t = Math.min(Math.max((k.clientX - r.left) / r.width, 0), 1) * dlugosc;
+      $("wideo").currentTime = Math.min(Math.max(t, zakres.start), Math.max(zakres.koniec - 0.05, zakres.start));
+      odswiezGlowice();
+    };
+    pole.addEventListener("pointermove", ruch);
+    pole.addEventListener("pointerup", koniec);
+    pole.addEventListener("pointercancel", koniec);
+  });
+  pole.addEventListener("dblclick", () => ustawGlosnosc(s, 1));
+  pole.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowUp") ustawGlosnosc(s, s.glosnosc + 0.05);
+    else if (e.key === "ArrowDown") ustawGlosnosc(s, s.glosnosc - 0.05);
+    else if (e.key === "Home") ustawGlosnosc(s, 1);
+    else return;
+    e.preventDefault();
+  });
+}
+
+// Wykresy leżą dokładnie pod osią czasu: ta sama lewa krawędź i szerokość
+function ulozSciezki() {
+  const kont = $("sciezki-dzwieku");
+  const os = $("os").getBoundingClientRect();
+  const k = kont.getBoundingClientRect();
+  if (!os.width || !k.width) return;
+  kont.style.setProperty("--lewo", `${os.left - k.left}px`);
+  kont.style.setProperty("--szer", `${os.width}px`);
+  for (const s of sciezkiGlosu) rysujFale(s);
+}
+new ResizeObserver(ulozSciezki).observe($("os"));
+
+// Przygaszenie poza zaznaczonym fragmentem i głowica odtwarzania na ścieżkach
+function odswiezZakresSciezek() {
+  for (const s of sciezkiGlosu) {
+    const [lewa, prawa] = s.pole.querySelectorAll(".fala-poza");
+    Object.assign(lewa.style, { left: "0", width: `${procent(zakres.start)}%` });
+    Object.assign(prawa.style, { left: `${procent(zakres.koniec)}%`, right: "0" });
+  }
+}
+
+const glosnosci = () => sciezkiGlosu.map((s) => s.glosnosc);
+const glosnosciZmienione = () => glosnosci().some((g) => g !== 1);
 const zmiany = () => przyciete() || rozmiarDocelowy !== null || glosnosciZmienione() || !!kadr || animacja();
 
 function biezaceZlecenie() {
@@ -1100,6 +1216,8 @@ function kadrNaSrodku() {
 }
 
 function przelaczKadrowanie() {
+  // W pełnym ekranie kadrowanie jest schowane (ramka wraca po wyjściu z pełnego ekranu)
+  if (wPelnym()) return;
   if (!wymiaryKlipu()[0]) return dymek("Nie znam rozmiaru obrazu tego klipu — kadrowanie niedostępne");
   kadrowanie = !kadrowanie;
   if (kadrowanie && !kadr) kadr = kadrNaSrodku();
@@ -1184,7 +1302,12 @@ $("kadr").addEventListener("pointerdown", (e) => {
   el.addEventListener("pointerup", koniec);
 });
 new ResizeObserver(ulozKadr).observe($("scena"));
-document.addEventListener("fullscreenchange", () => requestAnimationFrame(ulozKadr));
+document.addEventListener("fullscreenchange", () =>
+  requestAnimationFrame(() => {
+    ulozKadr();
+    ulozSciezki();
+  }),
+);
 
 // ---------- Edytor: głośność słychać od razu ----------
 // Ścieżki gry i mikrofonu (albo jedyna ścieżka) grają osobno, każda przez własny „gain” (0–200%),

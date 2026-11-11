@@ -461,6 +461,14 @@ async fn dzwiek_podgladu(app: AppHandle, sciezka: PathBuf, nr: u32) -> Result<ta
     Ok(tauri::ipc::Response::new(dane))
 }
 
+/// Wykres głośności jednej ścieżki dźwięku (wartości 0–255) do ścieżek dźwięku w edytorze.
+#[tauri::command]
+async fn fala_dzwieku(app: AppHandle, sciezka: PathBuf, nr: u32, kubelki: usize) -> Result<Vec<u8>, String> {
+    let folder = app.state::<Rdzen>().config().folder_klipow;
+    let klip = klipy::sprawdz_sciezke(&folder, &sciezka)?;
+    tauri::async_runtime::spawn_blocking(move || klipy::fala(&klip, nr, kubelki)).await.map_err(|e| e.to_string())?
+}
+
 /// Migracja z wersji 1.0 (nazwa „Clipper”): stary wpis autostartu wskazuje na stary program —
 /// usuwamy go i, jeśli był włączony, włączamy autostart Clipeona.
 fn przenies_autostart_z_clippera(app: &AppHandle) {
@@ -605,6 +613,7 @@ pub fn uruchom() {
             przeciagnij,
             info_klipu,
             dzwiek_podgladu,
+            fala_dzwieku,
             monitory,
             ustaw_tryb,
             ustaw_gre,

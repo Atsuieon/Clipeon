@@ -98,7 +98,7 @@ svg.ikona { width: 18px; height: 18px; stroke: currentColor; stroke-width: 1.5; 
 .akcje { margin-left: auto; display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex: 1 1 auto; min-width: 0; }
 
 .status { display: flex; align-items: center; gap: 8px; color: var(--pomoc); margin-right: 6px; max-width: 280px; min-width: 0; flex: 0 1 auto; }
-.status span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status #status-tekst { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kropka { width: 8px; height: 8px; border-radius: 50%; background: var(--szary); flex: none; }
 .kropka.nagrywa { background: var(--zielony); box-shadow: 0 0 10px rgba(34, 197, 94, 0.55); }
 .kropka.blad { background: var(--czerwony); box-shadow: 0 0 10px rgba(239, 68, 68, 0.55); }
@@ -407,11 +407,7 @@ select option { background: #0a0a0a; }
 .ciagniety { opacity: 0.3; transform: scale(0.94); }
 .segment:disabled { opacity: 0.35; cursor: default; }
 .segment:disabled:hover { background: transparent; color: var(--pomoc); }
-.glosnosci { display: flex; flex-direction: column; gap: 8px; }
-.glos { display: flex; align-items: center; gap: 12px; }
-.glos > span:first-child { min-width: 72px; color: var(--tytul); }
-.glos input[type="range"] { width: 180px; flex: none; }
-.glos.wylaczony { opacity: 0.35; pointer-events: none; }
+
 #formularz > h2.sekcja:first-child { margin-top: 4px; }
 #formularz .karty + h2.sekcja { margin-top: 32px; }
 .wartosc-glosu { min-width: 5ch; text-align: right; white-space: nowrap; color: var(--pomoc); font-variant-numeric: tabular-nums; }
@@ -460,7 +456,7 @@ select option { background: #0a0a0a; }
   .etykieta { min-width: 0; width: 100%; }
 }
 @media (max-width: 700px) {
-  .status span:last-child { display: none; }
+  .status #status-tekst { display: none; }
   .status { margin-right: 0; }
   #pauza span { display: none; }
   #pauza { padding: 9px; }
@@ -627,7 +623,7 @@ input[type="number"]:focus-visible, select:focus-visible { outline: none; border
 @media (max-width: 860px) {
   #zapisz-klip span { display: none; }
   #zapisz-klip { padding: 9px; }
-  .status span:last-child { display: none; }
+  .status #status-tekst { display: none; }
 }
 
 /* ---------- Pigułka: przesuwane podświetlenie zakładek i przełącznika Gra | Pulpit ---------- */
@@ -694,6 +690,52 @@ input[type="number"]:focus-visible, select:focus-visible { outline: none; border
   background: rgba(0, 0, 0, 0.75); color: #fff; font-size: 12px; line-height: 1.5; font-variant-numeric: tabular-nums; white-space: pre; pointer-events: none;
 }
 /* GIF / WebP: bez dźwięku i bez przełącznika dokładnego cięcia */
-.eksport-opcje.animacja #glos-wiersz, .eksport-opcje.animacja #mik-grupa, .eksport-opcje.animacja #dokladnie-wiersz { display: none; }
+.eksport-opcje.animacja #dokladnie-wiersz { display: none; }
 .kadr-warstwa.podglad { pointer-events: none; }
 .kadr-warstwa.podglad .kadr-uchwyt, .kadr-warstwa.podglad .kadr::before { display: none; }
+
+/* Przekreślony mikrofon przy statusie, gdy Clipeon nie nagrywa mikrofonu */
+.status-mik { display: flex; flex: none; color: var(--pomoc); }
+.status-mik[hidden] { display: none; }
+.status-mik .ikona { width: 15px; height: 15px; }
+
+/* ---------- Edytor: ścieżki dźwięku pod osią czasu ---------- */
+/* Kolumny: opis ścieżki | wykres dokładnie pod osią czasu (--lewo i --szer ustawia app.js) | odstęp */
+.sciezki-dzwieku { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 10px; }
+.sciezki-dzwieku[hidden] { display: none; }
+.sciezka { display: grid; grid-template-columns: var(--lewo, 230px) var(--szer, 1fr) minmax(0, 1fr); align-items: center; }
+.sciezka-opis { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 0 14px 0 22px; color: var(--pomoc); font-size: 13px; min-width: 0; }
+.sciezka-opis span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sciezka-opis .wycisz {
+  display: grid; place-items: center; flex: none; width: 28px; height: 28px; padding: 0; border: 1px solid var(--ramka-pola); border-radius: 50%;
+  background: transparent; color: var(--tytul); cursor: pointer; transition: background var(--czas), color var(--czas);
+}
+.sciezka-opis .wycisz:hover { background: var(--hover); }
+.sciezka-opis .wycisz .ikona { width: 14px; height: 14px; }
+.fala {
+  position: relative; height: 44px; border-radius: 8px; background: #0c0c0c; border: 1px solid var(--ramka-karty);
+  cursor: ns-resize; touch-action: none; overflow: hidden; outline: none;
+}
+.fala:focus-visible { border-color: #fff; }
+.fala canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+/* Poza zaznaczonym fragmentem klipu wykres jest przygaszony */
+.fala-poza { position: absolute; top: 0; bottom: 0; background: rgba(0, 0, 0, 0.6); pointer-events: none; }
+.fala-glowica { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #fff; pointer-events: none; }
+/* Linia głośności: dół = 0%, środek = 100%, góra = 200% */
+.fala-linia { position: absolute; left: 0; right: 0; height: 0; border-top: 1.5px solid #fff; pointer-events: none; }
+.fala-procent {
+  position: absolute; right: 6px; top: -9px; padding: 1px 7px; border-radius: 999px; background: #fff; color: #000;
+  font-size: 11px; line-height: 16px; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+/* Etykieta nie wychodzi poza wykres przy 0% i 200% */
+.fala-linia.nisko .fala-procent { top: -19px; }
+.fala-linia.wysoko .fala-procent { top: 1px; }
+.sciezka.wyciszona .fala-linia { border-top-color: var(--pomoc); }
+.sciezka.wyciszona .fala-procent { background: var(--pomoc); }
+.sciezka.wyciszona .wycisz { color: var(--pomoc); }
+/* W pełnym ekranie zostaje sam obraz ze sterowaniem: bez ścieżek dźwięku i bez kadrowania */
+.okno-odtwarzacza.pelny .sciezki-dzwieku, .okno-odtwarzacza.pelny .kadr-warstwa, .okno-odtwarzacza.pelny #kadruj { display: none; }
+@media (max-width: 760px) {
+  .sciezka-opis { padding-left: 14px; }
+  .sciezka-opis span { display: none; }
+}
