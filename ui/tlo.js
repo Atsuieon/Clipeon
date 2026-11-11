@@ -14,13 +14,14 @@ window.Tlo = (() => {
   const CZCIONKA = 'bold 10px Consolas, "Cascadia Mono", "Courier New", monospace';
   const WIERSZ = 12; // wysokość komórki w px
   const KLATKA_MS = 1000 / 60;
+  const TEMPO = 0.45; // jak szybko płyną fale i mienią się znaki (1 = dawna, szybka wersja)
   // Jasność znaków: kropki tła, brzeg, napis, poświata, środek poświaty
   const POZIOMY = [0.09, 0.15, 0.24, 0.45, 0.7];
   // Poświata: promień w px (odchylenie krzywej dzwonowej), czas gaśnięcia i rozjaśniania
   const PROMIEN_X = 62;
   const PROMIEN_Y = 44;
-  const GASNIE_MS = 650; // po tylu ms ślad ma ok. 1/3 jasności
-  const ROZJASNIA = 0.3; // jaką część drogi do pełnej jasności robi jedno dotknięcie
+  const GASNIE_MS = 1300; // po tylu ms ślad ma ok. 1/3 jasności
+  const ROZJASNIA = 0.14; // jaką część drogi do pełnej jasności robi jedno dotknięcie
   // Nad tym poświata nie idzie za myszką
   const BEZ_POSWIATY =
     "button, a, input, select, textarea, label, summary, .karta, .menu, .nakladka, .belka, .baner, .pasek-zaznaczenia, .dymek, .gora";
@@ -91,7 +92,7 @@ window.Tlo = (() => {
   }
 
   function rysuj() {
-    const t = czas / 1000;
+    const t = (czas / 1000) * TEMPO;
     ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
     const linie = POZIOMY.map(() => new Array(kolumny));
     for (let y = 0; y < wiersze; y++) {

@@ -147,12 +147,13 @@ for (let i = 0; i < 12; i++) {
   await strona.mouse.move(500 + i * 6, 640 + (i % 3) * 4);
   await strona.waitForTimeout(40);
 }
+await strona.waitForTimeout(400); // poświata rozjaśnia się powoli
 sprawdz((await jasneZnaki(560, 640)) > 20, "poświata nie idzie za myszką nad pustym tłem");
 await zrzut("0a-tlo-poswiata");
 // …a nad przyciskiem gaśnie
 const przyciskFolder = await strona.locator("#otworz-folder").boundingBox();
 await strona.mouse.move(przyciskFolder.x + 10, przyciskFolder.y + 10);
-await strona.waitForTimeout(2500);
+await strona.waitForTimeout(4000);
 sprawdz((await jasneZnaki(560, 640)) === 0 && (await jasneZnaki(przyciskFolder.x + 10, przyciskFolder.y + 10)) === 0, "poświata nie gaśnie, gdy mysz jest nad przyciskiem");
 // Napis „Clipeon” ma zorzę (kolorowe tło przycięte do liter)
 const marka = await strona.evaluate(() => {
