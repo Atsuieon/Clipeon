@@ -1,6 +1,6 @@
 # Zmiany
 
-## 1.3.5
+## 1.3.9
 
 - **GIF i WebP z klipu.** W edytorze nowy wybór „Format: MP4 | GIF | WebP”. Animacja jest zapętlona
   (na Discordzie gra w kółko), bez dźwięku i ma najwyżej 15 s (krótsza — dowolnie). Opcja
