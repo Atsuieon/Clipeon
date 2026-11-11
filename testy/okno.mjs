@@ -77,6 +77,19 @@ for (const id of ["okno-min", "okno-max", "okno-zamknij"]) {
   sprawdz((await strona.locator(`#${id} svg`).count()) === 1, `przycisk #${id} nie ma ikony`);
 }
 
+// Różne stany rdzenia nie mogą wywrócić okna
+for (const zmiana of [
+  { pauza: true, nagrywa: false },
+  { czeka_na_gre: true, nagrywa: false, wybrana_gra: "Gra <b>testowa</b>", gra_proces: "gra.exe" },
+  { bledy: ["Nie udało się uruchomić nagrywania"], nagrywa: false },
+  { wznawianie: "brak nowych klatek" },
+  { tryb: "pulpit", ekran: "Ekran 2" },
+]) {
+  await strona.evaluate((z) => pokazStan({ ...stan, ...z }), zmiana);
+}
+sprawdz((await strona.textContent("#wybor")).includes("Ekran 2"), "w trybie pulpitu przycisk nie pokazuje ekranu");
+await strona.evaluate(() => pokazStan({ ...stan, tryb: "gra", pauza: false, czeka_na_gre: false, bledy: [], wznawianie: null, nagrywa: true }));
+
 // Tryb gry: zamiast wyboru ekranu lista działających gier
 await strona.click("#wybor");
 await strona.waitForSelector("#lista-wyboru [role=option]", { timeout: 3000 }).catch(() => {});
