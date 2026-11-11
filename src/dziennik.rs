@@ -1,5 +1,6 @@
 // Dziennik zdarzeń w %APPDATA%\Clipeon\logs\clipeon.log (z rotacją: najwyżej 3 pliki po 1 MB).
 // Trafiają tu błędy, wznowienia nagrywania i awarie wątków — żeby dało się sprawdzić, co się stało.
+use crate::Zablokuj;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -24,7 +25,7 @@ fn znacznik_czasu() -> String {
 /// Dopisuje linię do dziennika (i na konsolę w wersji debug).
 pub fn zapisz(poziom: &str, tekst: &str) {
     static ZAMEK: Mutex<()> = Mutex::new(());
-    let _z = ZAMEK.lock().unwrap_or_else(|e| e.into_inner());
+    let _z = ZAMEK.zablokuj();
     eprintln!("[{poziom}] {tekst}");
     let sciezka = plik();
     let _ = std::fs::create_dir_all(folder());

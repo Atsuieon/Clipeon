@@ -1,5 +1,6 @@
 // Dźwięk: WASAPI (loopback = to, co słychać w głośnikach, albo mikrofon) -> ffmpeg AAC -> ramki ADTS w buforze RAM.
 // Czas ramek liczony z zegara QPC, tak samo jak dla obrazu, więc synchronizacja wychodzi sama.
+use crate::Zablokuj;
 use crate::bufor::{Pakiet, WspolnyBufor, teraz_100ns};
 use std::io::{Read, Write};
 use std::process::{ChildStdin, Stdio};
@@ -111,12 +112,6 @@ fn sesja(
             None => enumerator.GetDefaultAudioEndpoint(kierunek, eConsole)?,
         };
         // Identyfikator urządzenia: gdy użytkownik zmieni domyślne (np. na słuchawki), zaczynamy od nowa
-        let id_urzadzenia = |u: &windows::Win32::Media::Audio::IMMDevice| -> Option<String> {
-            let p = u.GetId().ok()?;
-            let s = p.to_string().ok();
-            CoTaskMemFree(Some(p.0 as *const _));
-            s
-        };
         let id_start = id_urzadzenia(&urzadzenie);
         let mut klient: IAudioClient = urzadzenie.Activate(CLSCTX_ALL, None)?;
 
@@ -197,7 +192,7 @@ fn sesja(
                     let czas = t0 + (k - 1) * RAMKA_AAC * 10_000_000 / czestotliwosc as i64;
                     k += 1;
                     let ramka: Box<[u8]> = dane[poz..poz + dl].into();
-                    bufor_watku.lock().unwrap_or_else(|e| e.into_inner()).dodaj(Pakiet { czas, klucz: true, dane: ramka.into() });
+                    bufor_watku.zablokuj().dodaj(Pakiet { czas, klucz: true, dane: ramka.into() });
                     poz += dl;
                 }
                 dane.drain(..poz);
@@ -336,6 +331,16 @@ fn dlugosc_adts(d: &[u8]) -> Option<usize> {
     (dl >= 7 && d.len() >= dl).then_some(dl)
 }
 
+/// Stały identyfikator urządzenia audio (zapisywany w ustawieniach, porównywany przy zmianie domyślnego).
+fn id_urzadzenia(urzadzenie: &IMMDevice) -> Option<String> {
+    unsafe {
+        let p = urzadzenie.GetId().ok()?;
+        let s = p.to_string().ok();
+        CoTaskMemFree(Some(p.0 as *const _));
+        s
+    }
+}
+
 /// Urządzenie o danym identyfikatorze, jeśli jest podłączone i włączone.
 fn urzadzenie_po_id(enumerator: &IMMDeviceEnumerator, id: &str) -> Option<IMMDevice> {
     let szeroki: Vec<u16> = id.encode_utf16().chain(std::iter::once(0)).collect();
@@ -355,32 +360,35 @@ pub struct Mikrofon {
     pub domyslny: bool,
 }
 
-/// Podłączone mikrofony. Pusta lista = nic nie znaleziono (albo COM nie wystartował).
+/// Podłączone mikrofony (domyślny pierwszy). Liczbę i błędy zapisujemy w dzienniku, gdy się zmienią.
 pub fn mikrofony() -> Vec<Mikrofon> {
+    static OSTATNIO: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+    let (lista, opis) = match lista_mikrofonow() {
+        Ok(l) => {
+            let opis = format!("Mikrofony w systemie: {}", l.len());
+            (l, opis)
+        }
+        Err(e) => (Vec::new(), format!("Nie udało się odczytać listy mikrofonów: {e}")),
+    };
+    let mut ostatnio = OSTATNIO.zablokuj();
+    if ostatnio.as_deref() != Some(opis.as_str()) {
+        crate::dziennik::info(&opis);
+        *ostatnio = Some(opis);
+    }
+    lista
+}
+
+fn lista_mikrofonow() -> windows::core::Result<Vec<Mikrofon>> {
     unsafe {
         // Polecenie z okna leci innym wątkiem niż nagrywanie, więc COM inicjujemy tutaj
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-        let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL) else {
-            return Vec::new();
-        };
-        let domyslny = enumerator
-            .GetDefaultAudioEndpoint(eCapture, eConsole)
-            .ok()
-            .and_then(|u| u.GetId().ok())
-            .map(|p| {
-                let s = p.to_string().unwrap_or_default();
-                CoTaskMemFree(Some(p.0 as *const _));
-                s
-            })
-            .unwrap_or_default();
-        let Ok(lista) = enumerator.EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE) else { return Vec::new() };
-        let ile = lista.GetCount().unwrap_or(0);
+        let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
+        let domyslny = enumerator.GetDefaultAudioEndpoint(eCapture, eConsole).ok().and_then(|u| id_urzadzenia(&u)).unwrap_or_default();
+        let lista = enumerator.EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE)?;
+        let ile = lista.GetCount()?;
         let mut mikrofony = Vec::new();
         for i in 0..ile {
-            let Ok(urzadzenie) = lista.Item(i) else { continue };
-            let Ok(wsk) = urzadzenie.GetId() else { continue };
-            let id = wsk.to_string().unwrap_or_default();
-            CoTaskMemFree(Some(wsk.0 as *const _));
+            let Some((urzadzenie, id)) = lista.Item(i).ok().and_then(|u| id_urzadzenia(&u).map(|id| (u, id))) else { continue };
             if id.is_empty() {
                 continue;
             }
@@ -388,7 +396,7 @@ pub fn mikrofony() -> Vec<Mikrofon> {
             mikrofony.push(Mikrofon { domyslny: id == domyslny, id, nazwa });
         }
         mikrofony.sort_by(|a, b| b.domyslny.cmp(&a.domyslny).then_with(|| a.nazwa.cmp(&b.nazwa)));
-        mikrofony
+        Ok(mikrofony)
     }
 }
 

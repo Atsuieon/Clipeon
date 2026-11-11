@@ -1,4 +1,5 @@
 // Biblioteka klipów: lista plików MP4 z folderu klipów, miniatury (z pamięcią podręczną), usuwanie.
+use crate::Zablokuj;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -34,7 +35,7 @@ pub fn lista(folder: &Path) -> Vec<Klip> {
             zbierz(&w.path(), &mut klipy);
         }
     }
-    klipy.sort_by(|a, b| b.czas_ms.cmp(&a.czas_ms));
+    klipy.sort_by_key(|k| std::cmp::Reverse(k.czas_ms));
     klipy
 }
 
@@ -169,7 +170,7 @@ pub struct Uzywany(String);
 
 impl Drop for Uzywany {
     fn drop(&mut self) {
-        let mut l = W_UZYCIU.lock().unwrap_or_else(|e| e.into_inner());
+        let mut l = W_UZYCIU.zablokuj();
         if let Some(i) = l.iter().position(|x| *x == self.0) {
             l.remove(i);
         }
@@ -178,12 +179,12 @@ impl Drop for Uzywany {
 
 pub fn uzywaj(p: &Path) -> Uzywany {
     let k = klucz_uzycia(p);
-    W_UZYCIU.lock().unwrap_or_else(|e| e.into_inner()).push(k.clone());
+    W_UZYCIU.zablokuj().push(k.clone());
     Uzywany(k)
 }
 
 pub fn w_uzyciu(p: &Path) -> bool {
-    W_UZYCIU.lock().unwrap_or_else(|e| e.into_inner()).contains(&klucz_uzycia(p))
+    W_UZYCIU.zablokuj().contains(&klucz_uzycia(p))
 }
 
 /// Przenosi klip do Kosza (da się go przywrócić) i usuwa jego miniaturę.

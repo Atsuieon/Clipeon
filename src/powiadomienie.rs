@@ -93,14 +93,16 @@ pub fn pokaz(miejsce: Miejsce, tytul: &str, opis: &str, blad: bool, trwale: bool
         // Obraz dymka w pamięci (32 bit, od góry)
         let ekran = GetDC(None);
         let dc = CreateCompatibleDC(Some(ekran));
-        let mut info = BITMAPINFO::default();
-        info.bmiHeader = BITMAPINFOHEADER {
-            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-            biWidth: szer,
-            biHeight: -wys,
-            biPlanes: 1,
-            biBitCount: 32,
-            biCompression: BI_RGB.0,
+        let info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: szer,
+                biHeight: -wys,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let mut bity: *mut std::ffi::c_void = std::ptr::null_mut();

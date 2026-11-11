@@ -3,6 +3,7 @@
 // Wszystkie są dostępne w buildzie FFmpeg na licencji LGPL (bez GPL-owego x264).
 // Próby robimy w rozdzielczości nagrywanego ekranu (karta może nie obsłużyć np. ultrawide w H.264),
 // a wyniki pamiętamy na dysku (pamiec.rs), żeby kolejny start nie uruchamiał ffmpeg kilkanaście razy.
+use crate::Zablokuj;
 use crate::karty::Producent;
 use std::sync::OnceLock;
 
@@ -81,16 +82,20 @@ pub struct Proba {
     pub w: u32,
     pub h: u32,
     pub tekstura: Option<u32>,
+    /// Wyjście (ekran) tej karty: próba bierze wtedy prawdziwy obraz z ddagrab, a nie wgrany
+    /// sztuczny. h264_amf na RX 7900 XTX przyjmował wgrany obraz, a na klatkach z przechwytywania padał.
+    pub ekran: Option<u32>,
 }
 
 impl Proba {
     pub fn zwykla(w: u32, h: u32) -> Self {
-        Proba { w, h, tekstura: None }
+        Proba { w, h, tekstura: None, ekran: None }
     }
 
     fn klucz(&self, e: &Enkoder) -> String {
         let t = self.tekstura.map(|k| format!("/d3d11:{k}")).unwrap_or_default();
-        format!("{}@{}x{}{t}", e.nazwa, self.w, self.h)
+        let ekran = self.ekran.map(|o| format!("/dda:{o}")).unwrap_or_default();
+        format!("{}@{}x{}{t}{ekran}", e.nazwa, self.w, self.h)
     }
 }
 
@@ -100,7 +105,7 @@ type Wyniki = std::collections::HashMap<String, (bool, String, std::time::Instan
 static WYNIKI: OnceLock<std::sync::Mutex<Wyniki>> = OnceLock::new();
 
 fn wyniki() -> std::sync::MutexGuard<'static, Wyniki> {
-    WYNIKI.get_or_init(Default::default).lock().unwrap_or_else(|x| x.into_inner())
+    WYNIKI.get_or_init(Default::default).zablokuj()
 }
 
 /// Czy enkoder działa tutaj przy danej próbie. Kolejność: wynik z tego uruchomienia, wynik z dysku
@@ -117,7 +122,7 @@ fn dziala_przy(e: &'static Enkoder, p: Proba) -> bool {
         }
     if !w.contains_key(&klucz)
         && let Some(z) = crate::pamiec::pamiec().proby.get(&klucz).cloned()
-            && (z.ok || blad_sprzetu(&z.powod)) {
+            && (z.ok || blad_sprzetu(&z.powod) || (p.tekstura.is_some() && blad_tekstur(&z.powod))) {
                 w.insert(klucz, (z.ok, z.powod, Instant::now()));
                 return z.ok;
             }
@@ -144,8 +149,9 @@ fn dziala(e: &'static Enkoder) -> bool {
 
 /// Czy enkoder przyjmie tekstury D3D11 z karty `karta` w rozdzielczości w×h (warunek przechwytywania
 /// przez ffmpeg bez kopiowania obrazu do pamięci RAM).
-pub fn dziala_z_tekstura(nazwa: &str, w: u32, h: u32, karta: u32) -> bool {
-    znajdz(nazwa).is_some_and(|e| przyjmuje_tekstury(nazwa) && dziala_przy(e, Proba { w, h, tekstura: Some(karta) }))
+/// `ekran` = wyjście tej karty z monitorem (próba na prawdziwym obrazie z ekranu), gdy jest znane.
+pub fn dziala_z_tekstura(nazwa: &str, w: u32, h: u32, karta: u32, ekran: Option<u32>) -> bool {
+    znajdz(nazwa).is_some_and(|e| przyjmuje_tekstury(nazwa) && dziala_przy(e, Proba { w, h, tekstura: Some(karta), ekran }))
 }
 
 /// Najstarszy sterownik NVIDIA obsługiwany przez NVENC w dołączonym FFmpeg 8.1 (SDK 13).
@@ -155,7 +161,7 @@ const MIN_NVIDIA: f64 = 570.0;
 static OSTRZEZENIE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 fn ostrzez(tekst: String) {
-    let mut o = OSTRZEZENIE.lock().unwrap_or_else(|x| x.into_inner());
+    let mut o = OSTRZEZENIE.zablokuj();
     if o.is_none() {
         crate::dziennik::blad(&tekst);
         *o = Some(tekst);
@@ -174,7 +180,7 @@ pub fn ostrzezenie() -> Option<String> {
             ));
         }
     });
-    OSTRZEZENIE.lock().unwrap_or_else(|x| x.into_inner()).clone()
+    OSTRZEZENIE.zablokuj().clone()
 }
 
 /// Enkoder sprzętowy (karta), a nie procesor.
@@ -226,6 +232,28 @@ fn blad_sprzetu(powod: &str) -> bool {
     .any(|x| p.contains(x))
 }
 
+/// Enkoder odrzuca klatki prosto z karty (h264_amf: „SubmitInput() failed with error 18”, a w ostatnich
+/// liniach komunikatu „Error encoding a frame”). To cecha sterownika i ffmpeg, a nie chwilowy stan —
+/// pamiętamy ją do ich zmiany, więc kolejne starty od razu nagrywają drogą przez RAM bez próby.
+/// Chwilowe kłopoty przechwytywania (ekran UAC, gra na pełnym ekranie) mają inne komunikaty.
+fn blad_tekstur(powod: &str) -> bool {
+    let p = powod.to_lowercase();
+    p.contains("submitinput") || p.contains("error encoding a frame")
+}
+
+/// Poprawione znaczniki kolorów, gdy enkoder AMD dostaje obraz BGRA prosto z karty (ddagrab, gfxcapture).
+/// Przelicza go na YUV BT.709 i dobrze zapisuje zakres, ale jako macierz wpisuje „RGB” (gbr) — odtwarzacz
+/// pokazałby wtedy złe kolory. Zakres zostaje taki, jaki wpisał enkoder (hevc: pełny, zgodnie z treścią).
+/// av1_amf znaczy kolory dobrze (TV, BT.709), a przepisanie nagłówka AV1 z „RGB” mogłoby zmienić podpróbkowanie.
+pub fn znaczniki_tekstur(nazwa: &str) -> Vec<String> {
+    let filtr = match nazwa {
+        "h264_amf" => "h264_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1",
+        "hevc_amf" => "hevc_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1",
+        _ => return Vec::new(),
+    };
+    s(&["-bsf:v", filtr])
+}
+
 /// „The minimum required Nvidia driver for nvenc is 570.0 or newer” -> Some("570.0").
 fn wymagany_sterownik_nvidia(powod: &str) -> Option<String> {
     let reszta = powod.split("required Nvidia driver for nvenc is ").nth(1)?;
@@ -250,12 +278,22 @@ fn proba(e: &Enkoder, p: Proba) -> Result<(), String> {
     if let Some(karta) = p.tekstura {
         cmd.args(["-init_hw_device", &format!("d3d11va=gpu:{karta}"), "-filter_hw_device", "gpu"]);
     }
-    cmd.args(["-f", "lavfi", "-i", &format!("color=black:s={}x{}:r=30", p.w, p.h)]).args(["-frames:v", "3"]);
-    if p.tekstura.is_some() {
-        cmd.args(["-vf", "format=bgra,hwupload"]);
-    } else if let Some(f) = format_wejscia(e.nazwa) {
-        cmd.args(["-pix_fmt", f]);
+    match (p.tekstura, p.ekran) {
+        // Prawdziwy obraz z ekranu, tak jak przy nagrywaniu (ddagrab daje klatki także przy nieruchomym ekranie)
+        (Some(_), Some(o)) => {
+            cmd.args(["-filter_complex", &format!("ddagrab=output_idx={o}:framerate=30:video_size={}x{}", p.w, p.h)]);
+        }
+        (Some(_), None) => {
+            cmd.args(["-f", "lavfi", "-i", &format!("color=black:s={}x{}:r=30", p.w, p.h), "-vf", "format=bgra,hwupload"]);
+        }
+        (None, _) => {
+            cmd.args(["-f", "lavfi", "-i", &format!("color=black:s={}x{}:r=30", p.w, p.h)]);
+            if let Some(f) = format_wejscia(e.nazwa) {
+                cmd.args(["-pix_fmt", f]);
+            }
+        }
     }
+    cmd.args(["-frames:v", "3"]);
     cmd.args(wybor_enkodera(e))
         .args(["-f", "null", "-"])
         .stdout(std::process::Stdio::null())
@@ -539,6 +577,31 @@ mod testy {
         assert!(((w as f64 / h as f64) - 5120.0 / 1440.0).abs() < 0.01);
         let (w, h) = zmniejszony(7680, 4320).unwrap();
         assert!(w <= 4096 && h <= 2304 && w % 2 == 0 && h % 2 == 0);
+    }
+
+    #[test]
+    fn proba_na_obrazie_z_ekranu_ma_wlasny_klucz() {
+        let e = znajdz("h264_amf").unwrap();
+        let wgrany = Proba { w: 1920, h: 1080, tekstura: Some(0), ekran: None };
+        let z_ekranu = Proba { ekran: Some(1), ..wgrany };
+        assert_eq!(wgrany.klucz(e), "h264_amf@1920x1080/d3d11:0");
+        assert_eq!(z_ekranu.klucz(e), "h264_amf@1920x1080/d3d11:0/dda:1");
+    }
+
+    #[test]
+    fn odrzucone_tekstury_to_trwaly_blad() {
+        assert!(blad_tekstur("[h264_amf @ 0x1] SubmitInput() failed with error 18"));
+        // Prawdziwy powód z RX 7900 XTX (ostatnie linie komunikatu próby)
+        assert!(blad_tekstur(
+            "[vost#0:0/h264_amf @ 0x1] Error encoding a frame: Unknown error occurred | [vost#0:0/h264_amf @ 0x1] Task finished with error code: -1313558101"
+        ));
+        assert!(!blad_tekstur("[Parsed_ddagrab_0 @ 0x1] AcquireNextFrame failed: 887a0026"));
+    }
+
+    #[test]
+    fn znaczniki_tekstur_tylko_dla_amf() {
+        assert_eq!(znaczniki_tekstur("hevc_amf")[1], "hevc_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1");
+        assert!(znaczniki_tekstur("h264_nvenc").is_empty());
     }
 
     #[test]

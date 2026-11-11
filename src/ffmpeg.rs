@@ -2,6 +2,7 @@
 // (folder „ffmpeg” obok Clipeon.exe), potem ffmpeg z PATH (z pominięciem pośrednika chocolatey).
 // Procesy nagrywania (obraz, dźwięk) dostają wyższy priorytet i nie są dławione przez Windows 11,
 // a ich numery trafiają na listę, z której liczymy zużycie procesora do dziennika.
+use crate::Zablokuj;
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command};
@@ -73,7 +74,7 @@ pub fn uruchom_nagrywanie(cmd: &mut Command, opis: &'static str) -> std::io::Res
         use std::os::windows::io::AsRawHandle;
         bez_dlawienia(windows::Win32::Foundation::HANDLE(proces.as_raw_handle()));
     }
-    let mut l = PROCESY.lock().unwrap_or_else(|e| e.into_inner());
+    let mut l = PROCESY.zablokuj();
     l.retain(|(pid, _)| crate::pomiar::zyje(*pid));
     l.push((proces.id(), opis));
     Ok(proces)
@@ -81,7 +82,7 @@ pub fn uruchom_nagrywanie(cmd: &mut Command, opis: &'static str) -> std::io::Res
 
 /// Działające procesy nagrywania (martwe usuwa z listy).
 pub fn procesy() -> Vec<(u32, &'static str)> {
-    let mut l = PROCESY.lock().unwrap_or_else(|e| e.into_inner());
+    let mut l = PROCESY.zablokuj();
     l.retain(|(pid, _)| crate::pomiar::zyje(*pid));
     l.clone()
 }

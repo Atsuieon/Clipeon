@@ -1,6 +1,7 @@
 // Rdzeń nagrywania: sesja (obraz + dźwięk), pauza, restart po zmianie ustawień, skrót i zapis klipu,
 // tryb gry / pulpitu, wybór drogi przechwytywania (z przejściem na następną, gdy zawiedzie) i strażnik.
 // Działa niezależnie od okna — UI dostaje tylko powiadomienia.
+use crate::Zablokuj;
 use crate::audio::{self, Zrodlo};
 use crate::bufor::{Bufor, WspolnyBufor};
 use crate::config::Config;
@@ -31,8 +32,10 @@ pub struct Stan {
     pub droga: Option<String>,
     /// Nazwa gry, która jest teraz na wierzchu nagrywanego ekranu
     pub gra: Option<String>,
-    /// Gra wybrana w ustawieniach (pusta = nagrywaj zawsze)
+    /// Nazwa gry wybranej na pasku (pusta = nagrywaj zawsze)
     pub wybrana_gra: String,
+    /// Plik programu wybranej gry, np. „cs2.exe” (pusty = automatycznie)
+    pub gra_proces: String,
     /// Czekamy, aż wybrana gra wystartuje (nagrywanie jest wtedy wstrzymane)
     pub czeka_na_gre: bool,
 }
@@ -123,7 +126,7 @@ impl Rdzen {
 
     /// Blokada stanu odporna na „zatrucie” (awarię innego wątku w trakcie blokady).
     fn zamek(&self) -> MutexGuard<'_, Wnetrze> {
-        self.w.lock().unwrap_or_else(|e| e.into_inner())
+        self.w.zablokuj()
     }
 
     pub fn config(&self) -> Config {
@@ -143,7 +146,8 @@ impl Rdzen {
             monitor: monitor.to_string(),
             droga: w.sesja.as_ref().map(|s| s._wideo.droga.nazwa().to_string()),
             gra: w.gra.as_ref().map(|g| g.nazwa.clone()),
-            wybrana_gra: if w.cfg.gra.is_empty() { String::new() } else { nazwa_wybranej(&w.cfg) },
+            wybrana_gra: nazwa_wybranej(&w.cfg),
+            gra_proces: w.cfg.gra.clone(),
             czeka_na_gre: w.czeka_na_gre,
         }
     }
@@ -346,6 +350,18 @@ impl Rdzen {
         self.zmien_config(cfg)
     }
 
+    /// Wybór gry z paska w oknie (pusty proces = nagrywaj zawsze). Bez restartu nagrywania:
+    /// strażnik gry od razu uruchamia albo wstrzymuje bufor, gdy trzeba.
+    pub fn ustaw_gre(&self, proces: String, nazwa: String) {
+        crate::dziennik::info(&if proces.is_empty() { "Gra: automatycznie".to_string() } else { format!("Gra: {nazwa} ({proces})") });
+        self.zmien_bez_restartu(|c| {
+            c.gra = proces;
+            c.gra_nazwa = nazwa;
+        });
+        self.pilnuj_gry();
+        self.wyslij_stan();
+    }
+
     /// Zmiana configu, która nie wymaga restartu nagrywania (zapis na dysk).
     pub fn zmien_bez_restartu(&self, zmiana: impl FnOnce(&mut Config)) {
         let mut w = self.zamek();
@@ -393,9 +409,9 @@ impl Rdzen {
         let (migawka, folder, pauza, czeka, czeka_na, gra) = {
             let w = self.zamek();
             let migawka = w.sesja.as_ref().map(|s| {
-                let wideo = s.bufor_wideo.lock().unwrap_or_else(|e| e.into_inner()).migawka();
+                let wideo = s.bufor_wideo.zablokuj().migawka();
                 let audio: Vec<_> =
-                    s.bufory_audio.iter().map(|(n, b)| (*n, b.lock().unwrap_or_else(|e| e.into_inner()).migawka())).collect();
+                    s.bufory_audio.iter().map(|(n, b)| (*n, b.zablokuj().migawka())).collect();
                 (wideo, audio, s.format_wideo, s._wideo.fps, s.pulpit)
             });
             (
@@ -451,9 +467,9 @@ impl Rdzen {
 
         if wybrana.is_empty() {
             if czekal {
-                self.zamek().czeka_na_gre = false;
-            }
-            if zmiana_nazwy || czekal {
+                // Wybór gry skasowany, a bufor czekał na grę — nagrywamy od razu
+                self.uruchom();
+            } else if zmiana_nazwy {
                 self.wyslij_stan();
             }
             return;
@@ -506,7 +522,7 @@ impl Rdzen {
         if sesja._wideo.droga == Droga::Gfx {
             return None;
         }
-        let ostatnia = sesja.bufor_wideo.lock().unwrap_or_else(|e| e.into_inner()).ostatni_czas();
+        let ostatnia = sesja.bufor_wideo.zablokuj().ostatni_czas();
         let teraz = crate::bufor::teraz_100ns();
         match ostatnia {
             Some(t) if teraz - t <= BEZ_KLATEK * 10_000_000 => None,
@@ -842,7 +858,7 @@ fn problem_inny_dlugo(r: &Rdzen) -> bool {
     use std::sync::OnceLock;
     static OD: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
     let od = OD.get_or_init(|| Mutex::new(None));
-    let mut od = od.lock().unwrap_or_else(|e| e.into_inner());
+    let mut od = od.zablokuj();
     let jest = r.zamek().bledy.keys().any(|k| *k != "nagrywanie");
     if !jest {
         *od = None;
@@ -853,11 +869,5 @@ fn problem_inny_dlugo(r: &Rdzen) -> bool {
 
 /// Nazwa wybranej gry do pokazania („Czekam na …”): ładna z ustawień albo sama nazwa pliku.
 fn nazwa_wybranej(cfg: &Config) -> String {
-    if cfg.gra.is_empty() {
-        String::new()
-    } else if cfg.gra_nazwa.is_empty() {
-        cfg.gra.clone()
-    } else {
-        cfg.gra_nazwa.clone()
-    }
+    if cfg.gra_nazwa.is_empty() { cfg.gra.clone() } else { cfg.gra_nazwa.clone() }
 }

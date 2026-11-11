@@ -6,3 +6,4 @@
 *.log
 !icons/*.png
 !docs/screenshots/*.png
+/node_modules

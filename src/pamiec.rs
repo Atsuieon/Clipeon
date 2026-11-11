@@ -1,6 +1,7 @@
 // Pamięć sprzętowa w %APPDATA%\Clipeon\enkodery.json: wyniki prób enkoderów i działająca droga
 // przechwytywania dla każdego monitora. Ważna tylko dla tych samych kart, sterowników i ffmpeg —
 // po zmianie czegokolwiek z tego zaczynamy od zera (stąd „odcisk”).
+use crate::Zablokuj;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -56,7 +57,7 @@ fn wspolna() -> &'static Mutex<Pamiec> {
 
 /// Dostęp do pamięci (blokada odporna na awarię innego wątku).
 pub fn pamiec() -> MutexGuard<'static, Pamiec> {
-    wspolna().lock().unwrap_or_else(|e| e.into_inner())
+    wspolna().zablokuj()
 }
 
 /// Zapis na dysk (po każdej zmianie; plik jest mały).

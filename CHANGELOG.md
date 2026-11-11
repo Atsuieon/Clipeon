@@ -1,5 +1,26 @@
 # Zmiany
 
+## 1.3.4
+
+- **Okno znowu działa od startu.** W 1.3.2 jeden błąd w oknie zatrzymywał je zaraz po uruchomieniu:
+  status zostawał na „Łączenie…”, znikały przyciski minimalizuj / powiększ / zamknij, nie dało się wybrać
+  mikrofonu ani zapisać ustawień. Teraz Clipeon od razu pokazuje „Nagrywa”, bez klikania.
+- **Wybór gry na pasku.** W trybie Gra obok przełącznika jest przycisk z nazwą gry, który rozwija listę
+  działających gier i programów (oraz „Automatycznie”). Wybór działa od razu. W trybie Pulpit w tym miejscu
+  jest jak dotąd wybór ekranu. Pole „Gra” zniknęło z ustawień.
+- **Mikrofon:** lista urządzeń jest zawsze aktywna, a wybranie mikrofonu sam go włącza.
+  W dzienniku widać, ile mikrofonów znalazł Windows.
+- **„Mój głos” prościej:** w edytorze dwa przyciski „Z moim głosem | Bez mojego głosu” zamiast przełącznika,
+  a w ustawieniach „Edytor zaczyna od: Z moim głosem | Bez głosu”.
+- **„Zaawansowane”** to zwijany wiersz w karcie, tak jak reszta ustawień.
+- Przyciski jakości obrazu („Lekka / Standard / Najwyższa”) są pod opisem i już go nie ściskają.
+- **Szybszy start nagrywania na kartach AMD.** h264_amf nie przyjmuje obrazu prosto z karty (DDA, WGC), więc
+  Clipeon sprawdza to jedną krótką próbą, pamięta wynik do zmiany sterownika lub ffmpeg i od razu nagrywa
+  trybem zgodności. Nagrywanie rusza po około 1 s zamiast po kilku sekundach nieudanych prób.
+- **Poprawne kolory w plikach HEVC z karty AMD:** plik ma znaczniki BT.709 zamiast „RGB”, więc odtwarzacze
+  nie przekłamują barw.
+- Porządki w kodzie i nowy automatyczny test okna, który łapie błędy takie jak ten z 1.3.2.
+
 ## 1.3.2
 
 - **Widać, jaka gra się nagrywa** — przy statusie, w podpowiedzi ikony przy zegarze i przy zapisanym klipie

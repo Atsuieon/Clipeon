@@ -7,6 +7,7 @@
 // - Potok: tryb zgodności, jak w wersjach do 1.2: Clipeon przechwytuje ekran (windows-capture), kopiuje
 //   klatki do RAM i wysyła je potokiem do ffmpeg. Działa z każdym enkoderem, ale kosztuje procesor.
 // Którą drogę wybrać, decyduje `kolejnosc_drog`; rdzeń przechodzi na następną, gdy poprzednia zawiedzie.
+use crate::Zablokuj;
 use crate::bufor::{Pakiet, WspolnyBufor, teraz_100ns};
 use crate::config::Config;
 use crate::enkodery::{self, Kodek};
@@ -316,7 +317,7 @@ fn znaczniki_koloru(enkoder: &str) -> Vec<String> {
 type Problem = Arc<Mutex<Option<String>>>;
 
 fn zglos_problem(p: &Problem, opis: String) {
-    let mut g = p.lock().unwrap_or_else(|e| e.into_inner());
+    let mut g = p.zablokuj();
     if g.is_none() {
         crate::dziennik::blad(&format!("Wideo: {opis}"));
         *g = Some(opis);
@@ -346,7 +347,7 @@ pub struct Wideo {
 impl Wideo {
     /// Problem zgłoszony przez przechwytywanie lub wątki (None = wszystko w porządku).
     pub fn problem(&self) -> Option<String> {
-        self.problem.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.problem.zablokuj().clone()
     }
 }
 
@@ -357,7 +358,7 @@ impl Drop for Wideo {
             let _ = s.stop();
         }
         // Zabijamy ffmpeg od razu: zawieszony proces blokowałby wątki i restart
-        let _ = self.proces.lock().unwrap_or_else(|e| e.into_inner()).kill();
+        let _ = self.proces.zablokuj().kill();
     }
 }
 
@@ -452,7 +453,7 @@ pub fn uruchom(
     match droga {
         Droga::Dda => {
             let wyj = p.wyjscie.clone().ok_or("nie wiadomo, do której karty podłączony jest monitor")?;
-            if !enkodery::dziala_z_tekstura(enkoder, w, h, wyj.karta) {
+            if !enkodery::dziala_z_tekstura(enkoder, w, h, wyj.karta, Some(wyj.wyjscie)) {
                 return Err(format!("{enkoder} nie przyjmuje obrazu prosto z karty {}", wyj.karta).into());
             }
             cmd.args(["-init_hw_device", &format!("d3d11va=gpu:{}", wyj.karta), "-filter_hw_device", "gpu"]);
@@ -463,7 +464,9 @@ pub fn uruchom(
         }
         Droga::Gfx => {
             let karta = p.karta_enkodera.ok_or("nie wiadomo, na której karcie koduje enkoder")?;
-            if !enkodery::dziala_z_tekstura(enkoder, w, h, karta) {
+            // Próba na obrazie z ekranu, gdy monitor jest na karcie enkodera (klatki gfxcapture są takie same)
+            let ekran = p.wyjscie.as_ref().filter(|wyj| wyj.karta == karta).map(|wyj| wyj.wyjscie);
+            if !enkodery::dziala_z_tekstura(enkoder, w, h, karta, ekran) {
                 return Err(format!("{enkoder} nie przyjmuje obrazu prosto z karty {karta}").into());
             }
             let skaluj = (w, h) != (p.ekran.0 & !1, p.ekran.1 & !1);
@@ -500,7 +503,11 @@ pub fn uruchom(
     }
     cmd.args(enkodery::argumenty_nagrywania(enkoder, fps, lekki))
         .args(argumenty_strumienia(mbps, fps, w, h))
-        .args(znaczniki_koloru(enkoder))
+        .args(znaczniki_koloru(enkoder));
+    if droga != Droga::Potok {
+        cmd.args(enkodery::znaczniki_tekstur(enkoder));
+    }
+    cmd
         .args(["-f", format, "-"])
         .stdin(if droga == Droga::Potok { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
@@ -524,7 +531,7 @@ pub fn uruchom(
         std::thread::spawn(move || {
             use std::io::BufRead;
             for linia in std::io::BufReader::new(bledy).lines().map_while(Result::ok) {
-                *ostatni.lock().unwrap_or_else(|e| e.into_inner()) = linia;
+                *ostatni.zablokuj() = linia;
             }
         });
     }
@@ -597,10 +604,10 @@ fn czytaj_strumien(mut o: Odczyt) {
     loop {
         let n = match o.wyjscie.read(&mut kawalek) {
             Ok(0) | Err(_) => {
-                let _ = o.proces.lock().unwrap_or_else(|e| e.into_inner()).wait();
+                let _ = o.proces.zablokuj().wait();
                 if !o.stop.load(Ordering::SeqCst) {
                     std::thread::sleep(Duration::from_millis(100));
-                    let opis = o.ostatni_blad.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                    let opis = o.ostatni_blad.zablokuj().clone();
                     crate::dziennik::blad(&format!("Wideo: ffmpeg przestał działać: {opis}"));
                     // Chwilowa utrata dostępu do ekranu (UAC, blokada) to nie wina enkodera
                     if !chwilowy(&opis) {
@@ -641,7 +648,7 @@ fn czytaj_strumien(mut o: Odczyt) {
                     spoznione_od = None;
                 }
             }
-            o.bufor.lock().unwrap_or_else(|e| e.into_inner()).dodaj(Pakiet { czas, klucz, dane: dane.into() });
+            o.bufor.zablokuj().dodaj(Pakiet { czas, klucz, dane: dane.into() });
         }
     }
 }
@@ -708,7 +715,7 @@ impl GraphicsCaptureApiHandler for Przechwyt {
         self.wlasna.clear();
         self.wlasna.extend_from_slice(piksele);
         {
-            let mut w = self.wspolna.lock().unwrap_or_else(|e| e.into_inner());
+            let mut w = self.wspolna.zablokuj();
             std::mem::swap(&mut w.piksele, &mut self.wlasna);
             w.nowa = true;
         }
@@ -717,13 +724,16 @@ impl GraphicsCaptureApiHandler for Przechwyt {
     }
 }
 
+/// Uchwyt do zatrzymania wątku przechwytywania Windows Graphics Capture.
+type Sterowanie = CaptureControl<Przechwyt, Blad>;
+
 fn uruchom_przechwyt(
     monitor: &Monitor,
     rozmiar: (u32, u32),
     fps: u32,
     problem: &Problem,
     statystyki: &Arc<Statystyki>,
-) -> Result<(CaptureControl<Przechwyt, Blad>, Arc<Mutex<OstatniaKlatka>>), Blad> {
+) -> Result<(Sterowanie, Arc<Mutex<OstatniaKlatka>>), Blad> {
     let rozmiar_klatki = (rozmiar.0 * rozmiar.1 * 4) as usize;
     let wspolna = Arc::new(Mutex::new(OstatniaKlatka { piksele: vec![0; rozmiar_klatki], nowa: false }));
     let mozliwosci = mozliwosci_przechwytywania();
@@ -776,7 +786,7 @@ fn watek_taktujacy(
             let (mut spoznione_w_oknie, mut zle_sekundy) = (0u32, 0u32);
             while !stop.load(Ordering::SeqCst) {
                 {
-                    let mut w = wspolna.lock().unwrap_or_else(|e| e.into_inner());
+                    let mut w = wspolna.zablokuj();
                     if w.nowa {
                         std::mem::swap(&mut w.piksele, &mut moja);
                         w.nowa = false;
