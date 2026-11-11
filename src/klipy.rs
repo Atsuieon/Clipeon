@@ -144,9 +144,18 @@ fn nazwa_gry_z_opisu(opis: &str) -> Option<String> {
 /// Sprawdza, że ścieżka z okna to plik MP4 w folderze klipów albo w jego podfolderze miesiąca
 /// (okno nie może wskazać dowolnego pliku; głębiej niż jeden poziom nie wpuszczamy).
 pub fn sprawdz_sciezke(folder: &Path, klip: &Path) -> Result<PathBuf, String> {
+    sprawdz(folder, klip, &["mp4"])
+}
+
+/// Jak `sprawdz_sciezke`, ale przepuszcza też GIF i WebP zapisane z edytora (przeciąganie, folder).
+pub fn sprawdz_wynik(folder: &Path, plik: &Path) -> Result<PathBuf, String> {
+    sprawdz(folder, plik, &["mp4", "gif", "webp"])
+}
+
+fn sprawdz(folder: &Path, klip: &Path, rozszerzenia: &[&str]) -> Result<PathBuf, String> {
     let klip = klip.canonicalize().map_err(|_| "Klip nie istnieje".to_string())?;
     let folder = folder.canonicalize().map_err(|_| "Folder klipów nie istnieje".to_string())?;
-    let mp4 = klip.extension().is_some_and(|e| e.eq_ignore_ascii_case("mp4"));
+    let mp4 = klip.extension().is_some_and(|e| rozszerzenia.iter().any(|r| e.eq_ignore_ascii_case(r)));
     let rodzic = klip.parent();
     let w_folderze = rodzic == Some(folder.as_path())
         || rodzic.and_then(|r| r.parent()) == Some(folder.as_path());
@@ -236,9 +245,16 @@ pub struct Info {
     pub dlugosc: f64,
     /// Liczba ścieżek dźwięku (3 = miks, gra, mikrofon)
     pub sciezki_audio: u32,
+    /// Klatki na sekundę (do przewijania o jedną klatkę); 0 = nieznane
+    pub fps: f64,
+    /// Rozmiar obrazu w pikselach (do kadrowania); 0 = nieznany
+    pub szerokosc: u32,
+    pub wysokosc: u32,
+    /// Czy ten ffmpeg umie zapisać animowany WebP
+    pub webp: bool,
 }
 
-/// Długość i liczba ścieżek dźwięku z opisu wejścia ffmpeg.
+/// Długość, ścieżki dźwięku, FPS i rozmiar obrazu z opisu wejścia ffmpeg.
 pub fn info(klip: &Path) -> Result<Info, String> {
     let wynik = crate::ffmpeg::komenda()
         .args(["-hide_banner", "-i"])
@@ -248,7 +264,73 @@ pub fn info(klip: &Path) -> Result<Info, String> {
     let opis = String::from_utf8_lossy(&wynik.stderr);
     let dlugosc = dlugosc_z_opisu(&opis).ok_or("Nie udało się odczytać długości klipu")?;
     let sciezki_audio = opis.lines().filter(|l| l.contains("Stream #") && l.contains("Audio:")).count() as u32;
-    Ok(Info { dlugosc, sciezki_audio })
+    let (fps, szerokosc, wysokosc) = obraz_z_opisu(&opis);
+    Ok(Info { dlugosc, sciezki_audio, fps, szerokosc, wysokosc, webp: crate::ffmpeg::ma_enkoder("libwebp_anim") })
+}
+
+/// FPS i rozmiar z linii "Stream #0:0: Video: h264 (Main), yuv420p(tv, bt709), 1920x1080, 20000 kb/s, 60 fps, ...".
+fn obraz_z_opisu(opis: &str) -> (f64, u32, u32) {
+    let Some(linia) = opis.lines().find(|l| l.contains("Stream #") && l.contains("Video:")) else {
+        return (0.0, 0, 0);
+    };
+    let czesci: Vec<&str> = linia.split(',').map(str::trim).collect();
+    let fps = czesci
+        .iter()
+        .find_map(|c| c.strip_suffix(" fps").and_then(|f| f.trim().parse::<f64>().ok()))
+        .unwrap_or(0.0);
+    let rozmiar = czesci.iter().find_map(|c| {
+        let slowo = c.split_whitespace().next()?;
+        let (w, h) = slowo.split_once('x')?;
+        Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?))
+    });
+    let (w, h) = rozmiar.unwrap_or((0, 0));
+    (fps, w, h)
+}
+
+/// Wykres głośności jednej ścieżki dźwięku: `kubelki` wartości 0–255 (szczyt w danym kawałku klipu),
+/// do rysowania ścieżek „Gra” i „Mikrofon” w edytorze. ffmpeg dekoduje ścieżkę do mono 4 kHz —
+/// do wykresu wystarczy, a 10-minutowy klip to niecałe 5 MB próbek.
+pub fn fala(klip: &Path, nr: u32, kubelki: usize) -> Result<Vec<u8>, String> {
+    let wynik = crate::ffmpeg::komenda()
+        .args(["-hide_banner", "-loglevel", "error", "-i"])
+        .arg(klip)
+        .args(["-map", &format!("0:a:{nr}"), "-vn", "-ac", "1", "-ar", "4000", "-f", "s16le", "pipe:1"])
+        .output()
+        .map_err(|e| format!("Nie udało się uruchomić ffmpeg: {e}"))?;
+    if !wynik.status.success() {
+        return Err("ffmpeg nie odczytał ścieżki dźwięku".into());
+    }
+    let probki: Vec<i16> = wynik.stdout.chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]])).collect();
+    Ok(szczyty(&probki, kubelki.clamp(1, 4000)))
+}
+
+/// Dzieli próbki na `kubelki` równych kawałków i z każdego bierze największe wychylenie (0–255).
+fn szczyty(probki: &[i16], kubelki: usize) -> Vec<u8> {
+    (0..kubelki)
+        .map(|i| {
+            let (od, do_) = (i * probki.len() / kubelki, (i + 1) * probki.len() / kubelki);
+            let szczyt = probki[od..do_.max(od)].iter().map(|p| p.unsigned_abs() as u32).max().unwrap_or(0);
+            (szczyt * 255 / 32768).min(255) as u8
+        })
+        .collect()
+}
+
+/// Jedna ścieżka dźwięku klipu jako osobny plik M4A (bez ponownego kodowania), do podglądu
+/// głośności na żywo w edytorze. `nr` liczy ścieżki od 0 (0 = miks, 1 = gra, 2 = mikrofon).
+pub fn dzwiek_podgladu(klip: &Path, nr: u32) -> Result<Vec<u8>, String> {
+    let folder = std::env::temp_dir().join("Clipeon");
+    let _ = std::fs::create_dir_all(&folder);
+    let plik = folder.join(format!("podglad-{}-{nr}.m4a", std::process::id()));
+    let status = crate::ffmpeg::komenda()
+        .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
+        .arg(klip)
+        .args(["-map", &format!("0:a:{nr}"), "-vn", "-c:a", "copy", "-movflags", "+faststart", "-f", "mp4"])
+        .arg(&plik)
+        .status()
+        .map_err(|e| format!("Nie udało się uruchomić ffmpeg: {e}"))?;
+    let dane = if status.success() { std::fs::read(&plik).map_err(|e| e.to_string()) } else { Err("ffmpeg nie wyciągnął ścieżki dźwięku".into()) };
+    let _ = std::fs::remove_file(&plik);
+    dane
 }
 
 /// Długość z linii "Duration: 00:00:30.18, ..." w opisie wejścia.
@@ -261,7 +343,28 @@ fn dlugosc_z_opisu(opis: &str) -> Option<f64> {
 
 #[cfg(test)]
 mod testy {
-    use super::{lista, nazwa_gry_z_opisu, sprawdz_sciezke};
+    use super::{lista, nazwa_gry_z_opisu, obraz_z_opisu, sprawdz_sciezke, szczyty};
+
+    #[test]
+    fn szczyty_fali() {
+        // Cisza, potem głośno, potem ciszej — po jednym kubełku na każdą część
+        let mut p = vec![0i16; 100];
+        p.extend([i16::MIN; 100]);
+        p.extend([-8192i16, 8192].repeat(50));
+        assert_eq!(szczyty(&p, 3), vec![0, 255, 63]);
+        // Więcej kubełków niż próbek i brak próbek nie wywracają programu
+        assert_eq!(szczyty(&[16384], 4).len(), 4);
+        assert_eq!(szczyty(&[], 5), vec![0; 5]);
+    }
+
+    #[test]
+    fn fps_i_rozmiar_z_opisu() {
+        let opis = "  Stream #0:0[0x1](und): Video: h264 (Main) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 1920x1080 [SAR 1:1 DAR 16:9], 19861 kb/s, 60 fps, 60 tbr, 15360 tbn (default)";
+        assert_eq!(obraz_z_opisu(opis), (60.0, 1920, 1080));
+        let opis = "  Stream #0:0: Video: hevc (Main), yuv420p(tv), 2560x1440, 29.97 fps, 29.97 tbr";
+        assert_eq!(obraz_z_opisu(opis), (29.97, 2560, 1440));
+        assert_eq!(obraz_z_opisu("brak"), (0.0, 0, 0));
+    }
     use std::path::PathBuf;
 
     /// Folder testowy z klipami: jeden luzem (jak w wersjach do 1.3.1) i jeden w podfolderze miesiąca.

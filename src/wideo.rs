@@ -658,6 +658,9 @@ fn czytaj_strumien(mut o: Odczyt) {
 pub fn chwilowy(opis: &str) -> bool {
     let o = opis.to_lowercase();
     ["887a0026", "access_lost", "access lost", "80070005", "e_accessdenied", "chwilowa utrata"].iter().any(|x| o.contains(x))
+        // Błąd „zewnętrznej biblioteki” w wątku filtrów (`fc#`), czyli w ddagrab / gfxcapture: Desktop
+        // Duplication traci obraz, gdy gra przełącza pełny ekran albo rozdzielczość (enkoder jest w porządku)
+        || (o.contains("[fc#") && (o.contains("-542398533") || o.contains("external library")))
 }
 
 // ---------- Droga „Potok”: przechwytywanie w Clipeonie ----------
@@ -986,6 +989,12 @@ mod testy {
     fn chwilowe_bledy() {
         assert!(chwilowy("enkoder wideo przestał działać ([Parsed_ddagrab_0 @ 0x1] AcquireNextFrame failed: 887a0026)"));
         assert!(!chwilowy("enkoder wideo przestał działać (Error while opening encoder)"));
+        // Fightcade przy zmianie trybu ekranu (Windows 10, NVENC, Desktop Duplication)
+        assert!(chwilowy(
+            "enkoder wideo przestał działać ([fc#0 @ 00000282feb192c0] Terminating thread with return code -542398533 (Generic error in an external library))"
+        ));
+        // Ten sam kod z enkodera (nie z filtra) to prawdziwy problem enkodera
+        assert!(!chwilowy("[vost#0:0/h264_nvenc @ 0x1] Terminating thread with return code -542398533 (Generic error in an external library)"));
     }
 
     fn nal(typ: &[u8], dane: &[u8]) -> Vec<u8> {

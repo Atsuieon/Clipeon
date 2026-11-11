@@ -122,6 +122,19 @@ pub fn ma_filtr(nazwa: &str) -> bool {
     lista.lines().any(|l| l.split_whitespace().nth(1) == Some(nazwa))
 }
 
+/// Enkodery dostępne w tym ffmpeg (lista z `ffmpeg -encoders`), liczona raz.
+pub fn ma_enkoder(nazwa: &str) -> bool {
+    static LISTA: OnceLock<String> = OnceLock::new();
+    let lista = LISTA.get_or_init(|| {
+        komenda()
+            .args(["-hide_banner", "-encoders"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+            .unwrap_or_default()
+    });
+    lista.lines().any(|l| l.split_whitespace().nth(1) == Some(nazwa))
+}
+
 /// Pierwsza linia `ffmpeg -version` (do diagnostyki).
 pub fn wersja() -> String {
     komenda()

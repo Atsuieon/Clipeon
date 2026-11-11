@@ -39,6 +39,7 @@
         </div>
         <div class="status" id="status" title="">
           <span class="kropka" id="kropka"></span><span id="status-tekst">Łączenie…</span>
+          <span class="status-mik" id="status-mik" title="Mikrofon nie jest nagrywany — włączysz go w Ustawieniach → Dźwięk" hidden></span>
         </div>
         <button class="przycisk drugorzedny" id="pauza"></button>
         <button class="przycisk glowny" id="zapisz-klip"></button>
@@ -98,15 +99,15 @@
             <section class="grupa">
               <h2>Nagrywanie</h2>
               <div class="karta ustawienia-lista">
-                <div class="ust">
+                <div class="ust ust-suwak">
                   <div class="opis">
                     <label for="bufor">Ile ostatnich sekund zapisywać</label>
-                    <p class="pomoc" id="ram"></p>
                   </div>
                   <div class="pole">
                     <input type="range" id="bufor" min="5" max="600" step="5" aria-label="Ile ostatnich sekund zapisywać">
                     <span class="wartosc" id="bufor-wartosc"></span>
                   </div>
+                  <p class="pomoc" id="ram"></p>
                 </div>
 
                 <div class="ust ust-pod">
@@ -292,12 +293,13 @@
                     <div class="opis">
                       <label for="metoda">Sposób przechwytywania obrazu</label>
                       <p class="pomoc">Zostaw „Automatycznie”, chyba że nagrania się zacinają albo są czarne.</p>
+                      <p class="pomoc">Żółta ramka wokół ekranu podczas nagrywania? To znak Windows, że coś nagrywa ekran. Rysuje ją tylko Windows Graphics Capture (i Tryb zgodności) na starszym Windows 10 — wybierz <b>Desktop Duplication</b>, ten sposób nigdy jej nie pokazuje.</p>
                     </div>
                     <div class="pole">
                       <select id="metoda" aria-label="Sposób przechwytywania obrazu">
                         <option value="auto">Automatycznie (polecane)</option>
                         <option value="dda">Desktop Duplication — najlżejszy</option>
-                        <option value="gfx">Windows Graphics Capture</option>
+                        <option value="gfx">Windows Graphics Capture (na Windows 10 z żółtą ramką)</option>
                         <option value="potok">Tryb zgodności</option>
                       </select>
                     </div>
@@ -340,10 +342,23 @@
           <button class="przycisk ikonowy" id="odtw-zamknij" title="Zamknij"></button>
         </div>
       </div>
-      <video id="wideo" title="Kliknij: odtwórz / pauza · Przeciągnij: wrzuć plik do Discorda, Eksploratora lub przeglądarki"></video>
+      <div class="scena" id="scena">
+        <video id="wideo" title="Kliknij: odtwórz / pauza · Przeciągnij: wrzuć plik do Discorda, Eksploratora lub przeglądarki"></video>
+        <!-- Kadrowanie: ramka nad obrazem (przeciągnij środek, żeby przesunąć; uchwyty zmieniają rozmiar) -->
+        <div class="kadr-warstwa" id="kadr-warstwa" hidden>
+          <div class="kadr" id="kadr">
+            <span class="kadr-uchwyt" data-u="nw"></span><span class="kadr-uchwyt" data-u="n"></span><span class="kadr-uchwyt" data-u="ne"></span>
+            <span class="kadr-uchwyt" data-u="w"></span><span class="kadr-uchwyt" data-u="e"></span>
+            <span class="kadr-uchwyt" data-u="sw"></span><span class="kadr-uchwyt" data-u="s"></span><span class="kadr-uchwyt" data-u="se"></span>
+            <span class="kadr-wymiary" id="kadr-wymiary"></span>
+          </div>
+        </div>
+        <div class="licznik-klatek" id="licznik-klatek" hidden></div>
+      </div>
       <div class="sterowanie">
         <button class="przycisk ikonowy" id="graj"></button>
         <button class="przycisk ikonowy" id="pelny-ekran" title="Pełny ekran (F)" aria-label="Pełny ekran (F)"></button>
+        <button class="przycisk ikonowy" id="kadruj" title="Kadruj obraz (C)" aria-label="Kadruj obraz (C)" aria-pressed="false"></button>
         <span class="czas" id="czas">0:00 / 0:00</span>
         <div class="os" id="os" title="Kliknij, żeby przewinąć">
           <div class="os-tlo"></div>
@@ -354,8 +369,10 @@
         </div>
         <span class="czas zakres-tekst" id="zakres-tekst"></span>
       </div>
+      <!-- Ścieżki dźwięku pod osią czasu: wykres głośności i linia głośności do przeciągania -->
+      <div class="sciezki-dzwieku" id="sciezki-dzwieku" hidden></div>
       <div class="eksport">
-        <div class="eksport-opcje">
+        <div class="eksport-opcje" id="eksport-opcje">
           <div class="grupa">
             <span class="etykieta">Przycinanie</span>
             <button type="button" class="segment" id="ustaw-start">Początek tutaj</button>
@@ -363,25 +380,31 @@
             <button type="button" class="segment" id="resetuj">Cały klip</button>
           </div>
           <div class="grupa">
+            <span class="etykieta">Format</span>
+            <div class="segmenty" id="formaty" role="radiogroup" aria-label="Format zapisu">
+              <button type="button" class="segment wybrany" data-format="mp4">MP4</button>
+              <button type="button" class="segment" data-format="gif" title="Zapętlony, bez dźwięku, do 15 s">GIF</button>
+              <button type="button" class="segment" data-format="webp" title="Zapętlony, bez dźwięku, do 15 s — mniejszy niż GIF">WebP</button>
+            </div>
+            <span class="pomoc" id="format-uwaga"></span>
+          </div>
+          <div class="grupa" id="kadr-grupa" hidden>
+            <span class="etykieta">Kadr</span>
+            <div class="segmenty" id="proporcje" role="radiogroup" aria-label="Proporcje kadru">
+              <button type="button" class="segment wybrany" data-proporcje="0">Dowolny</button>
+              <button type="button" class="segment" data-proporcje="1.7777778">16:9</button>
+              <button type="button" class="segment" data-proporcje="0.5625">9:16</button>
+              <button type="button" class="segment" data-proporcje="1">1:1</button>
+            </div>
+            <button type="button" class="segment" id="kadr-usun">Bez kadru</button>
+          </div>
+          <div class="grupa">
             <span class="etykieta">Rozmiar pliku</span>
             <div class="segmenty" id="rozmiary"></div>
           </div>
-          <div class="grupa" id="glos-wiersz" hidden>
-            <span class="etykieta">Głośność</span>
-            <div class="glosnosci" id="glosnosci"></div>
-          </div>
-          <div class="grupa" id="mik-grupa" hidden>
-            <span class="etykieta">Mój głos</span>
-            <div class="segmenty dwojka" data-pole="z-mikrofonem" role="radiogroup" aria-label="Mój głos w zapisanej kopii">
-              <button type="button" class="segment" data-wartosc="tak">Z moim głosem</button>
-              <button type="button" class="segment" data-wartosc="nie">Bez mojego głosu</button>
-            </div>
-            <input type="checkbox" id="z-mikrofonem" hidden>
-            <span class="pomoc" id="mik-uwaga"></span>
-          </div>
-          <div class="grupa">
+          <div class="grupa" id="opcje-zapisu">
             <label class="przelacznik" id="dokladnie-wiersz" title="Bez tego cięcie jest natychmiastowe, ale zaczyna się od najbliższej klatki kluczowej (do 1 s wcześniej)"><input type="checkbox" id="dokladnie" checked><span class="suwak"></span>Dokładne cięcie</label>
-            <label class="przelacznik" id="zastap-wiersz"><input type="checkbox" id="zastap"><span class="suwak"></span>Zastąp oryginał</label>
+            <label class="przelacznik" id="zachowaj-wiersz" title="Wyłączone: nowa wersja zastępuje oryginał, a oryginał trafia do Kosza"><input type="checkbox" id="zachowaj"><span class="suwak"></span>Zachowaj oryginał</label>
           </div>
         </div>
         <div class="eksport-akcja">

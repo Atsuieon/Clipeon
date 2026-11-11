@@ -26,6 +26,11 @@ const IKONY = {
   monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>',
   strzalka: '<path d="m6 9 6 6 6-6"/>',
   gra: '<line x1="6" x2="10" y1="11" y2="11"/><line x1="8" x2="8" y1="9" y2="13"/><line x1="15" x2="15.01" y1="12" y2="12"/><line x1="18" x2="18.01" y1="10" y2="10"/><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z"/>',
+  mikrofon: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>',
+  mikrofonWyl: '<line x1="2" x2="22" y1="2" y2="22"/><path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2"/><path d="M5 10v2a7 7 0 0 0 12 5"/><path d="M15 9.34V5a3 3 0 0 0-5.68-1.33"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12"/><line x1="12" x2="12" y1="19" y2="22"/>',
+  glosnik: '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/>',
+  glosnikWyl: '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/>',
+  kadr: '<path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/>',
   film: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/>',
 };
 const ikona = (n) => `<svg class="ikona" viewBox="0 0 24 24" aria-hidden="true">${IKONY[n]}</svg>`;
@@ -200,6 +205,9 @@ function pokazStan(s) {
     $("baner-kropka").className = "kropka " + (s.bledy.length ? "blad" : "wznawianie");
   }
   $("status-tekst").textContent = tekst;
+  // Przekreślony mikrofon, gdy Clipeon nagrywa bez mikrofonu
+  $("status-mik").innerHTML = ikona("mikrofonWyl");
+  $("status-mik").hidden = s.mikrofon !== false;
   $("status").title = s.bledy.join("\n");
   $("pauza").innerHTML = s.pauza ? zIkona("graj", "Wznów") : zIkona("pauza", "Wstrzymaj");
   $("zapisz-klip").disabled = !s.nagrywa;
@@ -626,6 +634,17 @@ let zakres = { start: 0, koniec: 0 };
 let dlugosc = 0;
 let rozmiarDocelowy = null; // null = bez zmian, inaczej MB
 let eksportTrwa = false;
+let formatZapisu = "mp4"; // "mp4", "gif" albo "webp"
+let infoKlipu = { sciezki_audio: 1, fps: 0, szerokosc: 0, wysokosc: 0, webp: false };
+// GIF i WebP: najdłuższy fragment (tak samo pilnuje tego rdzeń)
+const ANIMACJA_MAX = 15;
+const animacja = () => formatZapisu !== "mp4";
+// Kadr w pikselach klipu { x, y, szer, wys } (null = cały obraz); kadrowanie = ramka do przesuwania na obrazie
+let kadr = null;
+let kadrowanie = false;
+let proporcjeKadru = 0; // 0 = dowolne, inaczej szerokość / wysokość
+// Podgląd głośności na żywo: osobne ścieżki dźwięku przez Web Audio
+const dzwiek = { ctx: null, sciezki: [], klip: null };
 
 const ROZMIARY = [null, 10, 20, 50, 100];
 
@@ -636,10 +655,14 @@ function odtworz(klip) {
   $("wynik").hidden = true;
   $("postep").hidden = true;
   $("eksport-info").textContent = "";
-  $("zastap").checked = false;
+  $("zachowaj").checked = false;
   rozmiarDocelowy = null;
+  formatZapisu = "mp4";
+  kadr = null;
+  kadrowanie = false;
   dlugosc = 0;
   ostatniEksport = null;
+  zatrzymajDzwiekNaZywo();
   przygotujGlosnosc(klip);
   const v = $("wideo");
   // Znacznik w adresie omija pamięć podręczną WebView — po „Zastąp oryginał” plik ma tę samą nazwę,
@@ -657,6 +680,7 @@ function zamknijOdtwarzacz() {
   v.pause();
   v.removeAttribute("src");
   v.load(); // zwalnia plik, żeby dało się go usunąć
+  zatrzymajDzwiekNaZywo();
   $("odtwarzacz").hidden = true;
   odtwarzany = null;
 }
@@ -676,6 +700,7 @@ $("wideo").addEventListener("loadedmetadata", () => {
   dlugosc = $("wideo").duration || 0;
   zakres = { start: 0, koniec: dlugosc };
   odswiezEdytor();
+  ulozKadr();
 });
 
 // Odtwarzanie tylko w zaznaczonym zakresie (w pętli)
@@ -749,6 +774,7 @@ const procent = (t) => (dlugosc ? (t / dlugosc) * 100 : 0);
 function odswiezGlowice() {
   const t = $("wideo").currentTime;
   $("os-glowica").style.left = `${procent(t)}%`;
+  for (const s of sciezkiGlosu) s.pole.querySelector(".fala-glowica").style.left = `${procent(t)}%`;
   $("czas").textContent = `${formatCzas(t)} / ${formatCzas(dlugosc)}`;
 }
 
@@ -765,19 +791,30 @@ function odswiezEdytor() {
   $("uchwyt-koniec").setAttribute("aria-valuetext", formatCzas(zakres.koniec));
   const dl = zakres.koniec - zakres.start;
   $("zakres-tekst").textContent = przyciete() ? `Zaznaczono ${dl.toFixed(1)} s` : "Cały klip";
-  // Dokładne cięcie ma znaczenie tylko bez kompresji (kompresja i tak koduje od nowa)
-  $("dokladnie-wiersz").hidden = !przyciete() || rozmiarDocelowy !== null;
+  // Dokładne cięcie ma znaczenie tylko bez kompresji i kadru (one i tak kodują od nowa)
+  $("dokladnie-wiersz").hidden = !przyciete() || rozmiarDocelowy !== null || !!kadr;
+  $("eksport-opcje").classList.toggle("animacja", animacja());
+  for (const b of $("formaty").children) {
+    b.classList.toggle("wybrany", b.dataset.format === formatZapisu);
+    b.setAttribute("aria-checked", b.dataset.format === formatZapisu);
+  }
+  const webp = $("formaty").querySelector('[data-format="webp"]');
+  webp.disabled = !infoKlipu.webp;
+  if (!infoKlipu.webp) webp.title = "Ten ffmpeg nie umie zapisać WebP";
+  $("format-uwaga").textContent = animacja() ? `Zapętlony, bez dźwięku, najwyżej ${ANIMACJA_MAX} s` : "";
+  $("kadr-grupa").hidden = !kadrowanie && !kadr;
+  $("kadruj").setAttribute("aria-pressed", kadrowanie);
 
-  // Rozmiary większe od (przyciętego) oryginału nie mają sensu
-  const szacunek = odtwarzany ? odtwarzany.rozmiar * (dlugosc ? dl / dlugosc : 1) : 0;
+  // Rozmiary większe od (przyciętego) oryginału nie mają sensu; GIF / WebP: bez limitu albo do 10 MB
+  const szacunek = animacja() ? Infinity : odtwarzany ? odtwarzany.rozmiar * (dlugosc ? dl / dlugosc : 1) : 0;
   if (rozmiarDocelowy !== null && rozmiarDocelowy * 1e6 >= szacunek) rozmiarDocelowy = null;
   const kontener = $("rozmiary");
   kontener.replaceChildren();
-  for (const mb of ROZMIARY) {
+  for (const mb of animacja() ? [null, 10] : ROZMIARY) {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "segment" + (mb === rozmiarDocelowy ? " wybrany" : "");
-    b.textContent = mb === null ? "Bez zmian" : `${mb} MB`;
+    b.textContent = mb === null ? (animacja() ? "Bez limitu" : "Bez zmian") : animacja() ? "Do 10 MB (Discord)" : `${mb} MB`;
     if (mb !== null && mb * 1e6 >= szacunek) {
       b.disabled = true;
       b.title = `Plik ma już ${formatMB(szacunek)}`;
@@ -789,20 +826,32 @@ function odswiezEdytor() {
     kontener.append(b);
   }
 
-  // Zastąpić można każdą zmienioną wersją: przyciętą, skompresowaną albo z inną głośnością
-  $("zastap-wiersz").hidden = !zmiany();
-  if (!zmiany()) $("zastap").checked = false;
+  // Zmieniona wersja MP4 zastępuje oryginał, chyba że zaznaczono „Zachowaj oryginał”
+  $("zachowaj-wiersz").hidden = !zmiany() || animacja();
 
   const b = $("eksportuj");
-  if (rozmiarDocelowy !== null) b.textContent = `Zapisz jako ${rozmiarDocelowy} MB`;
+  const zaDlugi = animacja() && dl > ANIMACJA_MAX + 0.05;
+  if (animacja()) b.textContent = `Zapisz jako ${formatZapisu.toUpperCase()}`;
+  else if (rozmiarDocelowy !== null) b.textContent = `Zapisz jako ${rozmiarDocelowy} MB`;
+  else if (kadr) b.textContent = "Zapisz wykadrowany";
   else if (przyciete()) b.textContent = "Zapisz przycięty";
-  else if (maMikrofon && !zGlosem() && glosnosci()[0] === 1) b.textContent = "Zapisz bez mojego głosu";
+  else if (maMikrofon && glosnosci()[1] === 0 && glosnosci()[0] === 1) b.textContent = "Zapisz bez mojego głosu";
   else if (glosnosciZmienione()) b.textContent = "Zapisz z nową głośnością";
   else b.textContent = "Zapisz";
-  b.disabled = eksportTrwa || !zmiany();
+  b.disabled = eksportTrwa || !zmiany() || zaDlugi;
   if (!eksportTrwa) {
-    $("eksport-info").textContent = b.disabled ? "Przytnij klip, wybierz rozmiar albo zmień dźwięk, żeby zapisać nową wersję." : "";
+    $("eksport-info").textContent = zaDlugi
+      ? `${formatZapisu.toUpperCase()} może mieć najwyżej ${ANIMACJA_MAX} s — przytnij zaznaczenie`
+      : b.disabled
+        ? "Przytnij klip, wykadruj, wybierz rozmiar albo zmień dźwięk, żeby zapisać nową wersję."
+        : !animacja() && !$("zachowaj").checked
+          ? "Nowa wersja zastąpi oryginał (oryginał trafi do Kosza)."
+          : "";
   }
+  // GIF / WebP nie mają dźwięku
+  $("sciezki-dzwieku").hidden = !sciezkiGlosu.length || animacja();
+  odswiezZakresSciezek();
+  ustawGlosnoscNaZywo();
   odswiezGlowice();
 }
 
@@ -814,8 +863,10 @@ function czasZPozycji(clientX) {
 
 function przesun(ktory, t) {
   const min = 0.5;
-  if (ktory === "start") zakres.start = Math.min(Math.max(t, 0), zakres.koniec - min);
-  else zakres.koniec = Math.max(Math.min(t, dlugosc), zakres.start + min);
+  // GIF / WebP: zaznaczenie najwyżej 15 s (krótsze — dowolnie)
+  const max = animacja() ? ANIMACJA_MAX : Infinity;
+  if (ktory === "start") zakres.start = Math.min(Math.max(t, 0, zakres.koniec - max), zakres.koniec - min);
+  else zakres.koniec = Math.max(Math.min(t, dlugosc, zakres.start + max), zakres.start + min);
   $("wideo").currentTime = ktory === "start" ? zakres.start : Math.max(zakres.koniec - 0.05, zakres.start);
   odswiezEdytor();
 }
@@ -866,79 +917,186 @@ listen("postep", (e) => {
   $("eksport-info").textContent = `Zapisuję… ${p}%`;
 });
 
-// Głośność ścieżek dźwięku (Gra / Mikrofon albo jedna ścieżka), 0–200%
-let suwakiGlosu = [];
+// ---------- Edytor: ścieżki dźwięku (Gra / Mikrofon albo jedna) ----------
+// Każda ścieżka to wykres głośności na osi czasu klipu, z poziomą linią głośności (0–200%).
+// Linię przeciąga się w górę i w dół, a zmianę słychać od razu (patrz „głośność słychać od razu”).
+// Każdy wpis: { nazwa, glosnosc (0..2), przed (głośność sprzed wyciszenia), fala (0–255 albo null), el, … }
+let sciezkiGlosu = [];
+let maMikrofon = false;
+const KUBELKI_FALI = 800;
 
 async function przygotujGlosnosc(klip) {
-  const kont = $("glosnosci");
+  const kont = $("sciezki-dzwieku");
   kont.replaceChildren();
-  suwakiGlosu = [];
-  let info = { sciezki_audio: 1 };
+  sciezkiGlosu = [];
+  let info = { sciezki_audio: 1, fps: 0, szerokosc: 0, wysokosc: 0, webp: false };
   try {
     info = await invoke("info_klipu", { sciezka: klip.sciezka });
   } catch {}
   if (odtwarzany !== klip) return;
+  infoKlipu = info;
   // Gdy podgląd nie zna długości (kodek nieobsługiwany przez WebView), bierzemy ją z pliku
   if (!dlugosc && info.dlugosc) {
     dlugosc = info.dlugosc;
     zakres = { start: 0, koniec: dlugosc };
-    odswiezEdytor();
   }
   // Klip z osobnymi ścieżkami ma: miks, gra, mikrofon
   maMikrofon = info.sciezki_audio >= 3;
-  const nazwy = maMikrofon ? ["Gra", "Mikrofon"] : info.sciezki_audio >= 1 ? ["Dźwięk"] : [];
-  $("mik-grupa").hidden = !nazwy.length;
-  $("z-mikrofonem").disabled = !maMikrofon;
-  $("z-mikrofonem").checked = maMikrofon && (!cfg || cfg.glos_w_edytorze);
-  $("mik-uwaga").textContent = maMikrofon ? "" : "Ten klip nagrano bez mikrofonu.";
-  $("glos-wiersz").hidden = !nazwy.length;
-  for (const nazwa of nazwy) {
-    const wiersz = document.createElement("label");
-    wiersz.className = "glos";
-    const opis = document.createElement("span");
-    opis.textContent = nazwa;
-    const suwak = document.createElement("input");
-    suwak.type = "range";
-    suwak.min = 0;
-    suwak.max = 200;
-    suwak.step = 5;
-    suwak.value = 100;
-    suwak.setAttribute("aria-label", `Głośność: ${nazwa}`);
-    const wartosc = document.createElement("span");
-    wartosc.className = "wartosc-glosu";
-    const wycisz = document.createElement("button");
-    wycisz.type = "button";
-    wycisz.className = "segment";
-    const odswiez = () => {
-      wartosc.textContent = `${suwak.value}%`;
-      wycisz.textContent = Number(suwak.value) === 0 ? "Przywróć" : "Wycisz";
-      odswiezEdytor();
-    };
-    suwak.addEventListener("input", odswiez);
-    wycisz.addEventListener("click", () => {
-      suwak.value = Number(suwak.value) === 0 ? 100 : 0;
-      odswiez();
-    });
-    wiersz.append(opis, suwak, wartosc, wycisz);
-    kont.append(wiersz);
-    suwakiGlosu.push(suwak);
-    odswiez();
-  }
-  $("z-mikrofonem").dispatchEvent(new Event("input"));
+  const opisy = maMikrofon ? [["Gra", "glosnik"], ["Mikrofon", "mikrofon"]] : info.sciezki_audio >= 1 ? [["Dźwięk", "glosnik"]] : [];
+  const numery = maMikrofon ? [1, 2] : [0];
+  const moje = opisy.map(([nazwa, ikonaNazwa], i) => {
+    // Ustawienie „Edytor zaczyna od: Bez głosu” = ścieżka mikrofonu od razu wyciszona
+    const bezGlosu = maMikrofon && i === 1 && cfg && !cfg.glos_w_edytorze;
+    const s = { nazwa, ikonaNazwa, glosnosc: bezGlosu ? 0 : 1, przed: 1, fala: null };
+    s.el = document.createElement("div");
+    s.el.className = "sciezka";
+    s.el.innerHTML =
+      `<div class="sciezka-opis"><span>${nazwa}</span><button type="button" class="wycisz"></button></div>` +
+      `<div class="fala" role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="200" aria-label="Głośność: ${nazwa} (przeciągnij w górę lub w dół, strzałki ↑ ↓)">` +
+      `<canvas></canvas><div class="fala-poza"></div><div class="fala-poza"></div><div class="fala-glowica"></div>` +
+      `<div class="fala-linia"><span class="fala-procent"></span></div></div><div></div>`;
+    s.pole = s.el.querySelector(".fala");
+    s.plotno = s.el.querySelector("canvas");
+    s.linia = s.el.querySelector(".fala-linia");
+    s.wycisz = s.el.querySelector(".wycisz");
+    s.wycisz.addEventListener("click", () => ustawGlosnosc(s, s.glosnosc === 0 ? s.przed : 0));
+    podepnijFale(s);
+    kont.append(s.el);
+    return s;
+  });
+  sciezkiGlosu = moje;
+  odswiezEdytor();
+  ulozSciezki();
+  odswiezSciezki();
+  przygotujDzwiekNaZywo(klip, info);
+  // Wykresy dochodzą po chwili (ffmpeg musi przejść przez dźwięk klipu); bez nich zostaje sama linia głośności
+  moje.forEach(async (s, i) => {
+    try {
+      const fala = await invoke("fala_dzwieku", { sciezka: klip.sciezka, nr: numery[i], kubelki: KUBELKI_FALI });
+      if (odtwarzany !== klip || !fala) return;
+      s.fala = Array.from(fala);
+      rysujFale(s);
+    } catch {}
+  });
 }
 
-// Bez głosu = ścieżka mikrofonu wyciszona przy zapisie
-let maMikrofon = false;
-const zGlosem = () => !maMikrofon || $("z-mikrofonem").checked;
-const glosnosci = () => suwakiGlosu.map((s, i) => (maMikrofon && i === 1 && !zGlosem() ? 0 : Number(s.value) / 100));
-const glosnosciZmienione = () => glosnosci().some((g) => g !== 1);
-
-$("z-mikrofonem").addEventListener("input", () => {
-  // Suwak głosu nie ma sensu, gdy głos jest wyłączony
-  if (suwakiGlosu[1]) suwakiGlosu[1].closest(".glos").classList.toggle("wylaczony", !zGlosem());
+function ustawGlosnosc(s, v) {
+  // Co 5%, od 0 do 200%
+  s.glosnosc = Math.min(Math.max(Math.round(v * 20) / 20, 0), 2);
+  if (s.glosnosc > 0) s.przed = s.glosnosc;
+  odswiezSciezki();
   odswiezEdytor();
-});
-const zmiany = () => przyciete() || rozmiarDocelowy !== null || glosnosciZmienione();
+}
+
+function odswiezSciezki() {
+  for (const s of sciezkiGlosu) {
+    const p = Math.round(s.glosnosc * 100);
+    s.linia.style.bottom = `${p / 2}%`;
+    s.linia.classList.toggle("nisko", p < 45);
+    s.linia.classList.toggle("wysoko", p > 165);
+    s.linia.firstChild.textContent = `${p}%`;
+    s.pole.setAttribute("aria-valuenow", p);
+    s.pole.setAttribute("aria-valuetext", p === 0 ? "wyciszona" : `${p}%`);
+    s.el.classList.toggle("wyciszona", p === 0);
+    s.wycisz.innerHTML = ikona(p === 0 ? (s.ikonaNazwa === "mikrofon" ? "mikrofonWyl" : "glosnikWyl") : s.ikonaNazwa);
+    s.wycisz.title = p === 0 ? `Włącz: ${s.nazwa}` : `Wycisz: ${s.nazwa}`;
+    s.wycisz.setAttribute("aria-label", s.wycisz.title);
+    rysujFale(s);
+  }
+}
+
+// Wykres: słupki od dołu; pełna wysokość = 200%, więc przy 100% najgłośniejsze miejsca sięgają linii
+function rysujFale(s) {
+  const c = s.plotno;
+  const dpr = window.devicePixelRatio || 1;
+  const [w, h] = [c.clientWidth, c.clientHeight];
+  if (!w || !h) return;
+  if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
+    c.width = Math.round(w * dpr);
+    c.height = Math.round(h * dpr);
+  }
+  const g = c.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  if (!s.fala) return;
+  // Wyciszona ścieżka dalej pokazuje (blado), gdzie jest dźwięk
+  const glosnosc = s.glosnosc === 0 ? 1 : s.glosnosc;
+  g.fillStyle = s.glosnosc === 0 ? "rgba(255, 255, 255, 0.16)" : "rgba(255, 255, 255, 0.5)";
+  const krok = 3;
+  for (let x = 0; x < w; x += krok) {
+    // Najgłośniejsze miejsce z kawałka klipu pod tym słupkiem
+    const od = Math.floor((x / w) * s.fala.length);
+    const ile = Math.max(1, Math.ceil((krok / w) * s.fala.length));
+    let szczyt = 0;
+    for (let i = od; i < od + ile && i < s.fala.length; i++) szczyt = Math.max(szczyt, s.fala[i]);
+    // Pierwiastek, żeby ciche dźwięki (rozmowa, kroki) też było widać
+    const wys = Math.min(h, Math.sqrt(szczyt / 255) * glosnosc * (h / 2));
+    if (wys >= 0.5) g.fillRect(x, h - wys, krok - 1, wys);
+  }
+}
+
+// Przeciąganie w górę / w dół = głośność; samo kliknięcie = przewinięcie w to miejsce klipu
+function podepnijFale(s) {
+  const pole = s.pole;
+  pole.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    pole.setPointerCapture(e.pointerId);
+    const y0 = e.clientY;
+    let ciagnie = false;
+    const ruch = (m) => {
+      if (!ciagnie && Math.abs(m.clientY - y0) < 3) return;
+      ciagnie = true;
+      const r = pole.getBoundingClientRect();
+      ustawGlosnosc(s, ((r.bottom - m.clientY) / r.height) * 2);
+    };
+    const koniec = (k) => {
+      pole.removeEventListener("pointermove", ruch);
+      pole.removeEventListener("pointerup", koniec);
+      pole.removeEventListener("pointercancel", koniec);
+      if (ciagnie || k.type !== "pointerup" || !dlugosc) return;
+      const r = pole.getBoundingClientRect();
+      const t = Math.min(Math.max((k.clientX - r.left) / r.width, 0), 1) * dlugosc;
+      $("wideo").currentTime = Math.min(Math.max(t, zakres.start), Math.max(zakres.koniec - 0.05, zakres.start));
+      odswiezGlowice();
+    };
+    pole.addEventListener("pointermove", ruch);
+    pole.addEventListener("pointerup", koniec);
+    pole.addEventListener("pointercancel", koniec);
+  });
+  pole.addEventListener("dblclick", () => ustawGlosnosc(s, 1));
+  pole.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowUp") ustawGlosnosc(s, s.glosnosc + 0.05);
+    else if (e.key === "ArrowDown") ustawGlosnosc(s, s.glosnosc - 0.05);
+    else if (e.key === "Home") ustawGlosnosc(s, 1);
+    else return;
+    e.preventDefault();
+  });
+}
+
+// Wykresy leżą dokładnie pod osią czasu: ta sama lewa krawędź i szerokość
+function ulozSciezki() {
+  const kont = $("sciezki-dzwieku");
+  const os = $("os").getBoundingClientRect();
+  const k = kont.getBoundingClientRect();
+  if (!os.width || !k.width) return;
+  kont.style.setProperty("--lewo", `${os.left - k.left}px`);
+  kont.style.setProperty("--szer", `${os.width}px`);
+  for (const s of sciezkiGlosu) rysujFale(s);
+}
+new ResizeObserver(ulozSciezki).observe($("os"));
+
+// Przygaszenie poza zaznaczonym fragmentem i głowica odtwarzania na ścieżkach
+function odswiezZakresSciezek() {
+  for (const s of sciezkiGlosu) {
+    const [lewa, prawa] = s.pole.querySelectorAll(".fala-poza");
+    Object.assign(lewa.style, { left: "0", width: `${procent(zakres.start)}%` });
+    Object.assign(prawa.style, { left: `${procent(zakres.koniec)}%`, right: "0" });
+  }
+}
+
+const glosnosci = () => sciezkiGlosu.map((s) => s.glosnosc);
+const glosnosciZmienione = () => glosnosci().some((g) => g !== 1);
+const zmiany = () => przyciete() || rozmiarDocelowy !== null || glosnosciZmienione() || !!kadr || animacja();
 
 function biezaceZlecenie() {
   return {
@@ -947,9 +1105,323 @@ function biezaceZlecenie() {
     przyciete: przyciete(),
     dokladnie: $("dokladnie").checked,
     rozmiar_mb: rozmiarDocelowy,
-    zastap: zmiany() && $("zastap").checked,
-    glosnosci: glosnosciZmienione() ? glosnosci() : [],
+    zastap: zmiany() && !animacja() && !$("zachowaj").checked,
+    // GIF / WebP są bez dźwięku
+    glosnosci: glosnosciZmienione() && !animacja() ? glosnosci() : [],
+    kadr: kadr && { x: Math.round(kadr.x), y: Math.round(kadr.y), szer: Math.round(kadr.szer), wys: Math.round(kadr.wys) },
+    format: formatZapisu,
   };
+}
+
+// ---------- Edytor: przewijanie strzałkami i o klatkę ----------
+
+function przewin(sekundy) {
+  const v = $("wideo");
+  if (!dlugosc) return;
+  v.currentTime = Math.min(Math.max(v.currentTime + sekundy, zakres.start), Math.max(zakres.koniec - 0.05, zakres.start));
+  odswiezGlowice();
+}
+
+function klatka(ile) {
+  const v = $("wideo");
+  if (!dlugosc) return;
+  v.pause();
+  const fps = infoKlipu.fps > 0 ? infoKlipu.fps : 60;
+  // Numer bieżącej klatki, a cel w jej środku — zaokrąglenia nie zostawią obrazu na tej samej klatce
+  const nr = Math.floor(v.currentTime * fps + 0.01) + ile;
+  v.currentTime = Math.min(Math.max((nr + 0.5) / fps, 0), Math.max(dlugosc - 0.5 / fps, 0));
+  odswiezGlowice();
+}
+
+// ---------- Edytor: format zapisu (MP4 / GIF / WebP) ----------
+
+for (const b of $("formaty").children) {
+  b.addEventListener("click", () => {
+    if (b.disabled || eksportTrwa) return;
+    formatZapisu = b.dataset.format;
+    rozmiarDocelowy = null;
+    // Dłuższe zaznaczenie przycinamy do 15 s od miejsca odtwarzania (krótsze zostaje, jak jest)
+    if (animacja() && zakres.koniec - zakres.start > ANIMACJA_MAX) {
+      const v = $("wideo");
+      const start = Math.min(Math.max(v.currentTime, zakres.start), Math.max(zakres.koniec - ANIMACJA_MAX, 0));
+      zakres = { start, koniec: Math.min(start + ANIMACJA_MAX, dlugosc) };
+      v.currentTime = zakres.start;
+      dymek(`Zaznaczyłem ${ANIMACJA_MAX} s — przesuń uchwyty, żeby wybrać inny fragment`);
+    }
+    odswiezEdytor();
+  });
+}
+
+// ---------- Edytor: kadrowanie ----------
+
+// Wymiary obrazu klipu (z odtwarzacza, a gdy ten nie zna — z pliku)
+function wymiaryKlipu() {
+  const v = $("wideo");
+  return [v.videoWidth || infoKlipu.szerokosc, v.videoHeight || infoKlipu.wysokosc];
+}
+
+// Gdzie na ekranie jest obraz w elemencie <video> (z czarnymi pasami po bokach albo u góry)
+function prostokatObrazu() {
+  const v = $("wideo");
+  const [w, h] = wymiaryKlipu();
+  const sz = v.clientWidth, wy = v.clientHeight;
+  if (!w || !h || !sz || !wy) return null;
+  const skala = Math.min(sz / w, wy / h);
+  return { x: v.offsetLeft + (sz - w * skala) / 2, y: v.offsetTop + (wy - h * skala) / 2, szer: w * skala, wys: h * skala, skala };
+}
+
+function ulozKadr() {
+  const warstwa = $("kadr-warstwa");
+  const p = prostokatObrazu();
+  warstwa.hidden = !(kadr && p);
+  warstwa.classList.toggle("podglad", !kadrowanie);
+  if (warstwa.hidden) return;
+  Object.assign(warstwa.style, { left: `${p.x}px`, top: `${p.y}px`, width: `${p.szer}px`, height: `${p.wys}px` });
+  Object.assign($("kadr").style, {
+    left: `${kadr.x * p.skala}px`,
+    top: `${kadr.y * p.skala}px`,
+    width: `${kadr.szer * p.skala}px`,
+    height: `${kadr.wys * p.skala}px`,
+  });
+  $("kadr-wymiary").textContent = `${Math.round(kadr.szer) & ~1} × ${Math.round(kadr.wys) & ~1}`;
+}
+
+// Kadr w granicach obrazu, nie mniejszy niż 32 px, z zachowaniem proporcji (gdy wybrane)
+function poprawKadr(k, kotwica) {
+  const [w, h] = wymiaryKlipu();
+  const min = 32;
+  let { x, y, szer, wys } = k;
+  szer = Math.min(Math.max(szer, min), w);
+  wys = Math.min(Math.max(wys, min), h);
+  if (proporcjeKadru) {
+    // Dopasowanie do proporcji: zmieniamy bok, którego nie ciągnięto
+    if (kotwica === "pion") szer = wys * proporcjeKadru;
+    else wys = szer / proporcjeKadru;
+    if (szer > w) [szer, wys] = [w, w / proporcjeKadru];
+    if (wys > h) [szer, wys] = [h * proporcjeKadru, h];
+  }
+  x = Math.min(Math.max(x, 0), w - szer);
+  y = Math.min(Math.max(y, 0), h - wys);
+  return { x, y, szer, wys };
+}
+
+function kadrNaSrodku() {
+  const [w, h] = wymiaryKlipu();
+  let szer = w * 0.8, wys = h * 0.8;
+  if (proporcjeKadru) {
+    wys = Math.min(h * 0.9, szer / proporcjeKadru);
+    szer = wys * proporcjeKadru;
+  }
+  return poprawKadr({ x: (w - szer) / 2, y: (h - wys) / 2, szer, wys });
+}
+
+function przelaczKadrowanie() {
+  // W pełnym ekranie kadrowanie jest schowane (ramka wraca po wyjściu z pełnego ekranu)
+  if (wPelnym()) return;
+  if (!wymiaryKlipu()[0]) return dymek("Nie znam rozmiaru obrazu tego klipu — kadrowanie niedostępne");
+  kadrowanie = !kadrowanie;
+  if (kadrowanie && !kadr) kadr = kadrNaSrodku();
+  if (kadrowanie) $("wideo").pause();
+  ulozKadr();
+  odswiezEdytor();
+}
+$("kadruj").innerHTML = ikona("kadr");
+$("kadruj").addEventListener("click", przelaczKadrowanie);
+$("kadr-usun").addEventListener("click", () => {
+  kadr = null;
+  kadrowanie = false;
+  ulozKadr();
+  odswiezEdytor();
+});
+for (const b of $("proporcje").children) {
+  b.addEventListener("click", () => {
+    proporcjeKadru = Number(b.dataset.proporcje);
+    for (const x of $("proporcje").children) x.classList.toggle("wybrany", x === b);
+    if (kadr) {
+      // Nowe proporcje wokół środka obecnego kadru
+      const sx = kadr.x + kadr.szer / 2, sy = kadr.y + kadr.wys / 2;
+      const k = poprawKadr({ ...kadr });
+      kadr = poprawKadr({ ...k, x: sx - k.szer / 2, y: sy - k.wys / 2 });
+    }
+    ulozKadr();
+    odswiezEdytor();
+  });
+}
+
+// Przeciąganie ramki (środek = przesuwanie) i uchwytów (zmiana rozmiaru)
+$("kadr").addEventListener("pointerdown", (e) => {
+  if (!kadrowanie || e.button !== 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const p = prostokatObrazu();
+  if (!p) return;
+  const u = e.target.dataset.u || "";
+  const start = { ...kadr };
+  const [x0, y0] = [e.clientX, e.clientY];
+  const el = $("kadr");
+  el.setPointerCapture(e.pointerId);
+  const ruch = (m) => {
+    const dx = (m.clientX - x0) / p.skala, dy = (m.clientY - y0) / p.skala;
+    let k = { ...start };
+    if (!u) {
+      k.x += dx;
+      k.y += dy;
+      kadr = poprawKadr(k);
+    } else {
+      if (u.includes("w")) [k.x, k.szer] = [start.x + Math.min(dx, start.szer - 32), start.szer - Math.min(dx, start.szer - 32)];
+      if (u.includes("e")) k.szer = start.szer + dx;
+      if (u.includes("n")) [k.y, k.wys] = [start.y + Math.min(dy, start.wys - 32), start.wys - Math.min(dy, start.wys - 32)];
+      if (u.includes("s")) k.wys = start.wys + dy;
+      // Ciągnięty bok nie może wyjść poza obraz
+      const [w, h] = wymiaryKlipu();
+      if (k.x < 0) [k.szer, k.x] = [k.szer + k.x, 0];
+      if (k.y < 0) [k.wys, k.y] = [k.wys + k.y, 0];
+      k.szer = Math.min(k.szer, w - k.x);
+      k.wys = Math.min(k.wys, h - k.y);
+      const pion = u === "n" || u === "s";
+      k = poprawKadr(k, pion ? "pion" : "poziom");
+      // Przy proporcjach ramka rośnie od przeciwległego rogu / boku
+      if (proporcjeKadru) {
+        if (u.includes("w")) k.x = start.x + start.szer - k.szer;
+        if (u.includes("n")) k.y = start.y + start.wys - k.wys;
+        k = poprawKadr(k, pion ? "pion" : "poziom");
+      }
+      kadr = k;
+    }
+    ulozKadr();
+  };
+  const koniec = () => {
+    el.removeEventListener("pointermove", ruch);
+    el.removeEventListener("pointerup", koniec);
+    // Kadr na cały obraz = bez kadru
+    const [w, h] = wymiaryKlipu();
+    if (kadr && kadr.szer >= w - 1 && kadr.wys >= h - 1) kadr = { ...kadr, x: 0, y: 0, szer: w, wys: h };
+    odswiezEdytor();
+  };
+  el.addEventListener("pointermove", ruch);
+  el.addEventListener("pointerup", koniec);
+});
+new ResizeObserver(ulozKadr).observe($("scena"));
+document.addEventListener("fullscreenchange", () =>
+  requestAnimationFrame(() => {
+    ulozKadr();
+    ulozSciezki();
+  }),
+);
+
+// ---------- Edytor: głośność słychać od razu ----------
+// Ścieżki gry i mikrofonu (albo jedyna ścieżka) grają osobno, każda przez własny „gain” (0–200%),
+// a wideo jest wyciszone. Bez tego suwaki działałyby dopiero w zapisanym pliku.
+
+async function przygotujDzwiekNaZywo(klip, info) {
+  zatrzymajDzwiekNaZywo();
+  const numery = info.sciezki_audio >= 3 ? [1, 2] : info.sciezki_audio >= 1 ? [0] : [];
+  if (!numery.length) return;
+  dzwiek.klip = klip;
+  try {
+    const dane = await Promise.all(numery.map((nr) => invoke("dzwiek_podgladu", { sciezka: klip.sciezka, nr })));
+    if (odtwarzany !== klip || dzwiek.klip !== klip) return;
+    dzwiek.ctx ||= new AudioContext();
+    dzwiek.sciezki = dane.map((d) => {
+      const adres = URL.createObjectURL(new Blob([d], { type: "audio/mp4" }));
+      const a = new Audio(adres);
+      a.preload = "auto";
+      const zrodlo = dzwiek.ctx.createMediaElementSource(a);
+      const g = dzwiek.ctx.createGain();
+      zrodlo.connect(g).connect(dzwiek.ctx.destination);
+      return { a, g, zrodlo, adres };
+    });
+    $("wideo").muted = true;
+    ustawGlosnoscNaZywo(true);
+    synchronizujDzwiek(true);
+  } catch {
+    // Bez podglądu na żywo zostaje dźwięk samego wideo (głośność słychać po zapisie)
+    zatrzymajDzwiekNaZywo();
+  }
+}
+
+function zatrzymajDzwiekNaZywo() {
+  for (const s of dzwiek.sciezki) {
+    s.a.pause();
+    s.zrodlo.disconnect();
+    s.a.removeAttribute("src");
+    URL.revokeObjectURL(s.adres);
+  }
+  dzwiek.sciezki = [];
+  dzwiek.klip = null;
+  $("wideo").muted = false;
+}
+
+function ustawGlosnoscNaZywo(odRazu = false) {
+  if (!dzwiek.sciezki.length || !dzwiek.ctx) return;
+  const g = glosnosci();
+  dzwiek.sciezki.forEach((s, i) => {
+    const cel = g[i] ?? 1;
+    // Krótkie wygładzenie zamiast skoku — bez trzasków przy przesuwaniu suwaka
+    if (odRazu) s.g.gain.value = cel;
+    else s.g.gain.setTargetAtTime(cel, dzwiek.ctx.currentTime, 0.015);
+  });
+}
+
+function synchronizujDzwiek(wymus = false) {
+  const v = $("wideo");
+  for (const s of dzwiek.sciezki) {
+    if (wymus || Math.abs(s.a.currentTime - v.currentTime) > 0.08) {
+      try {
+        s.a.currentTime = v.currentTime;
+      } catch {}
+    }
+    s.a.playbackRate = v.playbackRate;
+    if (v.paused || v.seeking) s.a.pause();
+    else if (s.a.paused) {
+      dzwiek.ctx.resume().catch(() => {});
+      s.a.play().catch(() => {});
+    }
+  }
+}
+
+for (const zd of ["play", "playing", "pause", "seeked", "ratechange"]) {
+  $("wideo").addEventListener(zd, () => synchronizujDzwiek(zd !== "pause"));
+}
+$("wideo").addEventListener("seeking", () => dzwiek.sciezki.forEach((s) => s.a.pause()));
+$("wideo").addEventListener("timeupdate", () => dzwiek.sciezki.length && synchronizujDzwiek());
+
+// ---------- Edytor: licznik klatek podglądu (Ctrl+Shift+D) ----------
+// Pokazuje, ile klatek na sekundę naprawdę wyświetla okno i ile gubi — do sprawdzania płynności podglądu.
+
+let licznik = null;
+
+function przelaczLicznik() {
+  const el = $("licznik-klatek");
+  const v = $("wideo");
+  if (licznik) {
+    clearInterval(licznik.zegar);
+    licznik = null;
+    el.hidden = true;
+    return;
+  }
+  licznik = { klatki: 0, zegar: 0 };
+  el.hidden = false;
+  el.textContent = "Mierzę…";
+  const nastepna = () => licznik && v.requestVideoFrameCallback?.(() => {
+    if (!licznik) return;
+    licznik.klatki++;
+    nastepna();
+  });
+  nastepna();
+  let poprzednia = performance.now();
+  licznik.zegar = setInterval(() => {
+    const teraz = performance.now();
+    const fps = (licznik.klatki * 1000) / (teraz - poprzednia);
+    licznik.klatki = 0;
+    poprzednia = teraz;
+    const q = v.getVideoPlaybackQuality?.() || {};
+    el.textContent =
+      `Podgląd: ${v.paused ? "pauza" : fps.toFixed(1) + " kl./s"}\n` +
+      `Klip: ${infoKlipu.fps ? infoKlipu.fps + " kl./s" : "?"}, ${wymiaryKlipu().join("×")}\n` +
+      `Zgubione: ${q.droppedVideoFrames ?? "?"} z ${q.totalVideoFrames ?? "?"}`;
+    if (!v.requestVideoFrameCallback) el.textContent += "\n(brak requestVideoFrameCallback)";
+  }, 1000);
 }
 
 // Ostatni wynik, żeby przeciąganie tej samej wersji nie zapisywało jej drugi raz
@@ -968,12 +1440,14 @@ async function eksportujTeraz(klip, zlecenie) {
   try {
     if (zlecenie.zastap) {
       // Odtwarzacz musi puścić plik, zanim zastąpimy go nową wersją
+      zatrzymajDzwiekNaZywo();
       $("wideo").removeAttribute("src");
       $("wideo").load();
     }
-    const sciezka = await invoke("eksportuj", { sciezka: klip.sciezka, zlecenie });
+    const { sciezka, rozmiar } = await invoke("eksportuj", { sciezka: klip.sciezka, zlecenie });
+    // GIF i WebP nie trafiają do biblioteki — opis składamy z wyniku
     const lista = await invoke("klipy");
-    return lista.find((k) => k.sciezka === sciezka) || { ...klip, sciezka, nazwa: sciezka.split("\\").pop() };
+    return lista.find((k) => k.sciezka === sciezka) || { ...klip, sciezka, rozmiar, nazwa: sciezka.split("\\").pop() };
   } catch (e) {
     blad = String(e);
     throw e;
@@ -989,11 +1463,12 @@ $("eksportuj").addEventListener("click", async () => {
   if (!odtwarzany || eksportTrwa) return;
   const klip = odtwarzany;
   const zlecenie = biezaceZlecenie();
-  if (zlecenie.zastap && !confirm("Zastąpić oryginał nową wersją? Oryginał trafi do Kosza.")) return;
   try {
     const nowy = await eksportujTeraz(klip, zlecenie);
-    if (zlecenie.zastap) odtworz(nowy);
-    else ostatniEksport = { klucz: klip.sciezka + JSON.stringify(zlecenie), sciezka: nowy.sciezka };
+    if (zlecenie.zastap) {
+      odtworz(nowy);
+      dymek("Zapisano. Oryginał jest w Koszu");
+    } else ostatniEksport = { klucz: klip.sciezka + JSON.stringify(zlecenie), sciezka: nowy.sciezka };
     pokazWynik(nowy);
     wczytajKlipy();
   } catch {}
@@ -1022,6 +1497,8 @@ function pokazWynik(klip) {
   wynikKlip = klip;
   $("wynik-nazwa").textContent = klip.nazwa;
   $("wynik-opis").textContent = `${formatMB(klip.rozmiar)} · przeciągnij do Discorda, Eksploratora lub przeglądarki`;
+  // GIF / WebP nie odtworzy się w podglądzie klipu
+  $("wynik-otworz").hidden = !/\.mp4$/i.test(klip.sciezka);
   $("wynik").hidden = false;
 }
 
@@ -1066,7 +1543,7 @@ async function kompresuj(klip, mb) {
   try {
     // koniec = 0 oznacza „do końca klipu” (długość ustala rdzeń)
     const zlecenie = { start: 0, koniec: 0, przyciete: false, dokladnie: false, rozmiar_mb: mb, zastap: false, glosnosci: [] };
-    const sciezka = await invoke("eksportuj", { sciezka: klip.sciezka, zlecenie });
+    const { sciezka } = await invoke("eksportuj", { sciezka: klip.sciezka, zlecenie });
     sluchacz();
     dymek(`Gotowe: ${sciezka.split("\\").pop()}`);
     wczytajKlipy();
@@ -1127,6 +1604,18 @@ document.addEventListener("keydown", (e) => {
   } else if ((e.key === "f" || e.key === "F") && !$("odtwarzacz").hidden && !e.target.closest("input, select")) {
     e.preventDefault();
     przelaczPelnyEkran();
+  } else if (!$("odtwarzacz").hidden && !e.target.closest("input, select, textarea, .uchwyt") && !e.ctrlKey && !e.altKey) {
+    // ← / → o 5 s, , / . (czyli < / >) o jedną klatkę, C = kadrowanie
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") przewin(e.key === "ArrowLeft" ? -5 : 5);
+    else if (e.key === "," || e.key === "<") klatka(-1);
+    else if (e.key === "." || e.key === ">") klatka(1);
+    else if (e.key === "c" || e.key === "C") przelaczKadrowanie();
+    else return;
+    e.preventDefault();
+    obudzSterowanie();
+  } else if (!$("odtwarzacz").hidden && e.ctrlKey && e.shiftKey && (e.key === "D" || e.key === "d")) {
+    e.preventDefault();
+    przelaczLicznik();
   }
 });
 // Bez domyślnego menu przeglądarki
