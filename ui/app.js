@@ -1,4 +1,5 @@
-// Okno Clipeona: zakładki Klipy i Ustawienia. Rozmawia z rdzeniem przez komendy Tauri.
+// Okno Clipeona: zakładki Klipy, Filmy (długie nagrania) i Ustawienia. Rozmawia z rdzeniem przez komendy Tauri.
+// Animowane tło rysuje osobny plik tlo.js (window.Tlo).
 const { invoke, convertFileSrc } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
@@ -31,6 +32,8 @@ const IKONY = {
   glosnik: '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/>',
   glosnikWyl: '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/>',
   kadr: '<path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/>',
+  nagraj: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5" fill="currentColor"/>',
+  stop: '<rect width="12" height="12" x="6" y="6" rx="2" fill="currentColor"/>',
   film: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/>',
 };
 const ikona = (n) => `<svg class="ikona" viewBox="0 0 24 24" aria-hidden="true">${IKONY[n]}</svg>`;
@@ -38,6 +41,7 @@ const zIkona = (n, tekst) => `${ikona(n)}<span>${tekst}</span>`;
 
 let cfg = null; // ostatnio wczytany config
 let stan = { nagrywa: false, pauza: false, bledy: [], tryb: "gra", ekran: "", monitor: "" };
+let biblioteka = "klipy"; // co pokazuje lista: "klipy" albo "filmy"
 
 // ---------- Start ----------
 // Stan nagrywania i przyciski okna ustawiamy na samej górze: gdyby dalsza część skryptu
@@ -158,16 +162,20 @@ function ulozPigulke(kontener, animuj = true) {
 
 dodajPigulke(document.querySelector(".zakladki"), '.zakladka[aria-selected="true"]');
 
+// Klipy i Filmy to ta sama lista (widok-klipy), tylko z innymi plikami
 function pokazZakladke(nazwa) {
-  if (nazwa !== "ustawienia") nazwa = "klipy";
+  if (nazwa !== "ustawienia" && nazwa !== "filmy") nazwa = "klipy";
   for (const b of document.querySelectorAll(".zakladka")) {
     b.setAttribute("aria-selected", String(b.dataset.zakladka === nazwa));
   }
   ulozPigulke(document.querySelector(".zakladki"));
-  $("widok-klipy").hidden = nazwa !== "klipy";
-  $("widok-ustawienia").hidden = nazwa !== "ustawienia";
-  if (nazwa === "klipy") wczytajKlipy();
-  else wczytajUstawienia();
+  const lista = nazwa !== "ustawienia";
+  $("widok-klipy").hidden = !lista;
+  $("widok-ustawienia").hidden = lista;
+  if (lista) {
+    biblioteka = nazwa;
+    wczytajKlipy();
+  } else wczytajUstawienia();
 }
 
 for (const b of document.querySelectorAll(".zakladka")) {
@@ -212,7 +220,74 @@ function pokazStan(s) {
   $("pauza").innerHTML = s.pauza ? zIkona("graj", "Wznów") : zIkona("pauza", "Wstrzymaj");
   $("zapisz-klip").disabled = !s.nagrywa;
   $("status").classList.toggle("czeka", !!s.czeka_na_gre);
+  pokazFilm(s);
+  pokazDroge(s);
   pokazTryb(s);
+}
+
+// ---------- Film (długie nagrywanie) ----------
+
+let filmOd = null; // kiedy zaczął się trwający film (zegar okna), null = film nie trwa
+let zegarFilmu = 0;
+
+function pokazFilm(s) {
+  const trwa = s.film != null;
+  filmOd = trwa ? Date.now() - s.film * 1000 : null;
+  const b = $("film");
+  b.classList.toggle("trwa", trwa);
+  b.setAttribute("aria-pressed", String(trwa));
+  b.disabled = !!s.film_zapis || (!trwa && !s.nagrywa);
+  const skrot = cfg && cfg.skrot_filmu ? ` (${cfg.skrot_filmu})` : "";
+  b.title = s.film_zapis
+    ? "Składam nagranie w jeden plik"
+    : trwa
+      ? `Zakończ film i zapisz go${skrot}`
+      : `Nagraj film: nagrywa bez przerwy, aż klikniesz jeszcze raz${skrot}. Klipy działają w tym czasie jak zwykle.`;
+  b.setAttribute("aria-label", s.film_zapis ? "Zapisuję film" : trwa ? "Zakończ film" : "Nagraj film");
+  odswiezPrzyciskFilmu();
+  // Zegar tyka tylko, gdy film trwa
+  if (trwa && !zegarFilmu) zegarFilmu = setInterval(odswiezPrzyciskFilmu, 1000);
+  if (!trwa && zegarFilmu) {
+    clearInterval(zegarFilmu);
+    zegarFilmu = 0;
+  }
+  // Zajęty skrót filmu: uwaga w ustawieniach (film da się wtedy włączyć przyciskiem)
+  $("skrot-filmu-uwaga").hidden = !s.skrot_filmu_blad;
+  $("skrot-filmu-uwaga").textContent = s.skrot_filmu_blad || "";
+}
+
+const formatDlugi = (s) => {
+  s = Math.max(0, Math.floor(s));
+  const g = Math.floor(s / 3600);
+  const reszta = `${String(Math.floor((s % 3600) / 60)).padStart(g ? 2 : 1, "0")}:${String(s % 60).padStart(2, "0")}`;
+  return g ? `${g}:${reszta}` : reszta;
+};
+
+function odswiezPrzyciskFilmu() {
+  $("film").innerHTML = stan.film_zapis
+    ? zIkona("film", "Zapisuję film…")
+    : filmOd != null
+      ? zIkona("stop", formatDlugi((Date.now() - filmOd) / 1000))
+      : zIkona("nagraj", "Nagraj film");
+}
+
+$("film").addEventListener("click", () => invoke("przelacz_film"));
+listen("film-zapisany", () => {
+  dymek("Film zapisany");
+  if (!$("widok-klipy").hidden) wczytajKlipy();
+});
+listen("film-blad", (e) => dymek(String(e.payload)));
+
+// Którym sposobem Clipeon naprawdę przechwytuje obraz (przy „Automatycznie” wybiera sam)
+const DROGI = { dda: "Desktop Duplication", gfx: "Windows Graphics Capture", potok: "Tryb zgodności" };
+
+function pokazDroge(s) {
+  const nazwa = DROGI[s.droga];
+  $("metoda-teraz").textContent = !nazwa
+    ? ""
+    : s.ramka
+      ? `Teraz: ${nazwa}. Ten sposób pokazuje na tym Windows ramkę wokół nagrywanego obrazu; Clipeon wróci do Desktop Duplication, gdy tylko znów zadziała.`
+      : `Teraz: ${nazwa}.`;
 }
 
 // ---------- Tryb (Gra | Pulpit), wybór ekranu i gry ----------
@@ -421,8 +496,13 @@ function pompujMiniatury() {
 }
 
 async function wczytajKlipy() {
-  const [klipy, u] = await Promise.all([invoke("klipy"), cfg ? Promise.resolve(null) : invoke("ustawienia")]);
+  const [wszystkie, u] = await Promise.all([invoke("klipy"), cfg ? Promise.resolve(null) : invoke("ustawienia")]);
   if (u) cfg = u.cfg;
+  // Zakładka Filmy pokazuje długie nagrania, Klipy — całą resztę
+  const filmy = biblioteka === "filmy";
+  const klipy = wszystkie.filter((k) => !!k.film === filmy);
+  $("biblioteka-tytul").textContent = filmy ? "Filmy" : "Klipy";
+  $("pusto-tytul").textContent = filmy ? "Brak filmów" : "Brak klipów";
   kolejkaMiniatur = [];
   // Zaznaczenie przeżywa odświeżenie listy (bez klipów, których już nie ma)
   kolejnosc = klipy;
@@ -437,7 +517,11 @@ async function wczytajKlipy() {
     ? `${klipy.length} ${odmiana(klipy.length)} · ${formatMB(suma)}`
     : "";
   $("pusto").hidden = klipy.length > 0;
-  $("pusto-tekst").textContent = `Naciśnij ${cfg.skrot} w grze, aby zapisać ostatnie ${cfg.bufor_sekundy} s.`;
+  $("pusto-tekst").textContent = !filmy
+    ? `Naciśnij ${cfg.skrot} w grze, aby zapisać ostatnie ${cfg.bufor_sekundy} s.`
+    : cfg.skrot_filmu
+      ? `Naciśnij ${cfg.skrot_filmu} albo kliknij „Nagraj film”, aby nagrywać bez przerwy. Ten sam skrót kończy nagranie.`
+      : "Kliknij „Nagraj film”, aby nagrywać bez przerwy, aż klikniesz jeszcze raz.";
 
   for (const klip of klipy) {
     // Nowa sekcja daty (klipy są posortowane od najnowszego)
@@ -455,7 +539,7 @@ async function wczytajKlipy() {
     karta.className = "karta klip";
     karta.innerHTML = `
       <div class="obraz"><img alt=""><span class="dlugosc" hidden></span><span class="graj">${ikona("graj")}</span>
-        <span class="zaznacz" role="checkbox" aria-checked="false" aria-label="Zaznacz klip" tabindex="-1">${ikona("ptaszek")}</span>
+        <span class="zaznacz" role="checkbox" aria-checked="false" aria-label="Zaznacz" tabindex="-1">${ikona("ptaszek")}</span>
         ${klip.pulpit ? '<span class="znaczek" title="Nagrane w trybie pulpitu">Pulpit</span>' : ""}</div>
       <div class="opis"><h3></h3><p class="pomoc"></p></div>`;
     karta.querySelector("h3").textContent = formatData(klip.czas_ms);
@@ -508,9 +592,10 @@ function wyczyscZaznaczenie() {
 }
 
 function odmianaZaznaczonych(n) {
-  if (n === 1) return "1 klip zaznaczony";
+  const co = biblioteka === "filmy" ? "film" : "klip";
+  if (n === 1) return `1 ${co} zaznaczony`;
   const r = n % 10, s = n % 100;
-  return r >= 2 && r <= 4 && (s < 12 || s > 14) ? `${n} klipy zaznaczone` : `${n} klipów zaznaczonych`;
+  return r >= 2 && r <= 4 && (s < 12 || s > 14) ? `${n} ${co}y zaznaczone` : `${n} ${co}ów zaznaczonych`;
 }
 
 function odswiezZaznaczenie() {
@@ -564,9 +649,10 @@ function sekcjaDaty(ms) {
 }
 
 function odmiana(n) {
-  if (n === 1) return "klip";
+  const co = biblioteka === "filmy" ? "film" : "klip";
+  if (n === 1) return co;
   const r = n % 10, s = n % 100;
-  return r >= 2 && r <= 4 && (s < 12 || s > 14) ? "klipy" : "klipów";
+  return r >= 2 && r <= 4 && (s < 12 || s > 14) ? `${co}y` : `${co}ów`;
 }
 
 $("odswiez").addEventListener("click", wczytajKlipy);
@@ -669,6 +755,7 @@ function odtworz(klip) {
   // ale inną treść, a stary, zapamiętany rozmiar zostawiał pusty podgląd
   v.src = `${convertFileSrc(klip.sciezka)}?v=${Date.now()}`;
   $("odtwarzacz").hidden = false;
+  window.Tlo?.odswiez(); // tło stoi, gdy zasłania je edytor
   v.play().catch(() => {});
   $("odtw-zamknij").focus();
 }
@@ -682,6 +769,7 @@ function zamknijOdtwarzacz() {
   v.load(); // zwalnia plik, żeby dało się go usunąć
   zatrzymajDzwiekNaZywo();
   $("odtwarzacz").hidden = true;
+  window.Tlo?.odswiez();
   odtwarzany = null;
 }
 
@@ -1661,6 +1749,7 @@ const POLA = [
   ["powiadomienie-zapisu", "powiadomienie_zapisu", "tak"],
   ["ikona-zegar", "ikona_przy_zegarze", "tak"],
   ["aktualizacje", "sprawdzaj_aktualizacje", "tak"],
+  ["animowane-tlo", "animowane_tlo", "tak"],
   ["enkoder", "enkoder", "tekst"],
   ["metoda", "metoda_przechwytywania", "tekst"],
   ["monitor", "monitor", "tekst"],
@@ -1719,8 +1808,8 @@ async function wczytajUstawienia() {
   $("sprz-dni").value = cfg.sprzatanie_dni || 30;
   $("sprz-gb-wl").checked = cfg.sprzatanie_gb > 0;
   $("sprz-gb").value = cfg.sprzatanie_gb || 50;
-  $("skrot").textContent = cfg.skrot;
-  $("skrot").dataset.wartosc = cfg.skrot;
+  ustawSkrot($("skrot"), cfg.skrot);
+  ustawSkrot($("skrot-filmu"), cfg.skrot_filmu);
   $("folder").textContent = cfg.folder_klipow;
   $("autostart").checked = u.autostart;
   $("wersja").textContent = u.wersja;
@@ -1771,42 +1860,84 @@ $("zmien-folder").addEventListener("click", async () => {
   if (f) $("folder").textContent = f;
 });
 
-// Przechwytywanie skrótu
-let nasluchSkrotu = false;
+// ---------- Ustawianie skrótu ----------
+// Pola z data-skrot: kliknięcie zaczyna nasłuch, wciśnięta kombinacja go kończy. Na czas nasłuchu
+// rdzeń wyłącza skróty Clipeona — inaczej wciśnięcie obecnego skrótu zapisałoby klip (albo zaczęło
+// film) zamiast trafić do pola. Wciskane klawisze widać od razu na szaro („Ctrl + Alt + …”).
 
-$("skrot").addEventListener("click", () => {
-  nasluchSkrotu = true;
-  $("skrot").classList.add("nasluch");
-  $("skrot").textContent = "Naciśnij skrót…";
-});
+let nasluchSkrotu = null; // pole, które właśnie czeka na kombinację
 
-function koniecNasluchu(wartosc) {
-  nasluchSkrotu = false;
-  const pole = $("skrot");
-  pole.classList.remove("nasluch");
-  if (wartosc) pole.dataset.wartosc = wartosc;
-  pole.textContent = pole.dataset.wartosc;
+function ustawSkrot(pole, wartosc) {
+  pole.dataset.wartosc = wartosc;
+  pole.textContent = wartosc || pole.dataset.pusty || "";
+  pole.classList.toggle("pusty", !wartosc);
 }
 
-$("skrot").addEventListener("blur", () => nasluchSkrotu && koniecNasluchu());
+function zacznijNasluch(pole) {
+  if (nasluchSkrotu === pole) return;
+  if (nasluchSkrotu) koniecNasluchu();
+  nasluchSkrotu = pole;
+  uwagaSkrotu = false;
+  pole.classList.add("nasluch");
+  pole.textContent = "Naciśnij skrót…";
+  invoke("wstrzymaj_skroty", { wstrzymaj: true });
+}
+
+// `wartosc`: nowy skrót, "" = bez skrótu, undefined = bez zmian (anulowanie)
+function koniecNasluchu(wartosc) {
+  const pole = nasluchSkrotu;
+  if (!pole) return;
+  nasluchSkrotu = null;
+  pole.classList.remove("nasluch");
+  ustawSkrot(pole, wartosc ?? pole.dataset.wartosc);
+  invoke("wstrzymaj_skroty", { wstrzymaj: false });
+}
+
+for (const pole of document.querySelectorAll("[data-skrot]")) {
+  pole.addEventListener("click", () => zacznijNasluch(pole));
+  pole.addEventListener("blur", () => nasluchSkrotu === pole && koniecNasluchu());
+}
+// Okno straciło fokus (Alt+Tab, klik w grę): skróty muszą znów działać
+window.addEventListener("blur", () => koniecNasluchu());
+
+const modyfikatory = (e) => [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Win"].filter(Boolean);
+
+// Podgląd na szaro: to, co jest już wciśnięte, i wielokropek w miejscu brakującego klawisza.
+// `uwaga` (np. „jest już zajęty”) zostaje do następnego wciśnięcia — puszczanie klawiszy jej nie zmazuje.
+let uwagaSkrotu = false;
+
+function pokazWciskane(e, uwaga) {
+  const mod = modyfikatory(e);
+  uwagaSkrotu = !!uwaga;
+  nasluchSkrotu.textContent = uwaga || (mod.length ? `${mod.join(" + ")} + …` : "Naciśnij skrót…");
+}
 
 document.addEventListener("keydown", (e) => {
   if (!nasluchSkrotu) return;
   e.preventDefault();
   e.stopPropagation();
   if (e.key === "Escape") return koniecNasluchu();
+  // Delete / Backspace czyści skrót tam, gdzie wolno go nie mieć (film)
+  if ((e.key === "Delete" || e.key === "Backspace") && nasluchSkrotu.dataset.pusty) return koniecNasluchu("");
   let klawisz = null;
   if (/^F([1-9]|1\d|2[0-4])$/.test(e.code)) klawisz = e.code;
   else if (/^Key[A-Z]$/.test(e.code)) klawisz = e.code.slice(3);
   else if (/^Digit\d$/.test(e.code)) klawisz = e.code.slice(5);
-  if (!klawisz) return; // sam modyfikator — czekamy na zwykły klawisz
-  const mod = [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Win"].filter(Boolean);
+  if (!klawisz) return pokazWciskane(e); // sam modyfikator — czekamy na zwykły klawisz
+  const mod = modyfikatory(e);
   // Litera lub cyfra bez modyfikatora zablokowałaby pisanie w całym systemie
-  if (!mod.length && !klawisz.startsWith("F")) {
-    $("skrot").textContent = "Dodaj Ctrl, Alt lub Shift…";
-    return;
-  }
-  koniecNasluchu([...mod, klawisz].join("+"));
+  if (!mod.length && !klawisz.startsWith("F")) return pokazWciskane(e, `${klawisz} — dodaj Ctrl, Alt lub Shift…`);
+  const skrot = [...mod, klawisz].join("+");
+  // Ten sam skrót w obu polach: rdzeń i tak by go odrzucił, więc mówimy od razu
+  const zajety = [...document.querySelectorAll("[data-skrot]")].some((p) => p !== nasluchSkrotu && p.dataset.wartosc === skrot);
+  if (zajety) return pokazWciskane(e, `${skrot.replaceAll("+", " + ")} jest już zajęty…`);
+  koniecNasluchu(skrot);
+}, true);
+
+document.addEventListener("keyup", (e) => {
+  if (!nasluchSkrotu) return;
+  e.preventDefault();
+  if (!uwagaSkrotu) pokazWciskane(e);
 }, true);
 
 $("zapisz-ustawienia").addEventListener("click", async () => {
@@ -1814,6 +1945,7 @@ $("zapisz-ustawienia").addEventListener("click", async () => {
     ...cfg,
     ...odczytajPola(),
     skrot: $("skrot").dataset.wartosc,
+    skrot_filmu: $("skrot-filmu").dataset.wartosc,
     folder_klipow: $("folder").textContent,
     sprzatanie_dni: $("sprz-dni-wl").checked ? Number($("sprz-dni").value) || 30 : 0,
     sprzatanie_gb: $("sprz-gb-wl").checked ? Number($("sprz-gb").value) || 50 : 0,
@@ -1827,6 +1959,7 @@ $("zapisz-ustawienia").addEventListener("click", async () => {
     cfg = nowy;
     $("komunikat").textContent = "Zapisano. Nagrywanie wystartowało z nowymi ustawieniami.";
     odswiezPrzyciskZapisu();
+    pokazFilm(stan); // podpowiedź przycisku filmu pokazuje skrót
   } catch (e) {
     $("komunikat").textContent = String(e);
   } finally {
@@ -1837,6 +1970,7 @@ $("zapisz-ustawienia").addEventListener("click", async () => {
 function odswiezPrzyciskZapisu() {
   $("zapisz-klip").innerHTML = zIkona("zapisz", `Zapisz ${cfg ? cfg.bufor_sekundy : 30} s`);
   $("zapisz-klip").title = cfg ? `Skrót: ${cfg.skrot}` : "";
+  window.Tlo?.wlacz(!cfg || cfg.animowane_tlo !== false);
 }
 
 // ---------- Ikony i zakładka startowa ----------
@@ -1855,6 +1989,7 @@ pokazZakladke(location.hash.slice(1));
 invoke("ustawienia").then((u) => {
   cfg ??= u.cfg;
   odswiezPrzyciskZapisu();
+  pokazFilm(stan);
 });
 
 // ---------- Aktualizacje ----------

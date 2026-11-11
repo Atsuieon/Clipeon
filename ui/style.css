@@ -140,7 +140,8 @@ h3, .tytul-karty { font-size: 18px; font-weight: 400; letter-spacing: -0.01em; c
   position: relative;
   border: 1px solid var(--ramka-karty);
   border-radius: 22px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0) 90px);
+  /* Prawie pełne tło: znaki z animowanego tła nie przebijają spod napisów */
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0) 90px), rgba(3, 3, 3, 0.92);
 }
 .karta::before {
   /* Cienki odblask światła na górnej krawędzi */
@@ -291,7 +292,10 @@ select option { background: #0a0a0a; }
 .pola label { display: flex; flex-direction: column; gap: 6px; color: var(--pomoc); }
 
 .pole-skrotu { text-align: left; cursor: pointer; font-size: 16px; letter-spacing: 0.01em; }
-.pole-skrotu.nasluch { border-color: #fff; color: var(--pomoc); }
+/* Ustawianie skrótu: wciskane klawisze widać na szaro, gotowy skrót robi się biały */
+.pole-skrotu.nasluch { border-color: #fff; color: var(--szary); }
+.pole-skrotu.pusty { color: var(--pomoc); }
+.pomoc.uwaga { color: #e0b252; }
 
 .segmenty { display: flex; flex-wrap: wrap; gap: 6px; }
 .segment {
@@ -738,4 +742,62 @@ input[type="number"]:focus-visible, select:focus-visible { outline: none; border
 @media (max-width: 760px) {
   .sciezka-opis { padding-left: 14px; }
   .sciezka-opis span { display: none; }
+}
+
+/* ---------- Animowane tło ze znaków (rysuje tlo.js) ---------- */
+#tlo { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+.panel { z-index: 1; }
+/* Pasek z zakładkami i przyciskami ma własne tło, żeby znaki nie wchodziły pod napisy */
+.gora { background: rgba(0, 0, 0, 0.9); }
+/* Napisy leżące wprost na tle (nagłówki, pusta lista) dostają ciemną poświatę, żeby znaki ich nie zagłuszały */
+.naglowek h1, .naglowek .pomoc, h2.sekcja, .o-programie, .pusto h2, .pusto .pomoc { text-shadow: 0 0 3px #000, 0 0 10px #000, 0 0 18px #000; }
+.pusto { background: radial-gradient(ellipse closest-side, rgba(0, 0, 0, 0.92) 65%, transparent); }
+
+/* ---------- Napis „Clipeon”: zorza ---------- */
+/* Biały napis, po którym wędrują cztery kolorowe plamy. Wszystko to jedno tło przycięte do liter:
+   każda plama jest osobną warstwą i animacja przesuwa tylko ich położenie. */
+.marka {
+  --zorza: 62%;
+  font-size: 26px;
+  font-weight: 700;
+  color: transparent;
+  background:
+    radial-gradient(closest-side, #00c2ff, transparent) 0% 0% / var(--zorza) 190% no-repeat,
+    radial-gradient(closest-side, #33ff8c, transparent) 100% 0% / var(--zorza) 190% no-repeat,
+    radial-gradient(closest-side, #ffc640, transparent) 100% 100% / var(--zorza) 190% no-repeat,
+    radial-gradient(closest-side, #e54cff, transparent) 0% 100% / var(--zorza) 190% no-repeat,
+    #fff;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: zorza 14s ease-in-out infinite;
+}
+@keyframes zorza {
+  25% { background-position: 60% 80%, 20% 100%, 0% 20%, 100% 30%, 0 0; }
+  50% { background-position: 100% 100%, 0% 40%, 40% 0%, 60% 100%, 0 0; }
+  75% { background-position: 30% 20%, 70% 0%, 100% 60%, 0% 0%, 0 0; }
+}
+/* Zorza stoi razem z tłem: okno w tle, otwarty edytor albo wyłączone „Animowane tło” */
+.tlo-stoi .marka { animation-play-state: paused; }
+/* Systemowe „bez animacji” gasi przejścia wyżej; zorza i tło mają własny wyłącznik w Ustawieniach */
+@media (prefers-reduced-motion: reduce) {
+  .marka { animation: zorza 14s ease-in-out infinite !important; }
+}
+
+/* ---------- Przycisk filmu (długie nagrywanie) ---------- */
+.przycisk.film { font-variant-numeric: tabular-nums; }
+.przycisk.film .ikona { width: 16px; height: 16px; }
+.przycisk.film.trwa { border-color: rgba(239, 68, 68, 0.55); background: rgba(239, 68, 68, 0.1); }
+.przycisk.film.trwa:hover { background: rgba(239, 68, 68, 0.18); border-color: var(--czerwony); }
+.przycisk.film.trwa .ikona { color: var(--czerwony); animation: film-miga 1.6s ease-in-out infinite; }
+@keyframes film-miga { 50% { opacity: 0.35; } }
+/* Pasek u góry: przy węższym oknie „Nagraj film” i „Wstrzymaj” zostają samymi ikonami,
+   żeby zmieścił się napis stanu („Nagrywa: gra”) */
+.marka, .zakladki { flex: none; }
+@media (max-width: 1479px) {
+  .przycisk.film:not(.trwa) span { display: none; }
+  .przycisk.film:not(.trwa) { padding: 9px; }
+}
+@media (max-width: 1319px) {
+  #pauza span { display: none; }
+  #pauza { padding: 9px; }
 }

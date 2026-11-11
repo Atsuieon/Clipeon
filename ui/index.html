@@ -7,6 +7,8 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- Tło: znaki ASCII i płomyk za myszką (rysuje tlo.js; wyłączane w Ustawieniach → System) -->
+  <canvas id="tlo" aria-hidden="true"></canvas>
   <!-- Własny pasek tytułu (okno nie ma systemowej ramki) -->
   <div class="belka" data-tauri-drag-region>
     <div class="belka-tytul" data-tauri-drag-region>
@@ -24,6 +26,7 @@
       <div class="marka">Clipeon</div>
       <nav class="zakladki" role="tablist">
         <button class="zakladka" data-zakladka="klipy" role="tab">Klipy</button>
+        <button class="zakladka" data-zakladka="filmy" role="tab">Filmy</button>
         <button class="zakladka" data-zakladka="ustawienia" role="tab">Ustawienia</button>
       </nav>
       <div class="akcje">
@@ -41,6 +44,7 @@
           <span class="kropka" id="kropka"></span><span id="status-tekst">Łączenie…</span>
           <span class="status-mik" id="status-mik" title="Mikrofon nie jest nagrywany — włączysz go w Ustawieniach → Dźwięk" hidden></span>
         </div>
+        <button class="przycisk drugorzedny film" id="film" aria-pressed="false"></button>
         <button class="przycisk drugorzedny" id="pauza"></button>
         <button class="przycisk glowny" id="zapisz-klip"></button>
       </div>
@@ -59,11 +63,11 @@
     </div>
 
     <main>
-      <!-- Klipy -->
+      <!-- Biblioteka: klipy albo filmy (długie nagrania), zależnie od zakładki -->
       <section class="widok" id="widok-klipy" hidden>
         <div class="naglowek">
           <div>
-            <h1>Klipy</h1>
+            <h1 id="biblioteka-tytul">Klipy</h1>
             <p class="pomoc" id="podsumowanie"></p>
           </div>
           <div class="naglowek-akcje">
@@ -80,7 +84,7 @@
         </div>
         <div class="pusto" id="pusto" hidden>
           <span class="ikona-duza" id="pusto-ikona"></span>
-          <h2>Brak klipów</h2>
+          <h2 id="pusto-tytul">Brak klipów</h2>
           <p class="pomoc" id="pusto-tekst"></p>
         </div>
       </section>
@@ -199,9 +203,17 @@
                 <div class="ust">
                   <div class="opis">
                     <span>Skrót do zapisania klipu</span>
-                    <p class="pomoc">Kliknij i wciśnij nową kombinację (Esc anuluje).</p>
+                    <p class="pomoc">Kliknij i wciśnij nową kombinację (Esc anuluje). W tym czasie skróty Clipeona są wyłączone.</p>
                   </div>
-                  <div class="pole"><button type="button" class="pole-skrotu" id="skrot"></button></div>
+                  <div class="pole"><button type="button" class="pole-skrotu" id="skrot" data-skrot></button></div>
+                </div>
+                <div class="ust">
+                  <div class="opis">
+                    <span>Skrót do nagrywania filmu</span>
+                    <p class="pomoc">Zaczyna i kończy długie nagrywanie. Filmy znajdziesz w zakładce Filmy. Delete albo Backspace usuwa skrót.</p>
+                    <p class="pomoc uwaga" id="skrot-filmu-uwaga" hidden></p>
+                  </div>
+                  <div class="pole"><button type="button" class="pole-skrotu" id="skrot-filmu" data-skrot data-pusty="Bez skrótu"></button></div>
                 </div>
                 <div class="ust">
                   <div class="opis">
@@ -267,6 +279,13 @@
                   <div class="pole"><label class="przelacznik"><input type="checkbox" id="aktualizacje"><span class="suwak"></span></label></div>
                 </div>
                 <div class="ust">
+                  <div class="opis">
+                    <label for="animowane-tlo">Animowane tło</label>
+                    <p class="pomoc">Znaki w tle okna i płomyk za myszką. Działa tylko, gdy okno Clipeona jest otwarte i aktywne.</p>
+                  </div>
+                  <div class="pole"><label class="przelacznik"><input type="checkbox" id="animowane-tlo"><span class="suwak"></span></label></div>
+                </div>
+                <div class="ust">
                   <div class="opis"><span>Aktualizacja</span><p class="pomoc" id="akt-wynik" role="status"></p></div>
                   <div class="pole">
                     <button type="button" class="przycisk drugorzedny" id="sprawdz-teraz">Sprawdź teraz</button>
@@ -293,13 +312,13 @@
                     <div class="opis">
                       <label for="metoda">Sposób przechwytywania obrazu</label>
                       <p class="pomoc">Zostaw „Automatycznie”, chyba że nagrania się zacinają albo są czarne.</p>
-                      <p class="pomoc">Żółta ramka wokół ekranu podczas nagrywania? To znak Windows, że coś nagrywa ekran. Rysuje ją tylko Windows Graphics Capture (i Tryb zgodności) na starszym Windows 10 — wybierz <b>Desktop Duplication</b>, ten sposób nigdy jej nie pokazuje.</p>
+                      <p class="pomoc" id="metoda-teraz"></p>
                     </div>
                     <div class="pole">
                       <select id="metoda" aria-label="Sposób przechwytywania obrazu">
                         <option value="auto">Automatycznie (polecane)</option>
                         <option value="dda">Desktop Duplication — najlżejszy</option>
-                        <option value="gfx">Windows Graphics Capture (na Windows 10 z żółtą ramką)</option>
+                        <option value="gfx">Windows Graphics Capture</option>
                         <option value="potok">Tryb zgodności</option>
                       </select>
                     </div>
@@ -432,6 +451,7 @@
 
   <div class="dymek" id="dymek" role="status" hidden></div>
 
+  <script src="tlo.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

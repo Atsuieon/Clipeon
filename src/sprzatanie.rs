@@ -68,7 +68,9 @@ pub fn sprzataj(folder: &Path, dni: u32, gb: u32) -> usize {
     };
 
     // Od najstarszego
+    // Filmów (długich nagrań) sprzątanie nie rusza: to świadome nagrania, nie bieżące klipy
     let mut lista = klipy::lista(folder);
+    lista.retain(|k| !k.film);
     lista.reverse();
     let mut suma: u64 = lista.iter().map(|k| k.rozmiar).sum();
     let limit = gb as u64 * 1_000_000_000;

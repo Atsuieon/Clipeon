@@ -16,7 +16,7 @@ fn start() -> &'static Instant {
 pub fn przy_starcie() -> bool {
     start();
     let argumenty: Vec<String> = std::env::args().collect();
-    let po_awarii = argumenty.iter().any(|a| a == FLAGA);
+    let mut po_awarii = argumenty.iter().any(|a| a == FLAGA);
     if po_awarii {
         // Nowa kopia z wątku awarii: czekamy, aż stara się zamknie (inaczej zablokuje ją pojedyncza instancja)
         if let Some(pid) = argumenty.iter().skip_while(|a| *a != FLAGA).nth(1).and_then(|p| p.parse::<u32>().ok())
@@ -24,7 +24,17 @@ pub fn przy_starcie() -> bool {
                 // Stara kopia jednak działa dalej — nie dublujemy programu
                 std::process::exit(0);
             }
-        crate::dziennik::info("Clipeon uruchomiony ponownie po awarii");
+        // Po instalacji aktualizacji Windows potrafi wznowić Clipeona tą samą drogą co po awarii —
+        // wtedy to nie awaria (znacznik zostawia `przed_aktualizacja`)
+        if std::fs::remove_file(znacznik_aktualizacji()).is_ok() {
+            crate::dziennik::info("Clipeon uruchomiony ponownie po aktualizacji");
+            po_awarii = false;
+        } else {
+            crate::dziennik::info("Clipeon uruchomiony ponownie po awarii");
+        }
+    } else {
+        // Zwykły start: stary znacznik (np. po nieudanej instalacji) nie może udawać aktualizacji później
+        let _ = std::fs::remove_file(znacznik_aktualizacji());
     }
     // Windows uruchomi Clipeona ponownie po awarii lub zawieszeniu (nie po aktualizacji ani restarcie systemu —
     // to załatwia instalator i autostart)
@@ -34,6 +44,20 @@ pub fn przy_starcie() -> bool {
         let _ = RegisterApplicationRestart(windows::core::PCWSTR(linia.as_ptr()), RESTART_NO_PATCH | RESTART_NO_REBOOT);
     }
     po_awarii
+}
+
+fn znacznik_aktualizacji() -> std::path::PathBuf {
+    crate::dziennik::folder().with_file_name("aktualizacja.znacznik")
+}
+
+/// Tuż przed uruchomieniem instalatora aktualizacji: następny start „po awarii” to tak naprawdę
+/// start po aktualizacji.
+pub fn przed_aktualizacja() {
+    let znacznik = znacznik_aktualizacji();
+    if let Some(folder) = znacznik.parent() {
+        let _ = std::fs::create_dir_all(folder);
+    }
+    let _ = std::fs::write(znacznik, "");
 }
 
 /// Czeka na zakończenie procesu; true = zakończył się (albo już go nie ma).

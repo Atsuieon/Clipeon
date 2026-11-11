@@ -13,6 +13,8 @@ pub struct Klip {
     pub czas_ms: u64,
     /// Klip nagrany w trybie pulpitu (nazwa zaczyna się od „Clipeon_Pulpit_”)
     pub pulpit: bool,
+    /// Długie nagranie (nazwa zaczyna się od „Clipeon_Film_”) — biblioteka pokazuje je w zakładce Filmy
+    pub film: bool,
 }
 
 #[derive(Serialize)]
@@ -53,8 +55,14 @@ fn zbierz(folder: &Path, klipy: &mut Vec<Klip>) {
         };
         let nazwa = w.file_name().to_string_lossy().into_owned();
         let pulpit = nazwa.starts_with("Clipeon_Pulpit_");
-        klipy.push(Klip { sciezka: w.path(), nazwa, rozmiar: m.len(), czas_ms, pulpit });
+        let film = jest_filmem(&nazwa);
+        klipy.push(Klip { sciezka: w.path(), nazwa, rozmiar: m.len(), czas_ms, pulpit, film });
     }
+}
+
+/// Czy plik o tej nazwie to film (długie nagranie albo jego przycięta / skompresowana kopia).
+pub fn jest_filmem(nazwa: &str) -> bool {
+    nazwa.starts_with(&format!("{}_", crate::film::PRZEDROSTEK))
 }
 
 /// Folder pamięci podręcznej miniatur: %LOCALAPPDATA%\pl.clipper.app\miniatury (folder danych

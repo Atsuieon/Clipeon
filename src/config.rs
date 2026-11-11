@@ -22,6 +22,10 @@ pub struct Config {
     pub folder_klipow: PathBuf,
     /// Skrót zapisu klipu, np. "Alt+F10", "Ctrl+Shift+S"
     pub skrot: String,
+    /// Skrót, który zaczyna i kończy długie nagrywanie (film); pusty = bez skrótu
+    pub skrot_filmu: String,
+    /// Animowane tło okna (znaki ASCII i płomyk za myszką)
+    pub animowane_tlo: bool,
     /// Ikona w zasobniku zawsze widoczna przy zegarze (a nie w ukrytych ikonach pod ^)
     pub ikona_przy_zegarze: bool,
     /// Czy Clipeon już raz ustawił widoczność ikony (później decyduje użytkownik w Windows)
@@ -80,6 +84,8 @@ impl Default for Config {
             mikrofon: true,
             folder_klipow: profil.join("Videos").join("Clipeon"),
             skrot: "Alt+F10".into(),
+            skrot_filmu: "Alt+F9".into(),
+            animowane_tlo: true,
             ikona_przy_zegarze: true,
             ikona_ustawiona: false,
             dzwiek_zapisu: true,
@@ -210,7 +216,14 @@ impl Config {
         if self.sprzatanie_dni > 3650 || self.sprzatanie_gb > 100_000 {
             return Err("Nieprawidłowe ustawienia sprzątania".into());
         }
-        crate::skrot::parsuj(&self.skrot).map(|_| ())
+        let klip = crate::skrot::parsuj(&self.skrot)?;
+        if !self.skrot_filmu.is_empty() {
+            let film = crate::skrot::parsuj(&self.skrot_filmu)?;
+            if (film.0.0, film.1) == (klip.0.0, klip.1) {
+                return Err("Skrót filmu musi być inny niż skrót klipu".into());
+            }
+        }
+        Ok(())
     }
 }
 
@@ -226,5 +239,19 @@ mod testy {
         assert_eq!(c.wybrana_gra(), "");
         // Wybór gry zostaje na powrót do trybu Gra
         assert_eq!(c.gra, "fcadefbneo.exe");
+    }
+
+    #[test]
+    fn skrot_filmu() {
+        let mut c = Config { folder_klipow: r"C:\Klipy".into(), ..Config::default() };
+        assert!(c.sprawdz().is_ok());
+        // Ten sam skrót dla klipu i filmu nie przejdzie (także zapisany inaczej)
+        c.skrot_filmu = "alt + f10".into();
+        assert!(c.sprawdz().is_err());
+        // Pusty = film tylko z okna
+        c.skrot_filmu = String::new();
+        assert!(c.sprawdz().is_ok());
+        c.skrot_filmu = "Ctrl+Shift+R".into();
+        assert!(c.sprawdz().is_ok());
     }
 }

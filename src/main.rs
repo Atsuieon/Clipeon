@@ -12,6 +12,7 @@ mod dzwiek;
 mod edycja;
 mod enkodery;
 mod ffmpeg;
+mod film;
 mod gra;
 mod ikona;
 mod karty;

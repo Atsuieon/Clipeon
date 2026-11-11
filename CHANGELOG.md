@@ -1,5 +1,38 @@
 # Zmiany
 
+## 1.4.0
+
+- **Filmy — długie nagrywanie.** Nowy przycisk „Nagraj film” na pasku (i w menu ikony przy zegarze) albo skrót
+  **Alt+F9** zaczyna nagrywanie bez limitu czasu; to samo kończy film. Na przycisku tyka czas nagrania.
+  Filmy mają własną zakładkę **Filmy** obok Klipów, zapisują się do tego samego folderu jako
+  `Clipeon_Film_…mp4`, mają te same ścieżki dźwięku co klipy (razem, Gra, Mikrofon) i otwierają się
+  w edytorze, więc da się z nich wyciąć klip albo GIF.
+  - Film nie obciąża gry dodatkowo: korzysta z tego samego obrazu, który Clipeon i tak nagrywa do bufora.
+    Klipy (Alt+F10) działają w trakcie filmu jak zwykle.
+  - Automatyczne sprzątanie nigdy nie usuwa filmów.
+  - Film kończy się sam, gdy na dysku zostaje mniej niż 500 MB, gdy zmienisz ustawienia nagrywania albo
+    zamkniesz Clipeona — i zawsze zapisuje to, co zdążył nagrać. Skrót filmu zmienisz (albo usuniesz)
+    w Ustawieniach → Zapisywanie klipów.
+- **Żółta ramka przy zmianie pełny ekran ↔ okno.** Gdy gra przełączała tryb ekranu, Desktop Duplication
+  na chwilę gubiło obraz, a Clipeon po trzech takich potknięciach przechodził na stałe na tryb zgodności,
+  który na Windows 10 rysuje żółtą ramkę. Teraz Clipeon po prostu ponawia Desktop Duplication, aż ekran się
+  uspokoi. Jeśli naprawdę nie działa dłużej niż 30 s, przechodzi na inny sposób tylko na chwilę i sam wraca
+  do Desktop Duplication (pierwsza próba po minucie). Zapamiętany „sposób z ramką” nie wygrywa już
+  z działającym Desktop Duplication po ponownym uruchomieniu.
+- W Ustawieniach → Zaawansowane widać, którym sposobem Clipeon przechwytuje obraz **w tej chwili**.
+  Zniknęły napisy o żółtej ramce (także z listy sposobów).
+- **Ustawianie skrótu nie zapisuje już klipów.** Gdy klikniesz pole skrótu, skróty Clipeona są wyłączone,
+  dopóki nie wciśniesz nowej kombinacji, nie anulujesz (Esc) albo nie przejdziesz do innego okna.
+- **Podgląd wciskanych klawiszy.** Przy ustawianiu skrótu pole pokazuje na szaro to, co już trzymasz
+  („Ctrl + Shift + …”), a gotowy skrót robi się biały.
+- **Animowane tło.** W tle okna płyną fale znaków z napisem CLIPEON, a za myszką idzie płomyk symboli.
+  Płomyk gaśnie nad przyciskami, ustawieniami i klipami. Tło działa tylko wtedy, gdy okno Clipeona jest
+  otwarte i aktywne (w grze nie kosztuje nic), a wyłączysz je w Ustawieniach → System → „Animowane tło”.
+- **Napis „Clipeon” z zorzą** — po białych literach wędrują kolorowe plamy.
+- Okno otwiera się trochę szersze (1200 px), żeby pasek z nową zakładką i przyciskiem filmu się mieścił.
+- **Poprawka:** ponowne uruchomienie po instalacji aktualizacji nie jest już zapisywane w dzienniku jako
+  „uruchomiony ponownie po awarii”.
+
 ## 1.3.9
 
 - **GIF i WebP z klipu.** W edytorze nowy wybór „Format: MP4 | GIF | WebP”. Animacja jest zapętlona
