@@ -1,6 +1,6 @@
 [package]
 name = "clipeon"
-version = "1.3.2"
+version = "1.3.4"
 edition = "2024"
 description = "Lekkie nagrywanie powtórek z gier dla Windows"
 authors = ["Atsuieon"]
