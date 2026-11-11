@@ -453,7 +453,7 @@ pub fn uruchom(
     match droga {
         Droga::Dda => {
             let wyj = p.wyjscie.clone().ok_or("nie wiadomo, do której karty podłączony jest monitor")?;
-            if !enkodery::dziala_z_tekstura(enkoder, w, h, wyj.karta) {
+            if !enkodery::dziala_z_tekstura(enkoder, w, h, wyj.karta, Some(wyj.wyjscie)) {
                 return Err(format!("{enkoder} nie przyjmuje obrazu prosto z karty {}", wyj.karta).into());
             }
             cmd.args(["-init_hw_device", &format!("d3d11va=gpu:{}", wyj.karta), "-filter_hw_device", "gpu"]);
@@ -464,7 +464,9 @@ pub fn uruchom(
         }
         Droga::Gfx => {
             let karta = p.karta_enkodera.ok_or("nie wiadomo, na której karcie koduje enkoder")?;
-            if !enkodery::dziala_z_tekstura(enkoder, w, h, karta) {
+            // Próba na obrazie z ekranu, gdy monitor jest na karcie enkodera (klatki gfxcapture są takie same)
+            let ekran = p.wyjscie.as_ref().filter(|wyj| wyj.karta == karta).map(|wyj| wyj.wyjscie);
+            if !enkodery::dziala_z_tekstura(enkoder, w, h, karta, ekran) {
                 return Err(format!("{enkoder} nie przyjmuje obrazu prosto z karty {karta}").into());
             }
             let skaluj = (w, h) != (p.ekran.0 & !1, p.ekran.1 & !1);

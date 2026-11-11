@@ -82,16 +82,20 @@ pub struct Proba {
     pub w: u32,
     pub h: u32,
     pub tekstura: Option<u32>,
+    /// Wyjście (ekran) tej karty: próba bierze wtedy prawdziwy obraz z ddagrab, a nie wgrany
+    /// sztuczny. h264_amf na RX 7900 XTX przyjmował wgrany obraz, a na klatkach z przechwytywania padał.
+    pub ekran: Option<u32>,
 }
 
 impl Proba {
     pub fn zwykla(w: u32, h: u32) -> Self {
-        Proba { w, h, tekstura: None }
+        Proba { w, h, tekstura: None, ekran: None }
     }
 
     fn klucz(&self, e: &Enkoder) -> String {
         let t = self.tekstura.map(|k| format!("/d3d11:{k}")).unwrap_or_default();
-        format!("{}@{}x{}{t}", e.nazwa, self.w, self.h)
+        let ekran = self.ekran.map(|o| format!("/dda:{o}")).unwrap_or_default();
+        format!("{}@{}x{}{t}{ekran}", e.nazwa, self.w, self.h)
     }
 }
 
@@ -118,7 +122,7 @@ fn dziala_przy(e: &'static Enkoder, p: Proba) -> bool {
         }
     if !w.contains_key(&klucz)
         && let Some(z) = crate::pamiec::pamiec().proby.get(&klucz).cloned()
-            && (z.ok || blad_sprzetu(&z.powod)) {
+            && (z.ok || blad_sprzetu(&z.powod) || blad_tekstur(&z.powod)) {
                 w.insert(klucz, (z.ok, z.powod, Instant::now()));
                 return z.ok;
             }
@@ -145,8 +149,9 @@ fn dziala(e: &'static Enkoder) -> bool {
 
 /// Czy enkoder przyjmie tekstury D3D11 z karty `karta` w rozdzielczości w×h (warunek przechwytywania
 /// przez ffmpeg bez kopiowania obrazu do pamięci RAM).
-pub fn dziala_z_tekstura(nazwa: &str, w: u32, h: u32, karta: u32) -> bool {
-    znajdz(nazwa).is_some_and(|e| przyjmuje_tekstury(nazwa) && dziala_przy(e, Proba { w, h, tekstura: Some(karta) }))
+/// `ekran` = wyjście tej karty z monitorem (próba na prawdziwym obrazie z ekranu), gdy jest znane.
+pub fn dziala_z_tekstura(nazwa: &str, w: u32, h: u32, karta: u32, ekran: Option<u32>) -> bool {
+    znajdz(nazwa).is_some_and(|e| przyjmuje_tekstury(nazwa) && dziala_przy(e, Proba { w, h, tekstura: Some(karta), ekran }))
 }
 
 /// Najstarszy sterownik NVIDIA obsługiwany przez NVENC w dołączonym FFmpeg 8.1 (SDK 13).
@@ -227,6 +232,13 @@ fn blad_sprzetu(powod: &str) -> bool {
     .any(|x| p.contains(x))
 }
 
+/// Enkoder odrzuca klatki prosto z karty (np. h264_amf: „SubmitInput() failed with error 18”).
+/// To cecha sterownika i ffmpeg, a nie chwilowy stan — pamiętamy ją do ich zmiany, więc kolejne
+/// starty od razu nagrywają drogą przez RAM zamiast tracić kilka sekund na próby.
+fn blad_tekstur(powod: &str) -> bool {
+    powod.to_lowercase().contains("submitinput")
+}
+
 /// „The minimum required Nvidia driver for nvenc is 570.0 or newer” -> Some("570.0").
 fn wymagany_sterownik_nvidia(powod: &str) -> Option<String> {
     let reszta = powod.split("required Nvidia driver for nvenc is ").nth(1)?;
@@ -251,12 +263,22 @@ fn proba(e: &Enkoder, p: Proba) -> Result<(), String> {
     if let Some(karta) = p.tekstura {
         cmd.args(["-init_hw_device", &format!("d3d11va=gpu:{karta}"), "-filter_hw_device", "gpu"]);
     }
-    cmd.args(["-f", "lavfi", "-i", &format!("color=black:s={}x{}:r=30", p.w, p.h)]).args(["-frames:v", "3"]);
-    if p.tekstura.is_some() {
-        cmd.args(["-vf", "format=bgra,hwupload"]);
-    } else if let Some(f) = format_wejscia(e.nazwa) {
-        cmd.args(["-pix_fmt", f]);
+    match (p.tekstura, p.ekran) {
+        // Prawdziwy obraz z ekranu, tak jak przy nagrywaniu (ddagrab daje klatki także przy nieruchomym ekranie)
+        (Some(_), Some(o)) => {
+            cmd.args(["-filter_complex", &format!("ddagrab=output_idx={o}:framerate=30:video_size={}x{}", p.w, p.h)]);
+        }
+        (Some(_), None) => {
+            cmd.args(["-f", "lavfi", "-i", &format!("color=black:s={}x{}:r=30", p.w, p.h), "-vf", "format=bgra,hwupload"]);
+        }
+        (None, _) => {
+            cmd.args(["-f", "lavfi", "-i", &format!("color=black:s={}x{}:r=30", p.w, p.h)]);
+            if let Some(f) = format_wejscia(e.nazwa) {
+                cmd.args(["-pix_fmt", f]);
+            }
+        }
     }
+    cmd.args(["-frames:v", "3"]);
     cmd.args(wybor_enkodera(e))
         .args(["-f", "null", "-"])
         .stdout(std::process::Stdio::null())
@@ -540,6 +562,21 @@ mod testy {
         assert!(((w as f64 / h as f64) - 5120.0 / 1440.0).abs() < 0.01);
         let (w, h) = zmniejszony(7680, 4320).unwrap();
         assert!(w <= 4096 && h <= 2304 && w % 2 == 0 && h % 2 == 0);
+    }
+
+    #[test]
+    fn proba_na_obrazie_z_ekranu_ma_wlasny_klucz() {
+        let e = znajdz("h264_amf").unwrap();
+        let wgrany = Proba { w: 1920, h: 1080, tekstura: Some(0), ekran: None };
+        let z_ekranu = Proba { ekran: Some(1), ..wgrany };
+        assert_eq!(wgrany.klucz(e), "h264_amf@1920x1080/d3d11:0");
+        assert_eq!(z_ekranu.klucz(e), "h264_amf@1920x1080/d3d11:0/dda:1");
+    }
+
+    #[test]
+    fn odrzucone_tekstury_to_trwaly_blad() {
+        assert!(blad_tekstur("[h264_amf @ 0x1] SubmitInput() failed with error 18"));
+        assert!(!blad_tekstur("[Parsed_ddagrab_0 @ 0x1] AcquireNextFrame failed: 887a0026"));
     }
 
     #[test]
