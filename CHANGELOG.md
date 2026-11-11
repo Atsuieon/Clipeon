@@ -14,6 +14,11 @@
   a w ustawieniach „Edytor zaczyna od: Z moim głosem | Bez głosu”.
 - **„Zaawansowane”** to zwijany wiersz w karcie, tak jak reszta ustawień.
 - Przyciski jakości obrazu („Lekka / Standard / Najwyższa”) są pod opisem i już go nie ściskają.
+- **Szybszy start nagrywania na kartach AMD.** h264_amf nie przyjmuje obrazu prosto z karty (DDA, WGC), więc
+  Clipeon sprawdza to jedną krótką próbą, pamięta wynik do zmiany sterownika lub ffmpeg i od razu nagrywa
+  trybem zgodności. Nagrywanie rusza po około 1 s zamiast po kilku sekundach nieudanych prób.
+- **Poprawne kolory w plikach HEVC z karty AMD:** plik ma znaczniki BT.709 zamiast „RGB”, więc odtwarzacze
+  nie przekłamują barw.
 - Porządki w kodzie i nowy automatyczny test okna, który łapie błędy takie jak ten z 1.3.2.
 
 ## 1.3.2
