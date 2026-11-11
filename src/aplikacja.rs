@@ -323,8 +323,10 @@ fn zapisz_ustawienia(app: AppHandle, rdzen: State<'_, Rdzen>, mut cfg: Config, a
     cfg.ikona_ustawiona = stary.ikona_ustawiona;
     let zmiana_ikony = cfg.ikona_przy_zegarze != stary.ikona_przy_zegarze;
     let widoczna = cfg.ikona_przy_zegarze;
-    // Tryb przełącza tylko przełącznik na pasku / w zasobniku (okno ustawień mogło mieć stary)
+    // Tryb i grę wybiera się na pasku / w zasobniku (okno ustawień mogło mieć stare)
     cfg.tryb = stary.tryb.clone();
+    cfg.gra = stary.gra.clone();
+    cfg.gra_nazwa = stary.gra_nazwa.clone();
     rdzen.zmien_config(cfg)?;
     if zmiana_ikony {
         ustaw_ikone(&app, &rdzen, widoczna);
@@ -467,7 +469,7 @@ async fn mikrofony() -> Vec<crate::audio::Mikrofon> {
     tauri::async_runtime::spawn_blocking(crate::audio::mikrofony).await.unwrap_or_default()
 }
 
-/// Programy, które można wybrać jako nagrywaną grę (plus ta wybrana wcześniej, gdy teraz nie działa).
+/// Programy, które można wybrać na pasku jako nagrywaną grę (plus ta wybrana wcześniej, gdy teraz nie działa).
 #[tauri::command]
 fn gry(rdzen: State<'_, Rdzen>) -> Vec<crate::gra::Gra> {
     let cfg = rdzen.config();
@@ -493,6 +495,13 @@ fn monitory() -> Vec<crate::wideo::InfoMonitora> {
 #[tauri::command]
 fn ustaw_tryb(rdzen: State<'_, Rdzen>, tryb: Option<String>, monitor: Option<String>) -> Result<(), String> {
     rdzen.ustaw_tryb(tryb, monitor)
+}
+
+/// Wybór gry na pasku (pusty proces = automatycznie, co jest na wierzchu).
+#[tauri::command]
+async fn ustaw_gre(app: AppHandle, proces: String, nazwa: String) {
+    // W tle: start nagrywania po wyborze może chwilę trwać, a okno ma reagować
+    let _ = tauri::async_runtime::spawn_blocking(move || app.state::<Rdzen>().ustaw_gre(proces, nazwa)).await;
 }
 
 /// Tekst „Kopiuj diagnostykę” do zgłoszenia błędu (bez ścieżek do klipów i bez danych z sieci).
@@ -583,6 +592,7 @@ pub fn uruchom() {
             info_klipu,
             monitory,
             ustaw_tryb,
+            ustaw_gre,
             diagnostyka,
             uruchom_ponownie,
             otworz_log,

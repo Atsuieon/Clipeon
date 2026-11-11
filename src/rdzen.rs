@@ -31,8 +31,10 @@ pub struct Stan {
     pub droga: Option<String>,
     /// Nazwa gry, która jest teraz na wierzchu nagrywanego ekranu
     pub gra: Option<String>,
-    /// Gra wybrana w ustawieniach (pusta = nagrywaj zawsze)
+    /// Nazwa gry wybranej na pasku (pusta = nagrywaj zawsze)
     pub wybrana_gra: String,
+    /// Plik programu wybranej gry, np. „cs2.exe” (pusty = automatycznie)
+    pub gra_proces: String,
     /// Czekamy, aż wybrana gra wystartuje (nagrywanie jest wtedy wstrzymane)
     pub czeka_na_gre: bool,
 }
@@ -143,7 +145,8 @@ impl Rdzen {
             monitor: monitor.to_string(),
             droga: w.sesja.as_ref().map(|s| s._wideo.droga.nazwa().to_string()),
             gra: w.gra.as_ref().map(|g| g.nazwa.clone()),
-            wybrana_gra: if w.cfg.gra.is_empty() { String::new() } else { nazwa_wybranej(&w.cfg) },
+            wybrana_gra: nazwa_wybranej(&w.cfg),
+            gra_proces: w.cfg.gra.clone(),
             czeka_na_gre: w.czeka_na_gre,
         }
     }
@@ -346,6 +349,18 @@ impl Rdzen {
         self.zmien_config(cfg)
     }
 
+    /// Wybór gry z paska w oknie (pusty proces = nagrywaj zawsze). Bez restartu nagrywania:
+    /// strażnik gry od razu uruchamia albo wstrzymuje bufor, gdy trzeba.
+    pub fn ustaw_gre(&self, proces: String, nazwa: String) {
+        crate::dziennik::info(&if proces.is_empty() { "Gra: automatycznie".to_string() } else { format!("Gra: {nazwa} ({proces})") });
+        self.zmien_bez_restartu(|c| {
+            c.gra = proces;
+            c.gra_nazwa = nazwa;
+        });
+        self.pilnuj_gry();
+        self.wyslij_stan();
+    }
+
     /// Zmiana configu, która nie wymaga restartu nagrywania (zapis na dysk).
     pub fn zmien_bez_restartu(&self, zmiana: impl FnOnce(&mut Config)) {
         let mut w = self.zamek();
@@ -451,9 +466,9 @@ impl Rdzen {
 
         if wybrana.is_empty() {
             if czekal {
-                self.zamek().czeka_na_gre = false;
-            }
-            if zmiana_nazwy || czekal {
+                // Wybór gry skasowany, a bufor czekał na grę — nagrywamy od razu
+                self.uruchom();
+            } else if zmiana_nazwy {
                 self.wyslij_stan();
             }
             return;
@@ -853,11 +868,5 @@ fn problem_inny_dlugo(r: &Rdzen) -> bool {
 
 /// Nazwa wybranej gry do pokazania („Czekam na …”): ładna z ustawień albo sama nazwa pliku.
 fn nazwa_wybranej(cfg: &Config) -> String {
-    if cfg.gra.is_empty() {
-        String::new()
-    } else if cfg.gra_nazwa.is_empty() {
-        cfg.gra.clone()
-    } else {
-        cfg.gra_nazwa.clone()
-    }
+    if cfg.gra_nazwa.is_empty() { cfg.gra.clone() } else { cfg.gra_nazwa.clone() }
 }

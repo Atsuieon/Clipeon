@@ -25,6 +25,7 @@ const IKONY = {
   pobierz: '<path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/>',
   monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>',
   strzalka: '<path d="m6 9 6 6 6-6"/>',
+  gra: '<line x1="6" x2="10" y1="11" y2="11"/><line x1="8" x2="8" y1="9" y2="13"/><line x1="15" x2="15.01" y1="12" y2="12"/><line x1="18" x2="18.01" y1="10" y2="10"/><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z"/>',
   film: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/>',
 };
 const ikona = (n) => `<svg class="ikona" viewBox="0 0 24 24" aria-hidden="true">${IKONY[n]}</svg>`;
@@ -180,7 +181,7 @@ function pokazStan(s) {
   pokazTryb(s);
 }
 
-// ---------- Tryb (Gra | Pulpit) i wybór ekranu ----------
+// ---------- Tryb (Gra | Pulpit), wybór ekranu i gry ----------
 
 let zmianaTrybu = false; // przełącznik czeka na nowy stan z rdzenia
 let ostatniWybor = null;
@@ -201,18 +202,22 @@ function pokazTryb(s) {
   zmianaTrybu = false;
   zaznaczTryb(s.tryb);
   for (const b of przyciskiTrybu()) b.disabled = false;
-  const opisEkranu = s.ekran || "Ekran";
-  $("ekran").innerHTML = `${ikona("monitor")}<span class="etykieta-ekranu">${opisEkranu}</span><svg class="ikona strzalka" viewBox="0 0 24 24" aria-hidden="true">${IKONY.strzalka}</svg>`;
-  $("ekran").title = `Nagrywany ekran: ${opisEkranu} (zmień)`;
-  $("ekran").setAttribute("aria-label", $("ekran").title);
+  // Obok przełącznika: w trybie pulpitu wybór ekranu, w trybie gry wybór gry
+  const pulpit = s.tryb === "pulpit";
+  const opis = pulpit ? s.ekran || "Ekran" : s.wybrana_gra || "Automatycznie";
+  $("wybor").innerHTML = `${ikona(pulpit ? "monitor" : "gra")}<span class="etykieta-wyboru"></span><svg class="ikona strzalka" viewBox="0 0 24 24" aria-hidden="true">${IKONY.strzalka}</svg>`;
+  $("wybor").querySelector(".etykieta-wyboru").textContent = opis; // nazwa gry pochodzi z okna programu
+  $("wybor").title = pulpit ? `Nagrywany ekran: ${opis} (zmień)` : `Nagrywana gra: ${opis} (zmień)`;
+  $("wybor").setAttribute("aria-label", $("wybor").title);
+  $("lista-wyboru").setAttribute("aria-label", pulpit ? "Który ekran nagrywać" : "Którą grę nagrywać");
   // Tryb lub ekran zmienione z paska / zasobnika — formularz ustawień nie może ich potem cofnąć
   const wybor = `${s.tryb}|${s.monitor}`;
   if (cfg && wybor !== ostatniWybor) {
     ostatniWybor = wybor;
     cfg.tryb = s.tryb;
-    const pole = s.tryb === "pulpit" ? "monitor_pulpitu" : "monitor";
+    const pole = pulpit ? "monitor_pulpitu" : "monitor";
     cfg[pole] = s.monitor;
-    const select = $(s.tryb === "pulpit" ? "monitor-pulpitu" : "monitor");
+    const select = $(pulpit ? "monitor-pulpitu" : "monitor");
     if ([...select.options].some((o) => o.value === s.monitor)) select.value = s.monitor;
   }
 }
@@ -241,49 +246,76 @@ for (const b of przyciskiTrybu()) {
   });
 }
 
-function zamknijListeEkranow() {
-  $("lista-ekranow").hidden = true;
-  $("ekran").setAttribute("aria-expanded", "false");
+function zamknijListeWyboru() {
+  $("lista-wyboru").hidden = true;
+  $("wybor").setAttribute("aria-expanded", "false");
 }
 
-$("ekran").addEventListener("click", async (e) => {
+// Pozycje listy na pasku: ekrany (tryb pulpitu) albo działające gry (tryb gry)
+async function pozycjeWyboru() {
+  if (stan.tryb === "pulpit") {
+    const monitory = await invoke("monitory");
+    const biezacy = stan.monitor || monitory.find((m) => m.glowny)?.id;
+    return monitory.map((m) => ({
+      tytul: `Ekran ${m.numer}${m.glowny ? " · główny" : ""}`,
+      opis: `${m.nazwa} — ${m.szerokosc}×${m.wysokosc}${m.hz ? `, ${m.hz} Hz` : ""}${m.hdr ? ", HDR" : ""}`,
+      wybrany: m.id === biezacy,
+      wybierz: () => ustawTryb({ monitor: m.id }),
+    }));
+  }
+  const gra = (proces, nazwa, tytul, opis) => ({
+    tytul,
+    opis,
+    wybrany: proces.toLowerCase() === (stan.gra_proces || "").toLowerCase(),
+    wybierz: async () => {
+      await invoke("ustaw_gre", { proces, nazwa });
+      pokazStan(await invoke("stan"));
+    },
+  });
+  const gry = await invoke("gry");
+  return [
+    gra("", "", "Automatycznie", "Nagrywa cały czas, nazwę bierze z okna na wierzchu"),
+    ...gry.map((g) => gra(g.proces, g.nazwa, g.nazwa, `Nagrywa tylko, gdy działa ${g.proces}`)),
+  ];
+}
+
+$("wybor").addEventListener("click", async (e) => {
   e.stopPropagation();
-  const lista = $("lista-ekranow");
-  if (!lista.hidden) return zamknijListeEkranow();
-  const monitory = await invoke("monitory");
-  const biezacy = stan.monitor || monitory.find((m) => m.glowny)?.id;
+  const lista = $("lista-wyboru");
+  if (!lista.hidden) return zamknijListeWyboru();
+  const pozycje = await pozycjeWyboru();
   lista.replaceChildren(
-    ...monitory.map((m) => {
+    ...pozycje.map((p) => {
       const b = document.createElement("button");
       b.type = "button";
       b.setAttribute("role", "option");
-      b.setAttribute("aria-selected", String(m.id === biezacy));
+      b.setAttribute("aria-selected", String(p.wybrany));
       const tytul = document.createElement("span");
-      tytul.textContent = `Ekran ${m.numer}${m.glowny ? " · główny" : ""}`;
+      tytul.textContent = p.tytul;
       const opis = document.createElement("span");
       opis.className = "pomoc";
-      opis.textContent = `${m.nazwa} — ${m.szerokosc}×${m.wysokosc}${m.hz ? `, ${m.hz} Hz` : ""}${m.hdr ? ", HDR" : ""}`;
+      opis.textContent = p.opis;
       b.append(tytul, opis);
       b.addEventListener("click", () => {
-        zamknijListeEkranow();
-        if (m.id !== biezacy) ustawTryb({ monitor: m.id });
+        zamknijListeWyboru();
+        if (!p.wybrany) p.wybierz();
       });
       return b;
     })
   );
-  if (!monitory.length) lista.textContent = "Nie znaleziono monitorów";
+  if (!pozycje.length) lista.textContent = "Nie znaleziono monitorów";
   lista.hidden = false;
-  $("ekran").setAttribute("aria-expanded", "true");
+  $("wybor").setAttribute("aria-expanded", "true");
   lista.querySelector('[aria-selected="true"]')?.focus();
 });
 
 document.addEventListener("click", (e) => {
-  if (!e.target.closest(".ekran-wybor")) zamknijListeEkranow();
+  if (!e.target.closest(".wybor")) zamknijListeWyboru();
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && !$("lista-ekranow").hidden) {
-    zamknijListeEkranow();
-    $("ekran").focus();
+  if (e.key === "Escape" && !$("lista-wyboru").hidden) {
+    zamknijListeWyboru();
+    $("wybor").focus();
   }
 });
 
@@ -1100,12 +1132,7 @@ for (const p of PRESETY) {
 }
 
 async function wczytajUstawienia() {
-  const [u, monitory, mikrofony, gry] = await Promise.all([
-    invoke("ustawienia"),
-    invoke("monitory"),
-    invoke("mikrofony"),
-    invoke("gry"),
-  ]);
+  const [u, monitory, mikrofony] = await Promise.all([invoke("ustawienia"), invoke("monitory"), invoke("mikrofony")]);
   cfg = u.cfg;
 
   // Mikrofon: „domyślny systemowy” plus podłączone urządzenia (zapamiętywane po identyfikatorze)
@@ -1121,22 +1148,6 @@ async function wczytajUstawienia() {
     $("mikrofon-urzadzenie").value = cfg.mikrofon_urzadzenie;
   }
 
-  // Gra: „automatycznie” plus otwarte programy; nazwę zapisujemy razem z plikiem procesu
-  $("gra").replaceChildren(
-    new Option("Automatycznie (co jest na wierzchu)", ""),
-    ...gry.map((g) => {
-      const o = new Option(g.nazwa, g.proces);
-      o.dataset.nazwa = g.nazwa;
-      return o;
-    }),
-  );
-  $("gra").value = cfg.gra;
-  if ($("gra").value !== cfg.gra) {
-    const o = new Option(`${cfg.gra_nazwa || cfg.gra} (teraz nie działa)`, cfg.gra);
-    o.dataset.nazwa = cfg.gra_nazwa || cfg.gra;
-    $("gra").append(o);
-    $("gra").value = cfg.gra;
-  }
   ostatniWybor = `${stan.tryb}|${stan.monitor}`;
   for (const [id, wartosc] of [["monitor", cfg.monitor], ["monitor-pulpitu", cfg.monitor_pulpitu]]) {
     $(id).replaceChildren(new Option("Główny monitor", ""), ...monitory.map((m) => new Option(m.opis + (m.hdr ? " · HDR" : ""), m.id)));
@@ -1187,9 +1198,6 @@ function odswiezFormularz() {
   $("mikrofon-uwaga").textContent = $("mikrofon").checked
     ? ""
     : "Włącz „Mój mikrofon”, żeby wybrać urządzenie.";
-  $("gra-uwaga").textContent = $("gra").value
-    ? "Clipeon nagrywa cały ekran — przy wybranej grze bufor działa tylko wtedy, gdy ta gra jest uruchomiona."
-    : "Clipeon nagrywa cały czas, a nazwę gry pokazuje przy statusie.";
   const uwagi = {
     hevc_amf: "Podgląd w Clipeonie wymaga rozszerzenia HEVC z Microsoft Store, a Discord w przeglądarce może takiego klipu nie odtworzyć.",
     av1_amf: "Karty Radeon RX 7000 zapisują ten format w 1920×1082 — na dole klipu są 2 czarne linie.",
@@ -1217,7 +1225,7 @@ function odswiezFormularz() {
   }
 }
 
-for (const id of ["bufor", "fps", "bitrate", "dzwiek", "mikrofon", "mikrofon-urzadzenie", "gra", "sprz-dni-wl", "sprz-gb-wl", "enkoder", "monitor", "monitor-pulpitu", "bitrate-pulpitu"]) {
+for (const id of ["bufor", "fps", "bitrate", "dzwiek", "mikrofon", "mikrofon-urzadzenie", "sprz-dni-wl", "sprz-gb-wl", "enkoder", "monitor", "monitor-pulpitu", "bitrate-pulpitu"]) {
   $(id).addEventListener("input", odswiezFormularz);
 }
 
@@ -1283,8 +1291,6 @@ $("zapisz-ustawienia").addEventListener("click", async () => {
     bitrate_pulpitu_mbps: Number($("bitrate-pulpitu").value),
     metoda_przechwytywania: $("metoda").value,
     mikrofon_urzadzenie: $("mikrofon-urzadzenie").value,
-    gra: $("gra").value,
-    gra_nazwa: $("gra").selectedOptions[0]?.dataset.nazwa || "",
     dzwiek_zapisu: $("dzwiek-zapisu").checked,
     glos_w_edytorze: $("glos-w-edytorze").checked,
     powiadomienie_zapisu: $("powiadomienie-zapisu").checked,

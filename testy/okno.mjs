@@ -73,10 +73,11 @@ for (const id of ["okno-min", "okno-max", "okno-zamknij"]) {
 }
 
 // Tryb gry: zamiast wyboru ekranu lista działających gier
-await strona.click("#ekran");
-const gry = await strona.locator("#lista-ekranow [role=option]").allTextContents();
+await strona.click("#wybor");
+await strona.waitForSelector("#lista-wyboru [role=option]", { timeout: 3000 }).catch(() => {});
+const gry = await strona.locator("#lista-wyboru [role=option]").allTextContents();
 sprawdz(gry.some((t) => t.includes("Druga gra")), `lista na pasku nie pokazuje gier: ${JSON.stringify(gry)}`);
-const druga = strona.locator("#lista-ekranow [role=option]", { hasText: "Druga gra" });
+const druga = strona.locator("#lista-wyboru [role=option]", { hasText: "Druga gra" });
 if (await druga.count()) await druga.click();
 await strona.waitForTimeout(100);
 sprawdz((await strona.evaluate(() => window.__wybranaGra?.proces)) === "druga.exe", "wybór gry z paska nie trafił do rdzenia");

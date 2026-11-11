@@ -33,9 +33,9 @@
           <button type="button" class="segment" data-tryb="gra" role="radio" title="Nagrywanie gry: ustawienia z karty „Ekran gry”">Gra</button>
           <button type="button" class="segment" data-tryb="pulpit" role="radio" title="Nagrywanie pulpitu: osobny ekran, mniej klatek i mniejsze pliki">Pulpit</button>
         </div>
-        <div class="ekran-wybor">
-          <button type="button" class="przycisk drugorzedny" id="ekran" aria-haspopup="listbox" aria-expanded="false" title="Który ekran nagrywać"></button>
-          <div class="menu lista-ekranow" id="lista-ekranow" role="listbox" aria-label="Który ekran nagrywać" hidden></div>
+        <div class="wybor">
+          <button type="button" class="przycisk drugorzedny" id="wybor" aria-haspopup="listbox" aria-expanded="false"></button>
+          <div class="menu lista-wyboru" id="lista-wyboru" role="listbox" hidden></div>
         </div>
         <div class="status" id="status" title="">
           <span class="kropka" id="kropka"></span><span id="status-tekst">Łączenie…</span>
@@ -131,14 +131,6 @@
                     <p class="pomoc" id="monitor-uwaga"></p>
                   </div>
                   <div class="pole"><select id="monitor" aria-label="Ekran gry"></select></div>
-                </div>
-
-                <div class="ust">
-                  <div class="opis">
-                    <label for="gra">Nagrywaj</label>
-                    <p class="pomoc" id="gra-uwaga">Clipeon nagrywa cały ekran — wybór gry decyduje tylko o tym, kiedy nagrywa.</p>
-                  </div>
-                  <div class="pole"><select id="gra" aria-label="Co nagrywać"></select></div>
                 </div>
 
                 <details class="ust-rozwijane">

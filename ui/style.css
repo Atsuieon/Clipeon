@@ -578,15 +578,15 @@ input[type="number"]:focus-visible, select:focus-visible { outline: none; border
 .tryb .segment.wybrany { color: #000; }
 .tryb .segment:disabled { color: var(--pomoc); }
 .tryb .segment.wybrany:disabled { color: #000; opacity: 0.7; }
-.ekran-wybor { position: relative; flex: none; }
-#ekran { padding: 7px 14px; font-size: 13px; }
-#ekran .ikona { width: 15px; height: 15px; }
-#ekran .strzalka { width: 13px; height: 13px; color: var(--pomoc); margin-left: -2px; }
-.lista-ekranow { position: absolute; top: calc(100% + 6px); right: 0; min-width: 300px; z-index: 25; }
-.lista-ekranow button { flex-direction: column; align-items: flex-start; gap: 2px; }
-.lista-ekranow button .pomoc { font-size: 12.5px; }
-.lista-ekranow button[aria-selected="true"] { background: rgba(255, 255, 255, 0.07); }
-.lista-ekranow button[aria-selected="true"] > span:first-child::after { content: "  ✓"; color: var(--zielony); }
+.wybor { position: relative; flex: none; }
+#wybor { padding: 7px 14px; font-size: 13px; }
+#wybor .ikona { width: 15px; height: 15px; }
+#wybor .strzalka { width: 13px; height: 13px; color: var(--pomoc); margin-left: -2px; }
+.lista-wyboru { position: absolute; top: calc(100% + 6px); right: 0; min-width: 300px; max-height: 60vh; overflow-y: auto; z-index: 25; }
+.lista-wyboru button { flex-direction: column; align-items: flex-start; gap: 2px; }
+.lista-wyboru button .pomoc { font-size: 12.5px; }
+.lista-wyboru button[aria-selected="true"] { background: rgba(255, 255, 255, 0.07); }
+.lista-wyboru button[aria-selected="true"] > span:first-child::after { content: "  ✓"; color: var(--zielony); }
 
 /* Oznaczenie klipu z pulpitu w bibliotece */
 .klip .znaczek {
@@ -600,8 +600,8 @@ input[type="number"]:focus-visible, select:focus-visible { outline: none; border
 /* Wąskie okno: pasek mieści przełącznik i ekran kosztem napisów */
 @media (max-width: 980px) {
   .gora { gap: 14px; }
-  #ekran span.etykieta-ekranu { display: none; }
-  #ekran { padding: 7px 10px; }
+  #wybor span.etykieta-wyboru { display: none; }
+  #wybor { padding: 7px 10px; }
   .status { max-width: 160px; }
 }
 @media (max-width: 860px) {
