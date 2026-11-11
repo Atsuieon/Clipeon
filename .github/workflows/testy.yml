@@ -24,3 +24,18 @@ jobs:
         run: cargo test --locked
       - name: Clippy
         run: cargo clippy --locked --all-targets
+
+  # Okno (HTML + JS) w Chromium z udawanym Tauri: łapie błędy, przez które skrypt okna staje przy starcie
+  okno:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Playwright z Chromium
+        run: |
+          npm install --no-save playwright@1.63.0
+          npx playwright install --with-deps chromium
+      - name: Test okna
+        run: node testy/okno.mjs

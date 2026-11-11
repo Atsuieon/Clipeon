@@ -33,6 +33,32 @@ const zIkona = (n, tekst) => `${ikona(n)}<span>${tekst}</span>`;
 let cfg = null; // ostatnio wczytany config
 let stan = { nagrywa: false, pauza: false, bledy: [], tryb: "gra", ekran: "", monitor: "" };
 
+// ---------- Start ----------
+// Stan nagrywania i przyciski okna ustawiamy na samej górze: gdyby dalsza część skryptu
+// rzuciła błąd, okno i tak pokaże, czy Clipeon nagrywa, i da się je zamknąć.
+
+listen("stan", (e) => pokazStan(e.payload));
+invoke("stan").then(pokazStan);
+
+// ---------- Pasek tytułu ----------
+
+const okno = window.__TAURI__.window.getCurrentWindow();
+$("okno-min").innerHTML = ikona("minimalizuj");
+$("okno-zamknij").innerHTML = ikona("zamknij");
+$("okno-min").addEventListener("click", () => okno.minimize());
+$("okno-max").addEventListener("click", () => okno.toggleMaximize());
+// Zamknięcie niszczy okno (i WebView); nagrywanie działa dalej w zasobniku
+$("okno-zamknij").addEventListener("click", () => okno.close());
+
+async function odswiezMaksymalizacje() {
+  const max = await okno.isMaximized();
+  $("okno-max").innerHTML = ikona(max ? "przywroc" : "maksymalizuj");
+  $("okno-max").title = max ? "Przywróć" : "Maksymalizuj";
+  $("okno-max").setAttribute("aria-label", $("okno-max").title);
+}
+odswiezMaksymalizacje();
+okno.onResized(odswiezMaksymalizacje);
+
 // ---------- Drobne pomocnicze ----------
 
 function dymek(tekst) {
@@ -1285,26 +1311,7 @@ function odswiezPrzyciskZapisu() {
   $("zapisz-klip").title = cfg ? `Skrót: ${cfg.skrot}` : "";
 }
 
-// ---------- Pasek tytułu ----------
-
-const okno = window.__TAURI__.window.getCurrentWindow();
-$("okno-min").innerHTML = ikona("minimalizuj");
-$("okno-zamknij").innerHTML = ikona("zamknij");
-$("okno-min").addEventListener("click", () => okno.minimize());
-$("okno-max").addEventListener("click", () => okno.toggleMaximize());
-// Zamknięcie niszczy okno (i WebView); nagrywanie działa dalej w zasobniku
-$("okno-zamknij").addEventListener("click", () => okno.close());
-
-async function odswiezMaksymalizacje() {
-  const max = await okno.isMaximized();
-  $("okno-max").innerHTML = ikona(max ? "przywroc" : "maksymalizuj");
-  $("okno-max").title = max ? "Przywróć" : "Maksymalizuj";
-  $("okno-max").setAttribute("aria-label", $("okno-max").title);
-}
-odswiezMaksymalizacje();
-okno.onResized(odswiezMaksymalizacje);
-
-// ---------- Start ----------
+// ---------- Ikony i zakładka startowa ----------
 
 $("odswiez").innerHTML = ikona("odswiez");
 $("otworz-folder").innerHTML = zIkona("folder", "Folder");
@@ -1315,13 +1322,12 @@ $("pusto-ikona").innerHTML = ikona("film");
 $("wynik-ikona").innerHTML = ikona("przeciagnij");
 odswiezPrzyciskGraj();
 
-(async () => {
-  const u = await invoke("ustawienia");
-  cfg = u.cfg;
+// Zakładka startowa (wczytuje też ustawienia)
+pokazZakladke(location.hash.slice(1));
+invoke("ustawienia").then((u) => {
+  cfg ??= u.cfg;
   odswiezPrzyciskZapisu();
-  pokazStan(await invoke("stan"));
-  pokazZakladke(location.hash.slice(1));
-})();
+});
 
 // ---------- Aktualizacje ----------
 
@@ -1397,7 +1403,6 @@ $("sprawdz-teraz").addEventListener("click", async () => {
 invoke("aktualizacja").then(pokazAktualizacje);
 listen("aktualizacja", (e) => pokazAktualizacje(e.payload));
 
-listen("stan", (e) => pokazStan(e.payload));
 listen("zakladka", (e) => pokazZakladke(e.payload));
 listen("klip-zapisany", () => {
   dymek("Klip zapisany");
