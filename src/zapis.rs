@@ -1,4 +1,5 @@
 // Zapis klipu: pakiety z bufora -> MP4 (faststart) bez ponownego kodowania obrazu.
+use crate::Zablokuj;
 use crate::bufor::Pakiet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -18,7 +19,7 @@ pub fn zapisz(
     gra: Option<String>,
 ) -> Result<PathBuf, String> {
     static ZAPIS: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _kolejka = ZAPIS.lock().unwrap_or_else(|e| e.into_inner());
+    let _kolejka = ZAPIS.zablokuj();
     let start = Instant::now();
 
     // Klip zaczyna się od klatki kluczowej

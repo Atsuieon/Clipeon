@@ -1,6 +1,7 @@
 // Rdzeń nagrywania: sesja (obraz + dźwięk), pauza, restart po zmianie ustawień, skrót i zapis klipu,
 // tryb gry / pulpitu, wybór drogi przechwytywania (z przejściem na następną, gdy zawiedzie) i strażnik.
 // Działa niezależnie od okna — UI dostaje tylko powiadomienia.
+use crate::Zablokuj;
 use crate::audio::{self, Zrodlo};
 use crate::bufor::{Bufor, WspolnyBufor};
 use crate::config::Config;
@@ -125,7 +126,7 @@ impl Rdzen {
 
     /// Blokada stanu odporna na „zatrucie” (awarię innego wątku w trakcie blokady).
     fn zamek(&self) -> MutexGuard<'_, Wnetrze> {
-        self.w.lock().unwrap_or_else(|e| e.into_inner())
+        self.w.zablokuj()
     }
 
     pub fn config(&self) -> Config {
@@ -408,9 +409,9 @@ impl Rdzen {
         let (migawka, folder, pauza, czeka, czeka_na, gra) = {
             let w = self.zamek();
             let migawka = w.sesja.as_ref().map(|s| {
-                let wideo = s.bufor_wideo.lock().unwrap_or_else(|e| e.into_inner()).migawka();
+                let wideo = s.bufor_wideo.zablokuj().migawka();
                 let audio: Vec<_> =
-                    s.bufory_audio.iter().map(|(n, b)| (*n, b.lock().unwrap_or_else(|e| e.into_inner()).migawka())).collect();
+                    s.bufory_audio.iter().map(|(n, b)| (*n, b.zablokuj().migawka())).collect();
                 (wideo, audio, s.format_wideo, s._wideo.fps, s.pulpit)
             });
             (
@@ -521,7 +522,7 @@ impl Rdzen {
         if sesja._wideo.droga == Droga::Gfx {
             return None;
         }
-        let ostatnia = sesja.bufor_wideo.lock().unwrap_or_else(|e| e.into_inner()).ostatni_czas();
+        let ostatnia = sesja.bufor_wideo.zablokuj().ostatni_czas();
         let teraz = crate::bufor::teraz_100ns();
         match ostatnia {
             Some(t) if teraz - t <= BEZ_KLATEK * 10_000_000 => None,
@@ -857,7 +858,7 @@ fn problem_inny_dlugo(r: &Rdzen) -> bool {
     use std::sync::OnceLock;
     static OD: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
     let od = OD.get_or_init(|| Mutex::new(None));
-    let mut od = od.lock().unwrap_or_else(|e| e.into_inner());
+    let mut od = od.zablokuj();
     let jest = r.zamek().bledy.keys().any(|k| *k != "nagrywanie");
     if !jest {
         *od = None;

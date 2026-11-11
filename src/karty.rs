@@ -37,7 +37,7 @@ pub fn karty() -> &'static [Karta] {
     static KARTY: OnceLock<Vec<Karta>> = OnceLock::new();
     KARTY.get_or_init(|| {
         let mut l = wykryj();
-        l.sort_by(|a, b| b.pamiec.cmp(&a.pamiec));
+        l.sort_by_key(|k| std::cmp::Reverse(k.pamiec));
         for k in &l {
             crate::dziennik::info(&format!(
                 "Karta graficzna: {} ({:.1} GB), sterownik {}{}",

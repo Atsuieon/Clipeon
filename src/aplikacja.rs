@@ -1,5 +1,6 @@
 // Warstwa Tauri: ikona w zasobniku z menu, okno (Klipy / Ustawienia) tworzone na żądanie
 // i niszczone po zamknięciu (w tle zostaje tylko rdzeń nagrywania), komendy dla UI, powiadomienia.
+use crate::Zablokuj;
 use crate::config::Config;
 use crate::ikona;
 use crate::klipy;
@@ -241,7 +242,7 @@ async fn sprawdz_aktualizacje_teraz(app: &AppHandle, w_tle: bool) -> Result<Opti
             }
             let _ = app.emit("aktualizacja", w);
             static OGLOSZONA: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
-            let mut ogloszona = OGLOSZONA.lock().unwrap_or_else(|e| e.into_inner());
+            let mut ogloszona = OGLOSZONA.zablokuj();
             if w_tle && *ogloszona != w.wersja {
                 *ogloszona = w.wersja.clone();
                 let monitor = app.state::<Rdzen>().config().monitor;

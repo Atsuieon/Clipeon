@@ -2,6 +2,7 @@
 // i/lub nadwyżka ponad X GB trafiają do Kosza — od najstarszych.
 // Nigdy nie ruszamy świeżych klipów (ostatnie 10 min) ani wersji przyciętych / skompresowanych
 // przez użytkownika w ostatniej dobie.
+use crate::Zablokuj;
 use crate::klipy;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -57,7 +58,7 @@ pub fn sprzataj(folder: &Path, dni: u32, gb: u32) -> usize {
     }
     // Sprzątanie po zapisie i cogodzinne nie mogą działać jednocześnie
     static SPRZATANIE: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _jedno = SPRZATANIE.lock().unwrap_or_else(|e| e.into_inner());
+    let _jedno = SPRZATANIE.zablokuj();
     let teraz = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
     let wiek = |k: &klipy::Klip| Duration::from_millis(teraz.saturating_sub(k.czas_ms));
     let chroniony = |k: &klipy::Klip| {

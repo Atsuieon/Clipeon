@@ -1156,66 +1156,90 @@ for (const p of PRESETY) {
   $("presety").append(b);
 }
 
+// Pola formularza i ich klucze w konfiguracji: [id pola, klucz, rodzaj].
+// Rodzaj: "tak" = przełącznik, "liczba" = pole liczbowe, "tekst" = lista wyboru.
+// Nowe ustawienie to jeden wiersz tutaj (i pole w index.html).
+const POLA = [
+  ["bufor", "bufor_sekundy", "liczba"],
+  ["fps", "fps", "liczba"],
+  ["bitrate", "bitrate_mbps", "liczba"],
+  ["fps-pulpitu", "fps_pulpitu", "liczba"],
+  ["bitrate-pulpitu", "bitrate_pulpitu_mbps", "liczba"],
+  ["dzwiek", "dzwiek_systemowy", "tak"],
+  ["mikrofon", "mikrofon", "tak"],
+  ["glos-w-edytorze", "glos_w_edytorze", "tak"],
+  ["dzwiek-zapisu", "dzwiek_zapisu", "tak"],
+  ["powiadomienie-zapisu", "powiadomienie_zapisu", "tak"],
+  ["ikona-zegar", "ikona_przy_zegarze", "tak"],
+  ["aktualizacje", "sprawdzaj_aktualizacje", "tak"],
+  ["enkoder", "enkoder", "tekst"],
+  ["metoda", "metoda_przechwytywania", "tekst"],
+  ["monitor", "monitor", "tekst"],
+  ["monitor-pulpitu", "monitor_pulpitu", "tekst"],
+  ["mikrofon-urzadzenie", "mikrofon_urzadzenie", "tekst"],
+];
+
+function wpiszPola(c) {
+  for (const [id, klucz, rodzaj] of POLA) {
+    if (rodzaj === "tak") $(id).checked = c[klucz];
+    else $(id).value = c[klucz];
+    $(id).dispatchEvent(new Event("input")); // np. pary przycisków odświeżają się same
+  }
+}
+
+function odczytajPola() {
+  const c = {};
+  for (const [id, klucz, rodzaj] of POLA) {
+    c[klucz] = rodzaj === "tak" ? $(id).checked : rodzaj === "liczba" ? Number($(id).value) : $(id).value;
+  }
+  return c;
+}
+
+// Lista wyboru z zapisaną wartością. Zapisane urządzenie, którego teraz nie ma (odłączony monitor
+// albo mikrofon), dostaje własną pozycję, żeby wybór nie zmienił się po cichu przy zapisie.
+function wypelnijListe(select, opcje, zapisana, opisBraku) {
+  select.replaceChildren(...opcje.map(([wartosc, opis]) => new Option(opis, wartosc)));
+  select.value = zapisana;
+  if (select.value !== zapisana && opisBraku) {
+    select.append(new Option(opisBraku, zapisana));
+    select.value = zapisana;
+  }
+}
+
 async function wczytajUstawienia() {
   const [u, monitory, mikrofony] = await Promise.all([invoke("ustawienia"), invoke("monitory"), invoke("mikrofony")]);
   cfg = u.cfg;
-
-  // Mikrofon: „domyślny systemowy” plus podłączone urządzenia (zapamiętywane po identyfikatorze)
-  const domyslny = mikrofony.find((m) => m.domyslny);
-  $("mikrofon-urzadzenie").replaceChildren(
-    new Option(domyslny ? `Domyślny systemowy (${domyslny.nazwa})` : "Domyślny systemowy", ""),
-    ...mikrofony.map((m) => new Option(m.nazwa, m.id)),
-  );
-  $("mikrofon-urzadzenie").value = cfg.mikrofon_urzadzenie;
-  // Wybrany mikrofon jest odłączony — pokazujemy go, żeby wybór nie zmienił się po cichu
-  if ($("mikrofon-urzadzenie").value !== cfg.mikrofon_urzadzenie) {
-    $("mikrofon-urzadzenie").append(new Option("Wybrany mikrofon (niepodłączony)", cfg.mikrofon_urzadzenie));
-    $("mikrofon-urzadzenie").value = cfg.mikrofon_urzadzenie;
-  }
-
   ostatniWybor = `${stan.tryb}|${stan.monitor}`;
-  for (const [id, wartosc] of [["monitor", cfg.monitor], ["monitor-pulpitu", cfg.monitor_pulpitu]]) {
-    $(id).replaceChildren(new Option("Główny monitor", ""), ...monitory.map((m) => new Option(m.opis + (m.hdr ? " · HDR" : ""), m.id)));
-    $(id).value = wartosc;
-    // Zapisany monitor odłączony — pokazujemy go, żeby wybór nie zmienił się po cichu
-    if ($(id).value !== wartosc) {
-      $(id).append(new Option(`${wartosc} (niepodłączony)`, wartosc));
-      $(id).value = wartosc;
-    }
-  }
+
+  // Listy wypełniamy przed wpisaniem wartości, żeby było z czego wybierać
+  const domyslny = mikrofony.find((m) => m.domyslny);
+  wypelnijListe(
+    $("mikrofon-urzadzenie"),
+    [["", domyslny ? `Domyślny systemowy (${domyslny.nazwa})` : "Domyślny systemowy"], ...mikrofony.map((m) => [m.id, m.nazwa])],
+    cfg.mikrofon_urzadzenie,
+    "Wybrany mikrofon (niepodłączony)",
+  );
+  const ekrany = [["", "Główny monitor"], ...monitory.map((m) => [m.id, m.opis + (m.hdr ? " · HDR" : "")])];
+  wypelnijListe($("monitor"), ekrany, cfg.monitor, `${cfg.monitor} (niepodłączony)`);
+  wypelnijListe($("monitor-pulpitu"), ekrany, cfg.monitor_pulpitu, `${cfg.monitor_pulpitu} (niepodłączony)`);
   $("monitor").dataset.hdr = JSON.stringify(monitory.filter((m) => m.hdr).map((m) => m.id));
-  $("fps-pulpitu").value = cfg.fps_pulpitu;
-  $("bitrate-pulpitu").value = cfg.bitrate_pulpitu_mbps;
-  $("metoda").value = cfg.metoda_przechwytywania;
-  $("dzwiek-zapisu").checked = cfg.dzwiek_zapisu;
-  $("glos-w-edytorze").checked = cfg.glos_w_edytorze;
-  $("glos-w-edytorze").dispatchEvent(new Event("input"));
-  $("powiadomienie-zapisu").checked = cfg.powiadomienie_zapisu;
+  wypelnijListe($("enkoder"), u.enkodery, cfg.enkoder);
+  wpiszPola(cfg);
+
   $("sprz-dni-wl").checked = cfg.sprzatanie_dni > 0;
   $("sprz-dni").value = cfg.sprzatanie_dni || 30;
   $("sprz-gb-wl").checked = cfg.sprzatanie_gb > 0;
   $("sprz-gb").value = cfg.sprzatanie_gb || 50;
-  $("enkoder").replaceChildren(
-    ...u.enkodery.map(([wartosc, opis]) => new Option(opis, wartosc))
-  );
-  $("bufor").value = cfg.bufor_sekundy;
-  $("fps").value = cfg.fps;
-  $("bitrate").value = cfg.bitrate_mbps;
-  $("enkoder").value = cfg.enkoder;
-  $("dzwiek").checked = cfg.dzwiek_systemowy;
-  $("mikrofon").checked = cfg.mikrofon;
   $("skrot").textContent = cfg.skrot;
   $("skrot").dataset.wartosc = cfg.skrot;
   $("folder").textContent = cfg.folder_klipow;
   $("autostart").checked = u.autostart;
-  $("ikona-zegar").checked = cfg.ikona_przy_zegarze;
-  $("aktualizacje").checked = cfg.sprawdzaj_aktualizacje;
   $("wersja").textContent = u.wersja;
   $("komunikat").textContent = "";
   odswiezFormularz();
 }
 
-// Szacunek RAM bufora: obraz (bitrate) + dźwięk (160 kb/s na ścieżkę)
+// Zależne części formularza: wyłączone pola, uwagi, szacunek RAM, podświetlony preset
 function odswiezFormularz() {
   $("sprz-dni").disabled = !$("sprz-dni-wl").checked;
   $("sprz-gb").disabled = !$("sprz-gb-wl").checked;
@@ -1230,29 +1254,25 @@ function odswiezFormularz() {
   $("monitor-uwaga").textContent = zHdr
     ? "Ten monitor ma włączony HDR. Klipy zapisują się w zwykłych kolorach (SDR), więc mogą wyglądać na bledsze niż w grze."
     : "";
-  const sPulpit = Number($("bufor").value);
-  const mbpsPulpit = Number($("bitrate-pulpitu").value) || 0;
-  const sciezkiPulpit = Number($("dzwiek").checked) + Number($("mikrofon").checked);
-  $("ram-pulpitu").textContent = `Bufor pulpitu zajmuje ok. ${formatMB(sPulpit * (mbpsPulpit * 1e6 + sciezkiPulpit * 160e3) / 8)} pamięci RAM.`;
+  // Szacunek RAM bufora: obraz (bitrate) + dźwięk (160 kb/s na ścieżkę)
+  const s = Number($("bufor").value);
+  const sciezki = Number($("dzwiek").checked) + Number($("mikrofon").checked);
+  const ram = (mbps) => formatMB((s * ((Number(mbps) || 0) * 1e6 + sciezki * 160e3)) / 8);
+  $("ram-pulpitu").textContent = `Bufor pulpitu zajmuje ok. ${ram($("bitrate-pulpitu").value)} pamięci RAM.`;
+  $("ram").textContent = `Zajmuje to ok. ${ram($("bitrate").value)} pamięci RAM.`;
   const wybrany = $("enkoder").value;
   $("enkoder-uwaga").textContent = uwagi[wybrany] || (wybrany.startsWith("hevc") ? uwagi.hevc_amf : "");
-  const s = Number($("bufor").value);
-  const mbps = Number($("bitrate").value) || 0;
-  const sciezki = Number($("dzwiek").checked) + Number($("mikrofon").checked);
-  const bajty = s * (mbps * 1e6 + sciezki * 160e3) / 8;
   $("bufor-wartosc").textContent = s >= 60 ? `${Math.floor(s / 60)} min${s % 60 ? ` ${s % 60} s` : ""}` : `${s} s`;
-  $("ram").textContent = `Zajmuje to ok. ${formatMB(bajty)} pamięci RAM.`;
   for (const b of $("presety").children) {
     b.classList.toggle("wybrany", b.dataset.fps === $("fps").value && b.dataset.bitrate === $("bitrate").value);
   }
 }
 
-for (const id of ["bufor", "fps", "bitrate", "dzwiek", "mikrofon", "mikrofon-urzadzenie", "sprz-dni-wl", "sprz-gb-wl", "enkoder", "monitor", "monitor-pulpitu", "bitrate-pulpitu"]) {
-  $(id).addEventListener("input", odswiezFormularz);
-}
+// Każda zmiana w formularzu (zdarzenia wpisywania wędrują w górę do formularza)
+$("formularz").addEventListener("input", odswiezFormularz);
 
 // Wybrany mikrofon ma być słychać, więc wybór urządzenia włącza „Mój mikrofon”
-$("mikrofon-urzadzenie").addEventListener("input", () => {
+$("mikrofon-urzadzenie").addEventListener("change", () => {
   $("mikrofon").checked = true;
   odswiezFormularz();
 });
@@ -1303,28 +1323,13 @@ document.addEventListener("keydown", (e) => {
 $("zapisz-ustawienia").addEventListener("click", async () => {
   const nowy = {
     ...cfg,
-    bufor_sekundy: Number($("bufor").value),
-    fps: Number($("fps").value),
-    bitrate_mbps: Number($("bitrate").value),
-    enkoder: $("enkoder").value,
-    dzwiek_systemowy: $("dzwiek").checked,
-    mikrofon: $("mikrofon").checked,
+    ...odczytajPola(),
     skrot: $("skrot").dataset.wartosc,
     folder_klipow: $("folder").textContent,
-    ikona_przy_zegarze: $("ikona-zegar").checked,
-    sprawdzaj_aktualizacje: $("aktualizacje").checked,
-    monitor: $("monitor").value,
-    monitor_pulpitu: $("monitor-pulpitu").value,
-    fps_pulpitu: Number($("fps-pulpitu").value),
-    bitrate_pulpitu_mbps: Number($("bitrate-pulpitu").value),
-    metoda_przechwytywania: $("metoda").value,
-    mikrofon_urzadzenie: $("mikrofon-urzadzenie").value,
-    dzwiek_zapisu: $("dzwiek-zapisu").checked,
-    glos_w_edytorze: $("glos-w-edytorze").checked,
-    powiadomienie_zapisu: $("powiadomienie-zapisu").checked,
     sprzatanie_dni: $("sprz-dni-wl").checked ? Number($("sprz-dni").value) || 30 : 0,
     sprzatanie_gb: $("sprz-gb-wl").checked ? Number($("sprz-gb").value) || 50 : 0,
   };
+
   const przycisk = $("zapisz-ustawienia");
   przycisk.disabled = true;
   $("komunikat").textContent = "Zapisuję…";

@@ -114,7 +114,8 @@ pub fn eksportuj(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dyn
     let start = z.start.clamp(0.0, pelna);
     let koniec = if z.koniec <= 0.0 { pelna } else { z.koniec.min(pelna) };
     let dlugosc = koniec - start;
-    if !(dlugosc >= 0.5) {
+    // NaN (zepsuta długość pliku) też odpada
+    if dlugosc.is_nan() || dlugosc < 0.5 {
         return Err("Zaznaczony fragment jest za krótki (minimum 0,5 s)".into());
     }
     if !z.przyciete && z.rozmiar_mb.is_none() && z.glosnosci.is_empty() {

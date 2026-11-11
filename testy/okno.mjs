@@ -46,6 +46,9 @@ function udawanyTauri() {
     gry: () => [{ nazwa: "Gra testowa", proces: "gra.exe" }, { nazwa: "Druga gra", proces: "druga.exe" }],
     monitory: () => [{ id: "\\\\.\\DISPLAY1", numer: 1, glowny: true, nazwa: "Monitor", opis: "Ekran 1", szerokosc: 1920, wysokosc: 1080, hz: 144, hdr: false }],
     klipy: () => [],
+    zapisz_ustawienia: (a) => {
+      window.__zapisane = a;
+    },
     ustaw_gre: (a) => {
       stan.gra_proces = a.proces;
       stan.wybrana_gra = a.nazwa;
@@ -107,6 +110,17 @@ await strona.click(".zaawansowane > summary");
 sprawdz(await strona.isVisible("#enkoder"), "„Zaawansowane” się nie rozwija");
 await zrzut("3-zaawansowane");
 sprawdz((await strona.locator(".karta .zaawansowane").count()) === 1, "„Zaawansowane” nie są w karcie");
+
+// Zapis ustawień wysyła wszystkie pola z formularza
+await strona.click("#zapisz-ustawienia");
+await strona.waitForTimeout(100);
+const zapisane = await strona.evaluate(() => window.__zapisane);
+sprawdz(zapisane, "„Zapisz ustawienia” nic nie wysłał");
+if (zapisane) {
+  const c = zapisane.cfg;
+  const oczekiwane = { mikrofon: true, mikrofon_urzadzenie: "m2", glos_w_edytorze: false, bufor_sekundy: 30, fps: 60, skrot: "Alt+F10", sprzatanie_dni: 0 };
+  for (const [k, v] of Object.entries(oczekiwane)) sprawdz(c[k] === v, `zapis ustawień: ${k} = ${JSON.stringify(c[k])}, oczekiwano ${JSON.stringify(v)}`);
+}
 
 await przegladarka.close();
 if (bledy.length) {

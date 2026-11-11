@@ -3,6 +3,7 @@
 // Wszystkie są dostępne w buildzie FFmpeg na licencji LGPL (bez GPL-owego x264).
 // Próby robimy w rozdzielczości nagrywanego ekranu (karta może nie obsłużyć np. ultrawide w H.264),
 // a wyniki pamiętamy na dysku (pamiec.rs), żeby kolejny start nie uruchamiał ffmpeg kilkanaście razy.
+use crate::Zablokuj;
 use crate::karty::Producent;
 use std::sync::OnceLock;
 
@@ -100,7 +101,7 @@ type Wyniki = std::collections::HashMap<String, (bool, String, std::time::Instan
 static WYNIKI: OnceLock<std::sync::Mutex<Wyniki>> = OnceLock::new();
 
 fn wyniki() -> std::sync::MutexGuard<'static, Wyniki> {
-    WYNIKI.get_or_init(Default::default).lock().unwrap_or_else(|x| x.into_inner())
+    WYNIKI.get_or_init(Default::default).zablokuj()
 }
 
 /// Czy enkoder działa tutaj przy danej próbie. Kolejność: wynik z tego uruchomienia, wynik z dysku
@@ -155,7 +156,7 @@ const MIN_NVIDIA: f64 = 570.0;
 static OSTRZEZENIE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 fn ostrzez(tekst: String) {
-    let mut o = OSTRZEZENIE.lock().unwrap_or_else(|x| x.into_inner());
+    let mut o = OSTRZEZENIE.zablokuj();
     if o.is_none() {
         crate::dziennik::blad(&tekst);
         *o = Some(tekst);
@@ -174,7 +175,7 @@ pub fn ostrzezenie() -> Option<String> {
             ));
         }
     });
-    OSTRZEZENIE.lock().unwrap_or_else(|x| x.into_inner()).clone()
+    OSTRZEZENIE.zablokuj().clone()
 }
 
 /// Enkoder sprzętowy (karta), a nie procesor.

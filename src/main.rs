@@ -27,6 +27,18 @@ mod wideo;
 mod zasobnik;
 mod zapis;
 
+/// Blokada odporna na „zatrucie”: gdy inny wątek padł w trakcie blokady, dane i tak są do użycia
+/// (wszędzie w Clipeonie wolimy działać dalej niż wyłożyć cały program).
+pub trait Zablokuj<T> {
+    fn zablokuj(&self) -> std::sync::MutexGuard<'_, T>;
+}
+
+impl<T> Zablokuj<T> for std::sync::Mutex<T> {
+    fn zablokuj(&self) -> std::sync::MutexGuard<'_, T> {
+        self.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
 fn main() {
     aplikacja::uruchom();
 }

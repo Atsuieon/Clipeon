@@ -2,6 +2,7 @@
 // a po kliknięciu „Aktualizuj” pobiera nowy instalator, sprawdza jego podpis i instaluje go.
 // Plik latest.json i podpisy instalatorów tworzy workflow wydania. To jedyne połączenie Clipeona
 // z internetem; samo sprawdzanie można wyłączyć w ustawieniach.
+use crate::Zablokuj;
 use serde::Serialize;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -35,7 +36,7 @@ pub struct Stan {
 
 impl Stan {
     pub fn znaleziona(&self) -> Option<Wydanie> {
-        self.znaleziona.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|u| Wydanie { wersja: u.version.clone() })
+        self.znaleziona.zablokuj().as_ref().map(|u| Wydanie { wersja: u.version.clone() })
     }
 
     pub fn trwa(&self) -> bool {
@@ -55,7 +56,7 @@ pub async fn sprawdz(app: &AppHandle, przed_zamknieciem: impl Fn() + Send + Sync
         .await
         .map_err(|e| format!("Nie udało się sprawdzić aktualizacji: {e}"))?;
     let wydanie = aktualizacja.as_ref().map(|u| Wydanie { wersja: u.version.clone() });
-    *app.state::<Stan>().znaleziona.lock().unwrap_or_else(|e| e.into_inner()) = aktualizacja;
+    *app.state::<Stan>().znaleziona.zablokuj() = aktualizacja;
     Ok(wydanie)
 }
 
@@ -75,7 +76,7 @@ pub async fn zainstaluj(app: &AppHandle) -> Result<(), String> {
 }
 
 async fn pobierz_i_zainstaluj(app: &AppHandle) -> Result<(), String> {
-    let Some(mut aktualizacja) = app.state::<Stan>().znaleziona.lock().unwrap_or_else(|e| e.into_inner()).clone() else {
+    let Some(mut aktualizacja) = app.state::<Stan>().znaleziona.zablokuj().clone() else {
         return Err("Nie ma nowszej wersji do zainstalowania".into());
     };
     // Limit 20 s dotyczył tylko sprawdzania; instalator pobiera się dłużej

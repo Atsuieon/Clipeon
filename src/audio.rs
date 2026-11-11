@@ -1,5 +1,6 @@
 // Dźwięk: WASAPI (loopback = to, co słychać w głośnikach, albo mikrofon) -> ffmpeg AAC -> ramki ADTS w buforze RAM.
 // Czas ramek liczony z zegara QPC, tak samo jak dla obrazu, więc synchronizacja wychodzi sama.
+use crate::Zablokuj;
 use crate::bufor::{Pakiet, WspolnyBufor, teraz_100ns};
 use std::io::{Read, Write};
 use std::process::{ChildStdin, Stdio};
@@ -191,7 +192,7 @@ fn sesja(
                     let czas = t0 + (k - 1) * RAMKA_AAC * 10_000_000 / czestotliwosc as i64;
                     k += 1;
                     let ramka: Box<[u8]> = dane[poz..poz + dl].into();
-                    bufor_watku.lock().unwrap_or_else(|e| e.into_inner()).dodaj(Pakiet { czas, klucz: true, dane: ramka.into() });
+                    bufor_watku.zablokuj().dodaj(Pakiet { czas, klucz: true, dane: ramka.into() });
                     poz += dl;
                 }
                 dane.drain(..poz);
@@ -369,7 +370,7 @@ pub fn mikrofony() -> Vec<Mikrofon> {
         }
         Err(e) => (Vec::new(), format!("Nie udało się odczytać listy mikrofonów: {e}")),
     };
-    let mut ostatnio = OSTATNIO.lock().unwrap_or_else(|e| e.into_inner());
+    let mut ostatnio = OSTATNIO.zablokuj();
     if ostatnio.as_deref() != Some(opis.as_str()) {
         crate::dziennik::info(&opis);
         *ostatnio = Some(opis);
