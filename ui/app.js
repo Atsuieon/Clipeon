@@ -1193,11 +1193,7 @@ async function wczytajUstawienia() {
 function odswiezFormularz() {
   $("sprz-dni").disabled = !$("sprz-dni-wl").checked;
   $("sprz-gb").disabled = !$("sprz-gb-wl").checked;
-  // Wybór mikrofonu ma sens tylko wtedy, gdy mikrofon w ogóle nagrywamy
-  $("mikrofon-urzadzenie").disabled = !$("mikrofon").checked;
-  $("mikrofon-uwaga").textContent = $("mikrofon").checked
-    ? ""
-    : "Włącz „Mój mikrofon”, żeby wybrać urządzenie.";
+  $("mikrofon-uwaga").textContent = $("mikrofon").checked ? "" : "Mikrofon jest wyłączony. Wybranie urządzenia go włączy.";
   const uwagi = {
     hevc_amf: "Podgląd w Clipeonie wymaga rozszerzenia HEVC z Microsoft Store, a Discord w przeglądarce może takiego klipu nie odtworzyć.",
     av1_amf: "Karty Radeon RX 7000 zapisują ten format w 1920×1082 — na dole klipu są 2 czarne linie.",
@@ -1228,6 +1224,12 @@ function odswiezFormularz() {
 for (const id of ["bufor", "fps", "bitrate", "dzwiek", "mikrofon", "mikrofon-urzadzenie", "sprz-dni-wl", "sprz-gb-wl", "enkoder", "monitor", "monitor-pulpitu", "bitrate-pulpitu"]) {
   $(id).addEventListener("input", odswiezFormularz);
 }
+
+// Wybrany mikrofon ma być słychać, więc wybór urządzenia włącza „Mój mikrofon”
+$("mikrofon-urzadzenie").addEventListener("input", () => {
+  $("mikrofon").checked = true;
+  odswiezFormularz();
+});
 
 $("zmien-folder").addEventListener("click", async () => {
   const f = await invoke("wybierz_folder");
