@@ -1078,7 +1078,17 @@ impl Rdzen {
         let monitor = w.cfg.aktywny_monitor().0.to_string();
         let w_sesji = w.sesja.as_ref().map(|s| s._wideo.droga);
         let mlody = w.start_sesji.is_some_and(|t| t.elapsed() < ROZRUCH_DROGI);
-        let decyzja = co_z_droga(w_sesji, w.seria_awarii, chwilowy, mlody, Instant::now());
+        let mut decyzja = co_z_droga(w_sesji, w.seria_awarii, chwilowy, mlody, Instant::now());
+        // Seria trwa długo, ale sesje na tej drodze startują (padają dopiero po chwili), a każda inna droga
+        // rysowałaby żółtą ramkę (Windows 10): zostajemy bez ramki. Bufor przetrwa restart, więc kosztem są
+        // tylko krótkie przeskoki obrazu w klipie (Fightcade u kolegi gubił obraz co 2–10 s).
+        if let (Decyzja::OdrzucChwilowo(d), Some(teraz), Some(seria)) = (decyzja, w_sesji, w.seria_awarii)
+            && teraz == d
+            && !d.z_ramka()
+            && wideo::drogi(&w.cfg).iter().filter(|x| **x != d).all(|x| x.z_ramka())
+        {
+            decyzja = Decyzja::Ponow(seria);
+        }
         match decyzja {
             Decyzja::Nic => return,
             Decyzja::Ponow(seria) => {

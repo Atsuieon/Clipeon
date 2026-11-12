@@ -7,6 +7,9 @@
   buforem, więc Alt+F10 dawał klip kilkusekundowy. Teraz nagrywanie wraca do tego samego bufora: klip ma pełną
   długość, a w miejscu przerwy jest krótki przeskok obrazu (dźwięk z przerwy jest wycinany, żeby zgadzał się
   z obrazem). Alt+F10 w trakcie wznawiania też zapisuje to, co już było nagrane.
+- Gdy Desktop Duplication gubi obraz raz za razem, a każdy inny sposób nagrywania rysowałby żółtą ramkę
+  (Windows 10), Clipeon zostaje przy nagrywaniu bez ramki, dopóki ono startuje.
+- W dzienniku przy awarii nagrywania są trzy ostatnie komunikaty ffmpeg zamiast jednego (łatwiej znaleźć przyczynę).
 - **Żółta ramka nie zostaje już na stałe po zmianie trybu ekranu (NVIDIA i inne karty).** Gdy gra albo
   Windows przełączał tryb ekranu, nagrywanie Desktop Duplication na chwilę traciło obraz. Clipeon brał to za
   awarię enkodera, sprawdzał go od nowa akurat w trakcie zmiany trybu, uznawał, że enkoder nie bierze obrazu
