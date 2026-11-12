@@ -1,7 +1,23 @@
 # Zmiany
 
-## 1.4.4
+## 1.5.0
 
+- **Dźwięk gry osobno od Discorda.** Klip i film mają teraz trzy ścieżki: „Gra” (sama gra), „Discord i reszta”
+  (rozmowa, muzyka, przeglądarka) i „Mikrofon”. W edytorze każdą wyciszysz albo ściszysz osobno, np. zapiszesz
+  klip z grą, ale bez Discorda („Zapisz bez Discorda i reszty”). Gra to wybrana gra albo ostatnia gra na wierzchu;
+  przełączenie się na chwilę na Discorda jej nie zmienia. Gdy żadnej gry nie widać, ścieżka „Gra” nagrywa cały
+  dźwięk komputera. Zwykły odtwarzacz i Discord słyszą pierwszą ścieżkę „Wszystko razem”. Działa od Windows 10
+  2004; można to wyłączyć w Ustawieniach („Gra osobno od Discorda”) i wrócić do jednej ścieżki.
+- **Kopiuj klip i wklej na Discordzie.** Przycisk „Kopiuj” w podglądzie, po zapisie w edytorze i w menu klipu
+  (albo Ctrl+C w podglądzie) wkłada plik do schowka — na Discordzie wystarczy Ctrl+V.
+- **Znaczniki w filmach.** W trakcie filmu Alt+F8 (do zmiany w Ustawieniach) zaznacza ważną chwilę. Znaczniki
+  są w pliku jako rozdziały, a w edytorze jako kreski na osi czasu: kliknięcie albo klawisze [ i ] skaczą do
+  poprzedniego i następnego.
+- **Film przetrwa awarię.** Gdy Clipeon albo komputer padnie w trakcie filmu, przy następnym starcie film jest
+  składany z tego, co zdążyło się zapisać (do ostatnich 2 sekund), i pojawia się w bibliotece z dymkiem
+  „Odzyskano przerwany film”.
+- Nowe testy automatyczne: bufor powtórki, dzielenie strumienia na klatki, zegar dźwięku, ścieżki dźwięku przy
+  zapisie i w edytorze, znaczniki i odzyskiwanie filmu.
 - **Zamknięcie albo uruchomienie gry nie pokazuje już błędu dźwięku.** Gdy Windows zmienia albo przebudowuje
   urządzenie dźwięku (gra się zamyka lub startuje, podłączasz inne słuchawki, usługa dźwięku się restartuje),
   nagrywanie dźwięku musi otworzyć urządzenie od nowa. Dawniej Clipeon pokazywał wtedy czerwony błąd

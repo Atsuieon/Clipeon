@@ -1132,6 +1132,22 @@ mod testy {
     }
 
     #[test]
+    fn dzielnik_h264_bajt_po_bajcie_i_krotkie_kody_startowe() {
+        // Kody startowe 3-bajtowe (00 00 01) też się zdarzają; klatka bez IDR nie jest kluczowa
+        let krotki = |typ: u8, dane: &[u8]| [&[0u8, 0, 1, typ][..], dane].concat();
+        let k1 = [krotki(0x09, &[0xF0]), krotki(0x65, &[1, 0, 2])].concat();
+        let k2 = [krotki(0x09, &[0xF0]), krotki(0x41, &[3]), krotki(0x41, &[4])].concat();
+        let k3 = [nal(&[0x09], &[0xF0]), nal(&[0x65], &[5])].concat();
+        let strumien = [k1.clone(), k2.clone(), k3.clone(), krotki(0x09, &[0xF0])].concat();
+        let mut d = Dzielnik::nowy(Kodek::H264);
+        let mut klatki = Vec::new();
+        for b in &strumien {
+            klatki.extend(wektory(d.karm(std::slice::from_ref(b))));
+        }
+        assert_eq!(klatki, vec![(k1, true), (k2, false), (k3, true)]);
+    }
+
+    #[test]
     fn dzielnik_hevc() {
         // Typ NAL w HEVC: (bajt >> 1) & 0x3f; AUD = 35, IDR_W_RADL = 19, TRAIL_R = 1
         let k1 = [nal(&[35 << 1, 1], &[0x50]), nal(&[19 << 1, 1], &[5, 5, 5])].concat();

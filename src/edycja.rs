@@ -417,3 +417,42 @@ fn argumenty_audio(z: &Zlecenie, sciezki: u32, kopiuj: bool, tylko_pierwsza: boo
     }
     a
 }
+
+#[cfg(test)]
+mod testy {
+    use super::{Zlecenie, argumenty_audio};
+
+    fn zlecenie(glosnosci: &[f64]) -> Zlecenie {
+        serde_json::from_value(serde_json::json!({
+            "start": 0.0, "koniec": 10.0, "przyciete": false, "dokladnie": false, "rozmiar_mb": null,
+            "zastap": false, "glosnosci": glosnosci,
+        }))
+        .unwrap()
+    }
+
+    fn audio(glosnosci: &[f64], sciezki: u32) -> String {
+        argumenty_audio(&zlecenie(glosnosci), sciezki, true, false, 160).join(" ")
+    }
+
+    #[test]
+    fn glosnosc_trzech_osobnych_sciezek() {
+        // Miks, Gra, Discord i reszta, Mikrofon: wyciszony Discord, ciszej mikrofon
+        let a = audio(&[1.0, 0.0, 0.5], 4);
+        assert!(a.contains("[0:a:1]volume=1.00[s0];[0:a:2]volume=0.00[s1];[0:a:3]volume=0.50[s2];"), "{a}");
+        assert!(a.contains("[s0][s1][s2]amix=inputs=3:duration=longest:normalize=0[a]"), "{a}");
+        assert!(a.ends_with("-map [a] -c:a aac -b:a 160k"), "{a}");
+    }
+
+    #[test]
+    fn glosnosc_gry_i_mikrofonu_oraz_jednej_sciezki() {
+        let a = audio(&[1.5, 0.0], 3);
+        assert!(a.contains("[0:a:1]volume=1.50[s0];[0:a:2]volume=0.00[s1];[s0][s1]amix=inputs=2"), "{a}");
+        // Jedna ścieżka: sama głośność
+        assert!(audio(&[0.5], 1).starts_with("-filter_complex [0:a:0]volume=0.50[a]"));
+        // Bez zmiany głośności: ścieżki kopiowane, bez dźwięku nic
+        assert_eq!(audio(&[], 4), "-map 0:a -c:a copy");
+        assert_eq!(audio(&[1.0], 0), "");
+        // Głośność z okna jest przycinana do 0–400%
+        assert!(audio(&[9.0], 1).contains("volume=4.00"));
+    }
+}

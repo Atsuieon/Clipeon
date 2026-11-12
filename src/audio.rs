@@ -690,7 +690,7 @@ impl Zegar {
         (czas - self.t0) * self.czestotliwosc / 10_000_000
     }
 
-    fn zera(&mut self, wejscie: &mut ChildStdin, ile: i64) -> std::io::Result<()> {
+    fn zera(&mut self, wejscie: &mut impl Write, ile: i64) -> std::io::Result<()> {
         // Cisza idzie co ~100 ms — kawałkami ze stałego bufora zamiast nowej tablicy za każdym razem
         static ZERA: [u8; 16 * 1024] = [0; 16 * 1024];
         if ile > 0 {
@@ -705,14 +705,14 @@ impl Zegar {
         Ok(())
     }
 
-    fn cisza_do(&mut self, wejscie: &mut ChildStdin, czas: i64) -> std::io::Result<()> {
+    fn cisza_do(&mut self, wejscie: &mut impl Write, czas: i64) -> std::io::Result<()> {
         let ile = self.probka_dla(czas) - self.wyslane;
         self.zera(wejscie, ile)
     }
 
     /// Pakiet z WASAPI: luka przed nim -> cisza, nakładka na już wysłane próbki -> obcinamy początek.
     /// Bez znacznika czasu (`qpc` = None) pakiet idzie zaraz za poprzednimi.
-    fn pakiet(&mut self, wejscie: &mut ChildStdin, qpc: Option<i64>, ramek: i64, probki: Option<&[u8]>) -> std::io::Result<()> {
+    fn pakiet(&mut self, wejscie: &mut impl Write, qpc: Option<i64>, ramek: i64, probki: Option<&[u8]>) -> std::io::Result<()> {
         let poczatek = qpc.map_or(self.wyslane, |q| self.probka_dla(q));
         // Drobne drgania znaczników (< 5 ms) ignorujemy, żeby nie wstawiać trzasków
         let tolerancja = self.czestotliwosc / 200;
@@ -832,8 +832,74 @@ fn nazwa_urzadzenia(urzadzenie: &IMMDevice) -> Option<String> {
 
 #[cfg(test)]
 mod testy {
-    use super::{Blad, zmiana_urzadzenia};
+    use super::{Blad, FORMAT_PROCESU, Zegar, dlugosc_adts, zmiana_urzadzenia};
     use windows::core::{Error, HRESULT};
+
+    /// Zegar 48 kHz, stereo 16 bit (4 bajty na próbkę), start w zerze
+    fn zegar() -> Zegar {
+        Zegar { t0: 0, czestotliwosc: 48_000, wyslane: 0, bajtow_na_probke: 4 }
+    }
+
+    /// Czas QPC (100 ns) dla milisekundy
+    const fn ms(ms: i64) -> Option<i64> {
+        Some(ms * 10_000)
+    }
+
+    #[test]
+    fn zegar_wypelnia_luki_cisza_i_obcina_nakladki() {
+        let (mut z, mut wyj) = (zegar(), Vec::new());
+        // 10 ms dźwięku od zera
+        z.pakiet(&mut wyj, ms(0), 480, Some(&[1; 480 * 4])).unwrap();
+        assert_eq!((z.wyslane, wyj.len()), (480, 480 * 4));
+        // Następny pakiet dopiero w 20 ms: 10 ms ciszy, potem próbki
+        z.pakiet(&mut wyj, ms(20), 480, Some(&[2; 480 * 4])).unwrap();
+        assert_eq!(z.wyslane, 1440);
+        assert!(wyj[480 * 4..960 * 4].iter().all(|b| *b == 0));
+        assert!(wyj[960 * 4..].iter().all(|b| *b == 2));
+        // Pakiet zachodzący na już wysłane próbki (6 ms wstecz): wysyłamy tylko nową końcówkę
+        z.pakiet(&mut wyj, ms(24), 480, Some(&[3; 480 * 4])).unwrap();
+        assert_eq!(z.wyslane, 1152 + 480);
+        assert_eq!(wyj.len(), 1632 * 4);
+        assert!(wyj[1440 * 4..].iter().all(|b| *b == 3));
+        // Drganie znacznika poniżej 5 ms nie wstawia ciszy (trzaski) ani nie obcina próbek
+        z.pakiet(&mut wyj, ms(35), 48, Some(&[4; 48 * 4])).unwrap();
+        assert_eq!(z.wyslane, 1632 + 48);
+        // Pakiet ciszy (flaga SILENT) to zera, a cisza_do dopycha oś czasu do zadanej chwili
+        z.pakiet(&mut wyj, None, 100, None).unwrap();
+        assert_eq!(z.wyslane, 1780);
+        z.cisza_do(&mut wyj, 100 * 10_000).unwrap();
+        assert_eq!(z.wyslane, 4800);
+        assert_eq!(wyj.len(), 4800 * 4);
+    }
+
+    #[test]
+    fn zegar_bez_znacznika_czasu_dokleja_za_poprzednimi() {
+        // Loopback procesu potrafi oddać pakiet bez znacznika czasu — nie może zrobić luki ani nakładki
+        let (mut z, mut wyj) = (zegar(), Vec::new());
+        for _ in 0..3 {
+            z.pakiet(&mut wyj, None, 480, Some(&[7; 480 * 4])).unwrap();
+        }
+        assert_eq!(z.wyslane, 1440);
+        assert!(wyj.iter().all(|b| *b == 7));
+    }
+
+    #[test]
+    fn format_dzwieku_gry() {
+        let f = FORMAT_PROCESU.waveformat();
+        assert_eq!((f.nSamplesPerSec, f.nChannels, f.wBitsPerSample), (48_000, 2, 16));
+        assert_eq!((f.nBlockAlign, f.nAvgBytesPerSec), (4, 192_000));
+    }
+
+    #[test]
+    fn ramka_adts() {
+        // Nagłówek ADTS z długością ramki 10 bajtów (pole 13-bitowe w bajtach 3–5)
+        let mut ramka = vec![0xFF, 0xF1, 0x4C, 0x80, 0x01, 0x40, 0xFC, 9, 9, 9];
+        assert_eq!(dlugosc_adts(&ramka), Some(10));
+        // Niepełna ramka i brak znacznika synchronizacji
+        assert_eq!(dlugosc_adts(&ramka[..8]), None);
+        ramka[0] = 0;
+        assert_eq!(dlugosc_adts(&ramka), None);
+    }
 
     fn blad(kod: u32) -> Error {
         Error::from_hresult(HRESULT(kod as i32))

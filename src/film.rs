@@ -982,6 +982,121 @@ mod testy {
         let _ = std::fs::remove_dir_all(&folder);
     }
 
+    /// Segment od `od` do `do_` sekund (60 FPS, bez dźwięku)
+    fn segment(format: &'static str, od: f64, do_: f64) -> Gotowy {
+        let klatki = ((do_ - od) * 60.0) as u64 + 1;
+        Gotowy { poczatek: (od * 1e7) as i64, koniec: (do_ * 1e7) as i64, klatki, ..gotowy(format, &["Gra"]) }
+    }
+
+    #[test]
+    fn znaczniki_trafiaja_we_wlasciwe_miejsce_pliku() {
+        // Plik 1: dwa segmenty (pauza od 10 do 20 s), plik 2: inny format od 40 s
+        let s = [segment("h264", 0.0, 10.0), segment("h264", 20.0, 30.0), segment("hevc", 40.0, 50.0)];
+        let grupy = grupuj(&s);
+        assert_eq!(grupy, vec![0..2, 2..3]);
+        let dl = 601.0 / 60.0;
+        let sek = |x: f64| (x * 1e7) as i64;
+        let p = pozycje_znacznikow(&s, &grupy, &[5.0, 10.5, 15.0, 25.0, 35.0, 60.0].map(sek));
+        let oczekiwane = [vec![5.0, dl, dl, dl + 5.0], vec![0.0, dl]];
+        for (wynik, ocz) in p.iter().zip(&oczekiwane) {
+            assert_eq!(wynik.len(), ocz.len(), "{p:?}");
+            assert!(wynik.iter().zip(ocz).all(|(a, b)| (a - b).abs() < 0.01), "{p:?}");
+        }
+        // Znacznik spóźniony o ułamek sekundy po końcu segmentu (10,5 s) zostaje na końcu pierwszej części;
+        // znacznik w pauzie (15 s) trafia na początek drugiej
+        assert!(pozycje_znacznikow(&s, &[], &[sek(1.0)]).is_empty());
+    }
+
+    #[test]
+    fn rozdzialy_dla_ffmpeg() {
+        assert_eq!(
+            opis_rozdzialow(&[3.0, 7.25], 10.0),
+            ";FFMETADATA1\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=3000\ntitle=Początek\n\
+             [CHAPTER]\nTIMEBASE=1/1000\nSTART=3000\nEND=7250\ntitle=Znacznik 1\n\
+             [CHAPTER]\nTIMEBASE=1/1000\nSTART=7250\nEND=10000\ntitle=Znacznik 2\n"
+        );
+        // Znacznik na samym początku: bez osobnego rozdziału „Początek”
+        assert!(!opis_rozdzialow(&[0.0], 5.0).contains("Początek"));
+    }
+
+    #[test]
+    fn postep_zapisu_obrazu() {
+        let p = Postep { pierwszy: 10, ostatni: 500, klatki: 121, bajty: 4096 };
+        assert_eq!(Postep::z_tekstu(&p.tekst()), Some(p));
+        // Uszkodzony albo pusty postęp nie nadaje się do odzyskania
+        assert_eq!(Postep::z_tekstu("1 2"), None);
+        assert_eq!(Postep::z_tekstu("10 500 0 4096"), None);
+        assert_eq!(Postep::z_tekstu(""), None);
+    }
+
+    #[test]
+    fn przerwany_film_da_sie_odczytac_z_dysku() {
+        let folder = std::env::temp_dir().join(format!("clipeon-test-film-awaria-{}", std::process::id()));
+        let mut film = Film::nowy(&folder, Some("Gra testowa".into())).unwrap();
+        let (wideo, gra, mik) = (Bufor::nowy(30), Bufor::nowy(30), Bufor::nowy(30));
+        film.dodaj_segment(obraz("h264"), &wideo, &[("Gra", gra.clone()), ("Mikrofon", mik.clone())]).unwrap();
+        // Wątki zapisują w tle — czekamy, aż plik pojawi się na dysku
+        let czekaj = |plik: PathBuf| {
+            let start = Instant::now();
+            while !plik.is_file() && start.elapsed() < Duration::from_secs(5) {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        };
+        wideo.zablokuj().dodaj(pakiet(1000, true, 1));
+        // Dźwięk czeka, aż obraz ogłosi swój początek (postęp zapisuje się zaraz po nim)
+        czekaj(film.tmp.join("s0-postep.txt"));
+        gra.zablokuj().dodaj(pakiet(1000, true, 2));
+        czekaj(film.tmp.join("s0-dzwiek0.poczatek"));
+        film.dodaj_znacznik();
+        // „Awaria”: nikt nie woła zakoncz(); przy następnym starcie folder jest na liście do odzyskania
+        assert_eq!(przerwane(&folder), vec![film.tmp.clone()]);
+        let segmenty = wczytaj_segmenty(&film.tmp);
+        assert_eq!(segmenty.len(), 1);
+        let s = &segmenty[0];
+        assert_eq!((s.poczatek, s.klatki, s.obraz.clone()), (1000 * 10_000, 1, obraz("h264")));
+        // Mikrofon nic nie nagrał (brak początku) — zostaje sama gra
+        assert_eq!(s.nazwy(), vec!["Gra"]);
+        assert_eq!(std::fs::read(&s.wideo).unwrap().len(), 2);
+        assert_eq!(std::fs::read_to_string(film.tmp.join(ZNACZNIKI)).unwrap().lines().count(), 1);
+        let opis: OpisFilmu = serde_json::from_str(&std::fs::read_to_string(film.tmp.join(OPIS_FILMU)).unwrap()).unwrap();
+        assert_eq!((opis.znacznik.as_str(), opis.gra.as_deref()), (film.znacznik.as_str(), Some("Gra testowa")));
+        // Po nieudanej próbie odzyskania folder nie wraca na listę
+        std::fs::write(film.tmp.join(PROBA_ODZYSKANIA), "").unwrap();
+        assert!(przerwane(&folder).is_empty());
+        film.zbierz();
+        film.posprzataj();
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn obraz_jest_ucinany_do_zapisanego_postepu() {
+        let tmp = std::env::temp_dir().join(format!("clipeon-test-film-postep-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let opis = OpisSegmentu {
+            format: "hevc".into(),
+            fps: 60,
+            szerokosc: 1920,
+            wysokosc: 1080,
+            enkoder: "hevc_amf".into(),
+            dzwiek: vec!["Gra".into(), "Discord i reszta".into()],
+        };
+        zapisz_json(&tmp.join("s0.json"), &opis).unwrap();
+        // Za ostatnim postępem (1000 bajtów) jest niepełna klatka — po odczycie jej nie ma
+        std::fs::write(tmp.join("s0-obraz.tmp"), vec![7u8; 1500]).unwrap();
+        zapisz_postep(&tmp.join("s0-postep.txt"), &Postep { pierwszy: 5, ostatni: 900, klatki: 241, bajty: 1000 });
+        std::fs::write(tmp.join("s0-dzwiek1.aac"), [1, 2, 3]).unwrap();
+        std::fs::write(tmp.join("s0-dzwiek1.poczatek"), "7").unwrap();
+        // Drugi segment bez postępu (padło przed pierwszą klatką kluczową) jest pomijany
+        zapisz_json(&tmp.join("s1.json"), &opis).unwrap();
+        let s = wczytaj_segmenty(&tmp);
+        assert_eq!(s.len(), 1);
+        assert_eq!(std::fs::metadata(&s[0].wideo).unwrap().len(), 1000);
+        assert_eq!((s[0].klatki, s[0].koniec, s[0].obraz.enkoder), (241, 900, "hevc_amf"));
+        assert_eq!(s[0].nazwy(), vec!["Discord i reszta"]);
+        assert_eq!(s[0].audio[0].2, 7);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
     #[test]
     fn segment_bez_obrazu_jest_pomijany() {
         let folder = std::env::temp_dir().join(format!("clipeon-test-film-pusty-{}", std::process::id()));
