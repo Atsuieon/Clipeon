@@ -529,15 +529,25 @@ pub fn uruchom(
     };
     crate::dziennik::info(&format!("Wideo: {opis}"));
 
-    // Komunikaty ffmpeg czytamy na bieżąco (pełny potok zatrzymałby enkoder); zostaje ostatnia linia
+    // Komunikaty ffmpeg czytamy na bieżąco (pełny potok zatrzymałby enkoder); zostają ostatnie linie —
+    // przy awarii ddagrab właściwa przyczyna (np. „AcquireNextFrame failed: 887a0026”) stoi linię wyżej
+    // niż ogólne „Generic error in an external library”
     let ostatni_blad = Arc::new(Mutex::new(String::new()));
     {
         let ostatni = ostatni_blad.clone();
         let bledy = ffmpeg.stderr.take().unwrap();
         std::thread::spawn(move || {
             use std::io::BufRead;
+            let mut linie = std::collections::VecDeque::new();
             for linia in std::io::BufReader::new(bledy).lines().map_while(Result::ok) {
-                *ostatni.zablokuj() = linia;
+                if linia.trim().is_empty() {
+                    continue;
+                }
+                if linie.len() == 3 {
+                    linie.pop_front();
+                }
+                linie.push_back(linia.trim().to_string());
+                *ostatni.zablokuj() = linie.iter().cloned().collect::<Vec<_>>().join(" | ");
             }
         });
     }
