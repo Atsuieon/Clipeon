@@ -174,16 +174,16 @@ await zrzut("0a-tlo-smuga");
 // …myszka, która stoi, niczego nie podtrzymuje: smuga sama gaśnie
 await strona.waitForTimeout(6000);
 sprawdz((await jasneZnaki(500, 640)) === 0 && (await jasneZnaki(640, 640)) === 0, "smuga nie gaśnie, gdy myszka stoi");
-// Powolny ruch zostawia plamę barwnika przy kursorze (jak tusz w wodzie)…
+// Powolny ruch zostawia najwyżej maleńką plamkę (szybki — szeroką strugę)
 for (let i = 1; i <= 30; i++) {
   await strona.mouse.move(440 + i * 2, 660);
   await strona.waitForTimeout(25);
 }
 await strona.waitForTimeout(60);
-sprawdz((await jasneZnaki(490, 660)) > 20, "powolny ruch myszki nie zostawia plamy przy kursorze");
-// …która też sama gaśnie
+const wolno = await jasneZnaki(490, 660);
+sprawdz(wolno * 4 < Math.max(poczatek, koniec), `powolny ruch myszki zostawia za dużą plamę: ${wolno} (szybki: ${poczatek}, ${koniec})`);
 await strona.waitForTimeout(6000);
-sprawdz((await jasneZnaki(490, 660)) === 0, "plama po powolnym ruchu nie gaśnie");
+sprawdz((await jasneZnaki(490, 660)) === 0, "plamka po powolnym ruchu nie gaśnie");
 // Nad przyciskiem smuga nie powstaje
 const przyciskFolder = await strona.locator("#otworz-folder").boundingBox();
 await strona.mouse.move(przyciskFolder.x + 4, przyciskFolder.y + 10);

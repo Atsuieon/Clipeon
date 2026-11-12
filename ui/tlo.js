@@ -34,7 +34,10 @@ window.Tlo = (() => {
 
   // Płyn pod znakami
   const OCZKO = 8; // bok komórki symulacji w px
-  const PROMIEN = 20; // px — promień pędzla (odchylenie krzywej dzwonowej)
+  const PROMIEN = 20; // px — promień pędzla przy szybkim ruchu (odchylenie krzywej dzwonowej)
+  const PROMIEN_WOLNO = 5; // px — przy bardzo wolnym ruchu: maleńka plamka
+  const WOLNO = 15; // px/s — tak wolny ruch prawie nic nie wlewa
+  const SZYBKO = 1000; // px/s — od tej prędkości pędzel ma pełny rozmiar i wlewa najwięcej
   const KROK = 6; // co ile px ruchu przykładamy pędzel
   const PCHA = 0.65; // do jakiej części prędkości myszki rozpędza się płyn pod pędzlem
   const CHWYTA = 0.35; // jak szybko płyn pod pędzlem łapie tę prędkość (za każde ~16 ms ruchu)
@@ -84,7 +87,7 @@ window.Tlo = (() => {
   let v = new Float32Array(0);
   let barwnik = new Float32Array(0);
   let [u2, v2, barwnik2, cisnienie, cisnienie2, rozbieznosc, wir] = Array(7).fill(new Float32Array(0));
-  let pedzel = { r: 0, sila: new Float32Array(0) }; // krzywa dzwonowa w komórkach płynu
+  let predkosc = 0; // wygładzona prędkość myszki w px/s
   let wlewy = []; // ruchy myszki od ostatniej klatki: { x, y, dx, dy, chwyt, ile } w komórkach płynu
   // Płyn liczymy tylko w prostokącie wokół miejsc, gdzie coś płynie (reszta okna stoi i ma zera)
   let [ox0, ox1, oy0, oy1] = [1, 0, 1, 0];
@@ -116,12 +119,6 @@ window.Tlo = (() => {
     wlewy = [];
     swieci = false;
     [ox0, ox1, oy0, oy1] = [1, 0, 1, 0];
-    // Pędzel: krzywa dzwonowa policzona raz, potem tylko przykładana wzdłuż ruchu myszki
-    const sigma = PROMIEN / OCZKO;
-    const r = Math.ceil(sigma * 2.5);
-    const sila = new Float32Array((2 * r + 1) ** 2);
-    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) sila[(dy + r) * (2 * r + 1) + dx + r] = Math.exp(-0.5 * (dx * dx + dy * dy) / (sigma * sigma));
-    pedzel = { r, sila };
     czasPlam = -1e9;
     poprawka = null;
     doPoprawki = 0;
@@ -172,11 +169,13 @@ window.Tlo = (() => {
     }
   }
 
-  // Pędzel w punkcie (x, y) komórek płynu: rozpędza płyn do prędkości (dx, dy) (część „chwyt”) i wlewa barwnik.
-  // Płyn dostaje najwyżej prędkość myszki, więc barwnik nie ucieka przed kursorem, tylko ciągnie się za nim.
-  function wlej(x, y, dx, dy, chwyt, ile) {
+  // Pędzel (krzywa dzwonowa o promieniu „sigma” komórek) w punkcie (x, y) komórek płynu: rozpędza płyn do
+  // prędkości (dx, dy) (część „chwyt”) i wlewa barwnik. Płyn dostaje najwyżej prędkość myszki, więc barwnik
+  // nie ucieka przed kursorem, tylko ciągnie się za nim.
+  function wlej(x, y, dx, dy, chwyt, ile, sigma) {
     const [cx, cy] = [Math.round(x), Math.round(y)];
-    const { r, sila } = pedzel;
+    const r = Math.ceil(sigma * 2.5);
+    const dzielnik = -0.5 / (sigma * sigma);
     const pusty = ox1 < ox0;
     ox0 = Math.max(1, Math.min(pusty ? Infinity : ox0, cx - r - ZAPAS));
     ox1 = Math.min(gx - 2, Math.max(pusty ? -Infinity : ox1, cx + r + ZAPAS));
@@ -188,7 +187,8 @@ window.Tlo = (() => {
       for (let ox = -r; ox <= r; ox++) {
         const xx = cx + ox;
         if (xx < 1 || xx >= gx - 1) continue;
-        const g = sila[(oy + r) * (2 * r + 1) + ox + r];
+        const [ex, ey] = [xx - x, yy - y];
+        const g = Math.exp((ex * ex + ey * ey) * dzielnik);
         if (g < 0.01) continue;
         const i = yy * gx + xx;
         const k = g * chwyt;
@@ -231,7 +231,7 @@ window.Tlo = (() => {
 
   // Jeden krok płynu (dt w sekundach): wlewy myszki, wiry, ciśnienie (płyn się nie ściska), przenoszenie
   function krokPlynu(dt) {
-    for (const w of wlewy) wlej(w.x, w.y, w.dx, w.dy, w.chwyt, w.ile);
+    for (const w of wlewy) wlej(w.x, w.y, w.dx, w.dy, w.chwyt, w.ile, w.sigma);
     wlewy = [];
     if (ox1 < ox0) return;
     // Wiry: mierzymy, jak płyn się kręci, i podkręcamy go mocniej tam, gdzie już się kręci — stąd zawijasy
@@ -430,6 +430,7 @@ window.Tlo = (() => {
       return;
     }
     const nowa = { x: e.clientX, y: e.clientY, t: e.timeStamp };
+    if (!mysz) predkosc = 0;
     if (mysz && klatka) {
       const [dx, dy] = [nowa.x - mysz.x, nowa.y - mysz.y];
       const droga = Math.hypot(dx, dy);
@@ -439,6 +440,12 @@ window.Tlo = (() => {
         // Prędkość myszki w komórkach płynu na sekundę
         const ms = Math.max(4, nowa.t - mysz.t);
         const [px, py] = [(dx / OCZKO / ms) * 1000, (dy / OCZKO / ms) * 1000];
+        // Wolny ruch = maleńka, słaba plamka; szybki = szeroka, gęsta struga. Prędkość wygładzona,
+        // bo zdarzenia przychodzą nierówno; po dłuższym postoju liczy się od nowa.
+        const chwilowa = (droga / ms) * 1000;
+        predkosc = ms > 120 ? chwilowa : predkosc * 0.6 + chwilowa * 0.4;
+        const moc = Math.min(1, Math.max(0, (predkosc - WOLNO) / (SZYBKO - WOLNO))) ** 0.6;
+        const sigma = (PROMIEN_WOLNO + (PROMIEN - PROMIEN_WOLNO) * moc) / OCZKO;
         // Pędzel co kilka px drogi: szybki ruch zostawia ciągłą strugę, a nie pojedyncze plamy
         const kroki = Math.min(80, Math.max(1, Math.round(droga / KROK)));
         for (let i = 1; i <= kroki; i++) {
@@ -449,7 +456,8 @@ window.Tlo = (() => {
             dx: px * PCHA,
             dy: py * PCHA,
             chwyt: 1 - (1 - Math.min(0.9, CHWYTA * porcja)) ** (1 / kroki),
-            ile: (WLEWA * porcja) / kroki,
+            ile: (WLEWA * porcja * moc ** 1.5) / kroki,
+            sigma,
           });
         }
         swieci = true;
