@@ -1,9 +1,10 @@
 // Tło okna: siatka znaków ASCII. Większość okna jest czarna; tu i tam leżą nieregularne plamy napisu
 // „CLIPEON”, które na brzegach rzedną: litery → plusy → dwukropki → rozproszone kropki → nic.
 // Plamy bardzo powoli zmieniają kształt i miejsce.
-// Ruch myszki zostawia smugę gęstych znaków: im szybszy ruch, tym jaśniejsza. Smuga nie idzie nigdzie
-// (nic nie leci do góry) — strzępi się na brzegach i powoli gaśnie tam, gdzie powstała. Myszka, która
-// stoi, niczego nie rozjaśnia, więc efekt wokół niej sam znika.
+// Ruch myszki miesza „płyn” pod znakami: myszka wlewa barwnik (jasne, gęste znaki) i popycha płyn
+// w stronę ruchu. Barwnik płynie z prądem, zwija się w wiry i powoli rozmywa — jak dym albo tusz w wodzie.
+// Fizyka to „Stable Fluids” Josa Stama (adwekcja, wiry, ciśnienie), liczona na zgrubnej siatce na procesorze.
+// Myszka, która stoi, niczego nie dolewa, więc efekt wokół niej sam znika.
 // Nad przyciskiem, polem ustawień albo klipem smuga nie powstaje — tam ma być czytelnie.
 // Rysowanie stoi, gdy okno jest w tle, schowane albo otwarty jest edytor (zero pracy podczas gry).
 // Wtedy też <html> dostaje klasę „tlo-stoi”, która zatrzymuje zorzę na napisie „Clipeon” (style.css).
@@ -31,14 +32,18 @@ window.Tlo = (() => {
   const TLO_JASNOSC = [0.012, 0.06, 0.1, 0.15, 0.23];
   const TLO_NAPIS = 0.14; // jaka część okna ma być napisem (reszta progów idzie za tym)
 
-  // Smuga za myszką: promień w px (odchylenie krzywej dzwonowej), czas gaśnięcia, czułość na prędkość
-  const PROMIEN_X = 50;
-  const PROMIEN_Y = 35;
-  const GASNIE_MS = 1600; // po tylu ms smuga ma ok. 1/3 jasności
-  const ROZJASNIA = 0.4; // jaką część drogi do jasności ruchu robi jedno dotknięcie
-  const KROK = 9; // co ile px ruchu przykładamy pędzel
-  const WOLNO = 70; // px/s — wolniejszy ruch nie zostawia nic
-  const SZYBKO = 1100; // px/s — od tej prędkości smuga ma pełną jasność
+  // Płyn pod znakami
+  const OCZKO = 8; // bok komórki symulacji w px
+  const PROMIEN = 20; // px — promień pędzla (odchylenie krzywej dzwonowej)
+  const KROK = 6; // co ile px ruchu przykładamy pędzel
+  const PCHA = 0.65; // do jakiej części prędkości myszki rozpędza się płyn pod pędzlem
+  const CHWYTA = 0.35; // jak szybko płyn pod pędzlem łapie tę prędkość (za każde ~16 ms ruchu)
+  const WLEWA = 0.55; // ile barwnika wlewa pędzel za każde ~16 ms ruchu (1 = pełna jasność)
+  const WIRY = 22; // siła zawijania (vorticity confinement)
+  const ZAPAS = 4; // o ile komórek obszar liczenia wystaje poza miejsca, gdzie coś płynie
+  const PRZEBIEGI = 20; // przebiegi Jacobiego dla ciśnienia
+  const BARWNIK_GASNIE = 0.6; // na sekundę (barwnik / (1 + x·dt)) — po ~1 s zostaje ok. 55%
+  const PRAD_GASNIE = 0.9; // na sekundę dla prędkości — płyn płynie jeszcze chwilę siłą rozpędu
   // Nad tym smuga nie powstaje
   const BEZ_POSWIATY =
     "button, a, input, select, textarea, label, summary, .karta, .menu, .nakladka, .belka, .baner, .pasek-zaznaczenia, .dymek, .gora";
@@ -68,13 +73,21 @@ window.Tlo = (() => {
   let kolumny = 0;
   let wiersze = 0;
   let plamy = new Float32Array(0); // jasność tła w każdej komórce
-  let strzepy = new Float32Array(0); // jak mocno komórka „wygryza” brzeg smugi (stałe, 0–1)
   let ziarna = new Float32Array(0); // stały los komórki (0–1)
-  let swiatlo = new Float32Array(0); // jasność smugi w każdej komórce (0–1)
-  let pedzel = { rx: 0, ry: 0, sila: new Float32Array(0) }; // kształt smugi w komórkach
   let mysz = null; // ostatnie położenie myszki { x, y, t } albo null, gdy smuga nie ma powstawać
-  let predkosc = 0; // wygładzona prędkość myszki w px/s
-  let swieci = false; // czy gdziekolwiek widać jeszcze smugę
+  let swieci = false; // czy płyn jeszcze się rusza albo widać barwnik
+  // Płyn: siatka gx × gy komórek po OCZKO px z ramką jednej komórki dookoła okna.
+  // u, v — prędkość w komórkach na sekundę; barwnik 0–~1,5.
+  let gx = 0;
+  let gy = 0;
+  let u = new Float32Array(0);
+  let v = new Float32Array(0);
+  let barwnik = new Float32Array(0);
+  let [u2, v2, barwnik2, cisnienie, cisnienie2, rozbieznosc, wir] = Array(7).fill(new Float32Array(0));
+  let pedzel = { r: 0, sila: new Float32Array(0) }; // krzywa dzwonowa w komórkach płynu
+  let wlewy = []; // ruchy myszki od ostatniej klatki: { x, y, dx, dy, chwyt, ile } w komórkach płynu
+  // Płyn liczymy tylko w prostokącie wokół miejsc, gdzie coś płynie (reszta okna stoi i ma zera)
+  let [ox0, ox1, oy0, oy1] = [1, 0, 1, 0];
   let klatka = 0; // numer zamówionej klatki animacji (0 = animacja stoi)
   let ostatnia = 0;
   let czas = 0;
@@ -95,25 +108,20 @@ window.Tlo = (() => {
     kolumny = Math.ceil(w / kolumna) + 1;
     wiersze = Math.ceil(h / WIERSZ) + 1;
     const ile = kolumny * wiersze;
-    [plamy, strzepy, ziarna, swiatlo] = [0, 0, 0, 0].map(() => new Float32Array(ile));
-    for (let y = 0; y < wiersze; y++) {
-      for (let x = 0; x < kolumny; x++) {
-        const i = y * kolumny + x;
-        ziarna[i] = los(x, y, 0);
-        // Strzępy: większe „kęsy” (ok. 45 px) i drobne ziarno, żeby brzeg smugi był poszarpany jak dym
-        strzepy[i] = 0.7 * szum(17 + (x * kolumna) / 46, 31 + (y * WIERSZ) / 38) + 0.3 * ziarna[i];
-      }
-    }
-    // Pędzel: krzywa dzwonowa policzona raz (w komórkach), potem tylko przykładana wzdłuż ruchu myszki
-    const [sx, sy] = [PROMIEN_X / kolumna, PROMIEN_Y / WIERSZ];
-    const [rx, ry] = [Math.ceil(sx * 2.4), Math.ceil(sy * 2.4)];
-    const sila = new Float32Array((2 * rx + 1) * (2 * ry + 1));
-    for (let dy = -ry; dy <= ry; dy++) {
-      for (let dx = -rx; dx <= rx; dx++) {
-        sila[(dy + ry) * (2 * rx + 1) + dx + rx] = Math.exp(-0.5 * ((dx / sx) ** 2 + (dy / sy) ** 2));
-      }
-    }
-    pedzel = { rx, ry, sila };
+    [plamy, ziarna] = [0, 0].map(() => new Float32Array(ile));
+    for (let y = 0; y < wiersze; y++) for (let x = 0; x < kolumny; x++) ziarna[y * kolumny + x] = los(x, y, 0);
+    gx = Math.ceil(w / OCZKO) + 2;
+    gy = Math.ceil(h / OCZKO) + 2;
+    [u, v, barwnik, u2, v2, barwnik2, cisnienie, cisnienie2, rozbieznosc, wir] = Array.from({ length: 10 }, () => new Float32Array(gx * gy));
+    wlewy = [];
+    swieci = false;
+    [ox0, ox1, oy0, oy1] = [1, 0, 1, 0];
+    // Pędzel: krzywa dzwonowa policzona raz, potem tylko przykładana wzdłuż ruchu myszki
+    const sigma = PROMIEN / OCZKO;
+    const r = Math.ceil(sigma * 2.5);
+    const sila = new Float32Array((2 * r + 1) ** 2);
+    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) sila[(dy + r) * (2 * r + 1) + dx + r] = Math.exp(-0.5 * (dx * dx + dy * dy) / (sigma * sigma));
+    pedzel = { r, sila };
     czasPlam = -1e9;
     poprawka = null;
     doPoprawki = 0;
@@ -164,34 +172,152 @@ window.Tlo = (() => {
     }
   }
 
-  // Rozjaśnia smugę wokół punktu okna do jasności „moc” (zależy od prędkości myszki)
-  function dotknij(px, py, moc) {
-    const [mx, my] = [Math.round(px / kolumna), Math.round(py / WIERSZ)];
-    const { rx, ry, sila } = pedzel;
-    for (let dy = -ry; dy <= ry; dy++) {
-      const y = my + dy;
-      if (y < 0 || y >= wiersze) continue;
-      for (let dx = -rx; dx <= rx; dx++) {
-        const x = mx + dx;
-        if (x < 0 || x >= kolumny) continue;
-        const cel = sila[(dy + ry) * (2 * rx + 1) + dx + rx] * moc;
-        const i = y * kolumny + x;
-        if (cel > swiatlo[i]) swiatlo[i] += (cel - swiatlo[i]) * ROZJASNIA;
+  // Pędzel w punkcie (x, y) komórek płynu: rozpędza płyn do prędkości (dx, dy) (część „chwyt”) i wlewa barwnik.
+  // Płyn dostaje najwyżej prędkość myszki, więc barwnik nie ucieka przed kursorem, tylko ciągnie się za nim.
+  function wlej(x, y, dx, dy, chwyt, ile) {
+    const [cx, cy] = [Math.round(x), Math.round(y)];
+    const { r, sila } = pedzel;
+    const pusty = ox1 < ox0;
+    ox0 = Math.max(1, Math.min(pusty ? Infinity : ox0, cx - r - ZAPAS));
+    ox1 = Math.min(gx - 2, Math.max(pusty ? -Infinity : ox1, cx + r + ZAPAS));
+    oy0 = Math.max(1, Math.min(pusty ? Infinity : oy0, cy - r - ZAPAS));
+    oy1 = Math.min(gy - 2, Math.max(pusty ? -Infinity : oy1, cy + r + ZAPAS));
+    for (let oy = -r; oy <= r; oy++) {
+      const yy = cy + oy;
+      if (yy < 1 || yy >= gy - 1) continue;
+      for (let ox = -r; ox <= r; ox++) {
+        const xx = cx + ox;
+        if (xx < 1 || xx >= gx - 1) continue;
+        const g = sila[(oy + r) * (2 * r + 1) + ox + r];
+        if (g < 0.01) continue;
+        const i = yy * gx + xx;
+        const k = g * chwyt;
+        u[i] += (dx - u[i]) * k;
+        v[i] += (dy - v[i]) * k;
+        barwnik[i] = Math.min(1.5, barwnik[i] + g * ile);
       }
     }
-    swieci = true;
   }
 
-  // Smuga gaśnie w miejscu (nic się nie przesuwa)
-  function zgas(ms) {
-    const zostaje = Math.exp(-ms / GASNIE_MS);
-    let najwiecej = 0;
-    for (let i = 0; i < swiatlo.length; i++) {
-      const s = (swiatlo[i] *= zostaje);
-      if (s > najwiecej) najwiecej = s;
+  // Wartość pola w dowolnym punkcie siatki (interpolacja dwuliniowa, przycięta do okna)
+  function probka(pole, x, y) {
+    x = Math.min(gx - 1.001, Math.max(0, x));
+    y = Math.min(gy - 1.001, Math.max(0, y));
+    const [x0, y0] = [x | 0, y | 0];
+    const [fx, fy] = [x - x0, y - y0];
+    const i = y0 * gx + x0;
+    const gora = pole[i] + (pole[i + 1] - pole[i]) * fx;
+    const dol = pole[i + gx] + (pole[i + gx + 1] - pole[i + gx]) * fx;
+    return gora + (dol - gora) * fy;
+  }
+
+  // Brzegi okna to ściany: płyn się od nich odbija, a nie wylewa
+  function sciany(pu, pv) {
+    for (let x = 0; x < gx; x++) {
+      const [g, d] = [x, (gy - 1) * gx + x];
+      pu[g] = pu[g + gx];
+      pv[g] = -pv[g + gx];
+      pu[d] = pu[d - gx];
+      pv[d] = -pv[d - gx];
     }
-    if (najwiecej < 0.02) {
-      swiatlo.fill(0);
+    for (let y = 0; y < gy; y++) {
+      const [l, p] = [y * gx, y * gx + gx - 1];
+      pu[l] = -pu[l + 1];
+      pv[l] = pv[l + 1];
+      pu[p] = -pu[p - 1];
+      pv[p] = pv[p - 1];
+    }
+  }
+
+  // Jeden krok płynu (dt w sekundach): wlewy myszki, wiry, ciśnienie (płyn się nie ściska), przenoszenie
+  function krokPlynu(dt) {
+    for (const w of wlewy) wlej(w.x, w.y, w.dx, w.dy, w.chwyt, w.ile);
+    wlewy = [];
+    if (ox1 < ox0) return;
+    // Wiry: mierzymy, jak płyn się kręci, i podkręcamy go mocniej tam, gdzie już się kręci — stąd zawijasy
+    for (let y = oy0; y <= oy1; y++) {
+      for (let x = ox0; x <= ox1; x++) {
+        const i = y * gx + x;
+        wir[i] = 0.5 * (v[i + 1] - v[i - 1] - (u[i + gx] - u[i - gx]));
+      }
+    }
+    for (let y = Math.max(2, oy0); y <= Math.min(gy - 3, oy1); y++) {
+      for (let x = Math.max(2, ox0); x <= Math.min(gx - 3, ox1); x++) {
+        const i = y * gx + x;
+        const nx = 0.5 * (Math.abs(wir[i + 1]) - Math.abs(wir[i - 1]));
+        const ny = 0.5 * (Math.abs(wir[i + gx]) - Math.abs(wir[i - gx]));
+        const dl = Math.hypot(nx, ny) + 1e-5;
+        const k = (WIRY * wir[i] * dt) / dl;
+        u[i] += ny * k;
+        v[i] -= nx * k;
+      }
+    }
+    sciany(u, v);
+    // Ciśnienie: usuwa ściskanie i rozrzedzanie, więc płyn omija się i zawija zamiast znikać
+    for (let y = oy0; y <= oy1; y++) {
+      for (let x = ox0; x <= ox1; x++) {
+        const i = y * gx + x;
+        rozbieznosc[i] = 0.5 * (u[i + 1] - u[i - 1] + v[i + gx] - v[i - gx]);
+      }
+    }
+    // Poza obszarem ciśnienie jest zerem (tam nic nie płynie)
+    cisnienie.fill(0);
+    cisnienie2.fill(0);
+    for (let n = 0; n < PRZEBIEGI; n++) {
+      for (let y = oy0; y <= oy1; y++) {
+        for (let x = ox0; x <= ox1; x++) {
+          const i = y * gx + x;
+          cisnienie2[i] = 0.25 * (cisnienie[i - 1] + cisnienie[i + 1] + cisnienie[i - gx] + cisnienie[i + gx] - rozbieznosc[i]);
+        }
+      }
+      for (let x = 0; x < gx; x++) {
+        cisnienie2[x] = cisnienie2[x + gx];
+        cisnienie2[(gy - 1) * gx + x] = cisnienie2[(gy - 2) * gx + x];
+      }
+      for (let y = 0; y < gy; y++) {
+        cisnienie2[y * gx] = cisnienie2[y * gx + 1];
+        cisnienie2[y * gx + gx - 1] = cisnienie2[y * gx + gx - 2];
+      }
+      [cisnienie, cisnienie2] = [cisnienie2, cisnienie];
+    }
+    for (let y = oy0; y <= oy1; y++) {
+      for (let x = ox0; x <= ox1; x++) {
+        const i = y * gx + x;
+        u[i] -= 0.5 * (cisnienie[i + 1] - cisnienie[i - 1]);
+        v[i] -= 0.5 * (cisnienie[i + gx] - cisnienie[i - gx]);
+      }
+    }
+    sciany(u, v);
+    // Przenoszenie: każda komórka bierze to, co przypłynęło do niej z miejsca „pod prąd”
+    const [zostajePrad, zostajeBarwnik] = [1 / (1 + PRAD_GASNIE * dt), 1 / (1 + BARWNIK_GASNIE * dt)];
+    let najwiecej = 0;
+    let [nx0, nx1, ny0, ny1] = [gx, -1, gy, -1]; // gdzie po tym kroku jeszcze coś płynie
+    for (let y = oy0; y <= oy1; y++) {
+      for (let x = ox0; x <= ox1; x++) {
+        const i = y * gx + x;
+        const [sx, sy] = [x - dt * u[i], y - dt * v[i]];
+        const pu = (u2[i] = probka(u, sx, sy) * zostajePrad);
+        const pv = (v2[i] = probka(v, sx, sy) * zostajePrad);
+        const b = (barwnik2[i] = probka(barwnik, sx, sy) * zostajeBarwnik);
+        if (b > najwiecej) najwiecej = b;
+        if (b > 0.01 || Math.abs(pu) + Math.abs(pv) > 0.3) {
+          if (x < nx0) nx0 = x;
+          if (x > nx1) nx1 = x;
+          if (y < ny0) ny0 = y;
+          if (y > ny1) ny1 = y;
+        }
+      }
+    }
+    [u, u2] = [u2, u];
+    [v, v2] = [v2, v];
+    [barwnik, barwnik2] = [barwnik2, barwnik];
+    sciany(u, v);
+    // Obszar idzie za płynem: rośnie, gdy płyn się rozlewa, i kurczy się, gdy gaśnie
+    [ox0, ox1, oy0, oy1] = [Math.max(1, nx0 - ZAPAS), Math.min(gx - 2, nx1 + ZAPAS), Math.max(1, ny0 - ZAPAS), Math.min(gy - 2, ny1 + ZAPAS)];
+    // Gdy barwnika już prawie nie widać, płyn się zatrzymuje i tło wraca do 8 klatek na sekundę
+    if (najwiecej < 0.03) {
+      for (const pole of [u, v, barwnik, u2, v2, barwnik2]) pole.fill(0);
+      [ox0, ox1, oy0, oy1] = [1, 0, 1, 0];
       swieci = false;
     }
   }
@@ -201,17 +327,22 @@ window.Tlo = (() => {
     if (czas - czasPlam >= SPOKOJ_MS) przeliczPlamy();
     ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
     const linie = POZIOMY.map(() => new Array(kolumny));
+    // Znaki nad obszarem płynu (tylko tam może być barwnik)
+    const [kx0, kx1] = [Math.floor(((ox0 - 1) * OCZKO) / kolumna) - 1, Math.ceil(((ox1 - 1) * OCZKO) / kolumna) + 1];
+    const [ky0, ky1] = [Math.floor(((oy0 - 1) * OCZKO) / WIERSZ) - 1, Math.ceil(((oy1 - 1) * OCZKO) / WIERSZ) + 1];
     for (let y = 0; y < wiersze; y++) {
       for (const l of linie) l.fill(" ");
       for (let x = 0; x < kolumny; x++) {
         const i = y * kolumny + x;
         const ziarno = ziarna[i];
         let jasnosc = plamy[i];
-        const s = swiatlo[i];
-        if (s > 0.02) {
-          // Środek smugi zostaje pełny, a słabszy brzeg jest wygryzany nierówno (strzępy)
-          const smuga = s - strzepy[i] * 0.36 * (1 - s);
-          if (smuga > jasnosc) jasnosc = smuga;
+        if (swieci && x >= kx0 && x <= kx1 && y >= ky0 && y <= ky1) {
+          // Barwnik płynu pod środkiem znaku; drobne ziarno strzępi rzadki brzeg jak dym
+          const b = probka(barwnik, 1 + ((x + 0.5) * kolumna) / OCZKO, 1 + ((y + 0.5) * WIERSZ) / OCZKO);
+          if (b > 0.03) {
+            const smuga = Math.min(1, b) * 0.85 - ziarno * 0.12 * (1 - Math.min(1, b));
+            if (smuga > jasnosc) jasnosc = smuga;
+          }
         }
         // Im jaśniej, tym gęstszy znak: nic, rozproszone kropki, : + napis, lekkie symbole, gęste symbole
         if (jasnosc < 0.012) continue;
@@ -263,7 +394,8 @@ window.Tlo = (() => {
     const ms = Math.min(teraz - ostatnia, 150);
     czas += ms;
     ostatnia = teraz;
-    if (swieci) zgas(ms);
+    // Płyn liczymy w krokach najwyżej ~1/30 s, żeby szybki ruch nie „przeskakiwał” komórek
+    if (swieci) for (let zostalo = ms / 1000; zostalo > 1e-4; zostalo -= 1 / 30) krokPlynu(Math.min(zostalo, 1 / 30));
     rysuj();
   }
 
@@ -283,7 +415,9 @@ window.Tlo = (() => {
         klatka = requestAnimationFrame(petla);
       }
     } else if (!klatka) {
-      swiatlo.fill(0);
+      for (const pole of [u, v, barwnik, u2, v2, barwnik2]) pole.fill(0);
+      [ox0, ox1, oy0, oy1] = [1, 0, 1, 0];
+      wlewy = [];
       swieci = false;
       mysz = null;
       rysuj();
@@ -297,22 +431,29 @@ window.Tlo = (() => {
     }
     const nowa = { x: e.clientX, y: e.clientY, t: e.timeStamp };
     if (mysz && klatka) {
-      const droga = Math.hypot(nowa.x - mysz.x, nowa.y - mysz.y);
-      const ms = Math.max(4, nowa.t - mysz.t);
-      // Po dłuższym postoju prędkość liczy się od nowa; w ruchu jest wygładzana (zdarzenia przychodzą nierówno)
-      const chwilowa = (droga / ms) * 1000;
-      predkosc = ms > 120 ? chwilowa : predkosc * 0.6 + chwilowa * 0.4;
-      const moc = Math.min(1, Math.max(0, (predkosc - WOLNO) / (SZYBKO - WOLNO))) ** 0.55;
-      if (moc > 0.02) {
-        // Pędzel co kilka px drogi: szybki ruch zostawia ciągłą smugę, a nie pojedyncze plamy
-        const kroki = Math.min(120, Math.max(1, Math.round(droga / KROK)));
+      const [dx, dy] = [nowa.x - mysz.x, nowa.y - mysz.y];
+      const droga = Math.hypot(dx, dy);
+      if (droga > 0.5) {
+        // Ile „ruchu” niesie to zdarzenie (w jednostkach ~16 ms): po dłuższym postoju nie więcej niż 2
+        const porcja = Math.min(2, Math.max(0.25, (nowa.t - mysz.t) / 16.7));
+        // Prędkość myszki w komórkach płynu na sekundę
+        const ms = Math.max(4, nowa.t - mysz.t);
+        const [px, py] = [(dx / OCZKO / ms) * 1000, (dy / OCZKO / ms) * 1000];
+        // Pędzel co kilka px drogi: szybki ruch zostawia ciągłą strugę, a nie pojedyncze plamy
+        const kroki = Math.min(80, Math.max(1, Math.round(droga / KROK)));
         for (let i = 1; i <= kroki; i++) {
-          const u = i / kroki;
-          dotknij(mysz.x + (nowa.x - mysz.x) * u, mysz.y + (nowa.y - mysz.y) * u, moc);
+          const t = i / kroki;
+          wlewy.push({
+            x: 1 + (mysz.x + dx * t) / OCZKO,
+            y: 1 + (mysz.y + dy * t) / OCZKO,
+            dx: px * PCHA,
+            dy: py * PCHA,
+            chwyt: 1 - (1 - Math.min(0.9, CHWYTA * porcja)) ** (1 / kroki),
+            ile: (WLEWA * porcja) / kroki,
+          });
         }
+        swieci = true;
       }
-    } else {
-      predkosc = 0;
     }
     mysz = nowa;
   });

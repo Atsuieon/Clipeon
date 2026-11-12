@@ -1,7 +1,10 @@
 # Zmiany
 
-## Następna wersja
+## 1.4.1
 
+- **Tło płynie jak dym albo tusz w wodzie.** Ruch myszki wlewa jasne znaki i popycha „płyn” pod tłem: znaki
+  ciągną się za kursorem, zawijają w wiry i powoli się rozmywają (prawdziwa symulacja płynu, liczona tylko
+  wokół miejsca, gdzie coś płynie). Myszka, która stoi, niczego nie dolewa, więc efekt sam gaśnie. Kolory bez zmian.
 - Długość filmów w bibliotece pokazuje godziny („1:06:52” zamiast „66:52”).
 - „Klatki i jakość” w Ustawieniach: pola leżą pod nazwą, więc nazwa nie łamie się już w wąskiej kolumnie.
 - Nowe zrzuty ekranu w README.
