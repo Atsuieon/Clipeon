@@ -61,7 +61,10 @@ function udawanyTauri() {
     zapisz_ustawienia: (a) => {
       window.__zapisane = a;
     },
-    info_klipu: () => ({ dlugosc: 20, sciezki_audio: 3, fps: 60, szerokosc: 192, wysokosc: 108, webp: true }),
+    info_klipu: () => ({ dlugosc: 20, sciezki_audio: 3, fps: 60, szerokosc: 192, wysokosc: 108, webp: true, ...window.__info }),
+    kopiuj_klip: (a) => {
+      window.__skopiowane = a.sciezka;
+    },
     dzwiek_podgladu: () => {
       const b = atob(window.__dzwiek);
       const u = new Uint8Array(b.length);
@@ -658,6 +661,36 @@ await strona.keyboard.press("Control+Shift+D");
 // Zamknięcie podglądu zatrzymuje dźwięk i zdejmuje wyciszenie
 await v(() => zamknijOdtwarzacz());
 sprawdz(await v(() => dzwiek.sciezki.length === 0 && !$("wideo").muted), "zamknięcie podglądu nie sprząta dźwięku na żywo");
+
+// Kopiuj: plik klipu idzie do schowka (Ctrl+V w Discordzie)
+await strona.evaluate((k) => odtworz(k), klip);
+await strona.waitForTimeout(300);
+await strona.click("#odtw-kopiuj");
+await strona.waitForTimeout(100);
+sprawdz((await v(() => window.__skopiowane)) === klip.sciezka, "„Kopiuj” nie kopiuje klipu do schowka");
+
+// Klip z dźwiękiem gry osobno: Gra / Discord i reszta / Mikrofon, każdą wycisza się osobno
+await v(() => zamknijOdtwarzacz());
+await v(() => (window.__info = { sciezki_audio: 4, nazwy_sciezek: ["Wszystko razem", "Gra", "Discord i reszta", "Mikrofon"] }));
+await strona.evaluate((k) => odtworz(k), klip);
+await strona.waitForFunction(() => dzwiek.sciezki.length === 3, null, { timeout: 5000 }).catch(() => {});
+const nazwy = await strona.locator("#sciezki-dzwieku .sciezka-opis span").allTextContents();
+sprawdz(nazwy.join("|") === "Gra|Discord i reszta|Mikrofon", `złe ścieżki przy trzech źródłach: ${nazwy}`);
+sprawdz((await v(() => dzwiek.sciezki.length)) === 3, "głośność na żywo: nie ma trzech ścieżek");
+await strona.locator(".sciezka .wycisz").nth(1).click();
+sprawdz((await strona.textContent("#eksportuj")) === "Zapisz bez Discorda i reszty", `wyciszony Discord: przycisk „${await strona.textContent("#eksportuj")}”`);
+await strona.click("#eksportuj");
+await strona.waitForTimeout(200);
+zl = await v(() => window.__zlecenia?.at(-1));
+sprawdz(JSON.stringify(zl?.glosnosci) === "[1,0,1]", `zlecenie bez Discorda: ${JSON.stringify(zl?.glosnosci)}`);
+// Starszy plik bez nazw ścieżek dostaje domyślne
+await v(() => zamknijOdtwarzacz());
+await v(() => (window.__info = { sciezki_audio: 4, nazwy_sciezek: [] }));
+await strona.evaluate((k) => odtworz(k), klip);
+await strona.waitForTimeout(300);
+const domyslne = await strona.locator("#sciezki-dzwieku .sciezka-opis span").allTextContents();
+sprawdz(domyslne.join("|") === "Gra|Discord i reszta|Mikrofon", `domyślne nazwy ścieżek: ${domyslne}`);
+await v(() => zamknijOdtwarzacz());
 
 await przegladarka.close();
 if (bledy.length) {

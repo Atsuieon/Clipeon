@@ -472,6 +472,13 @@ fn pokaz_w_folderze(rdzen: State<'_, Rdzen>, sciezka: PathBuf) -> Result<(), Str
     Ok(())
 }
 
+/// Klip do schowka jako plik: Ctrl+V w Discordzie (albo w Eksploratorze) wkleja sam plik.
+#[tauri::command]
+fn kopiuj_klip(rdzen: State<'_, Rdzen>, sciezka: PathBuf) -> Result<(), String> {
+    let klip = klipy::sprawdz_wynik(&rdzen.config().folder_klipow, &sciezka)?;
+    crate::schowek::kopiuj_plik(&klip)
+}
+
 #[tauri::command]
 fn usun_klip(rdzen: State<'_, Rdzen>, sciezka: PathBuf) -> Result<(), String> {
     let klip = klipy::sprawdz_sciezke(&rdzen.config().folder_klipow, &sciezka)?;
@@ -699,6 +706,7 @@ pub fn uruchom() {
             klipy,
             miniatura,
             pokaz_w_folderze,
+            kopiuj_klip,
             usun_klip,
             otworz_folder,
             eksportuj,

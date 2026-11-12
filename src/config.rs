@@ -16,6 +16,9 @@ pub struct Config {
     pub enkoder: String,
     /// Nagrywanie dźwięku systemowego (to, co słychać w głośnikach)
     pub dzwiek_systemowy: bool,
+    /// Dźwięk gry osobno od reszty komputera (Discord, muzyka): dwie ścieżki „Gra” i „Discord i reszta”
+    /// zamiast jednej. Działa od Windows 10 2004; na starszym jedna ścieżka jak dawniej
+    pub dzwiek_osobno: bool,
     /// Nagrywanie mikrofonu (domieszanego do dźwięku systemowego przy zapisie)
     pub mikrofon: bool,
     /// Folder, do którego trafiają klipy
@@ -84,6 +87,7 @@ impl Default for Config {
             bitrate_mbps: 20,
             enkoder: crate::enkodery::AUTO.into(),
             dzwiek_systemowy: true,
+            dzwiek_osobno: true,
             mikrofon: true,
             folder_klipow: profil.join("Videos").join("Clipeon"),
             skrot: "Alt+F10".into(),

@@ -172,6 +172,13 @@
                   <div class="pole"><label class="przelacznik"><input type="checkbox" id="dzwiek"><span class="suwak"></span></label></div>
                 </div>
                 <div class="ust">
+                  <div class="opis">
+                    <label for="dzwiek-osobno">Gra osobno od Discorda</label>
+                    <p class="pomoc">Dwie ścieżki: sama gra oraz Discord i reszta komputera. W edytorze wyciszysz Discorda, a grę zostawisz.</p>
+                  </div>
+                  <div class="pole"><label class="przelacznik"><input type="checkbox" id="dzwiek-osobno"><span class="suwak"></span></label></div>
+                </div>
+                <div class="ust">
                   <div class="opis"><label for="mikrofon">Mój mikrofon</label></div>
                   <div class="pole"><label class="przelacznik"><input type="checkbox" id="mikrofon"><span class="suwak"></span></label></div>
                 </div>
@@ -359,6 +366,7 @@
           <div class="pomoc" id="odtw-opis"></div>
         </div>
         <div class="naglowek-akcje">
+          <button class="przycisk drugorzedny" id="odtw-kopiuj"></button>
           <button class="przycisk drugorzedny" id="odtw-folder"></button>
           <button class="przycisk drugorzedny" id="odtw-usun"></button>
           <button class="przycisk ikonowy" id="odtw-zamknij" title="Zamknij"></button>
@@ -444,6 +452,7 @@
           </div>
         </div>
         <button class="przycisk drugorzedny" id="wynik-otworz">Otwórz</button>
+        <button class="przycisk drugorzedny" id="wynik-kopiuj" title="Potem Ctrl+V w Discordzie">Kopiuj</button>
         <button class="przycisk drugorzedny" id="wynik-folder">Pokaż w folderze</button>
       </div>
     </div>

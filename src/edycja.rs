@@ -20,7 +20,7 @@ pub struct Zlecenie {
     pub rozmiar_mb: Option<u32>,
     /// Zastąp oryginał (stary plik trafia do Kosza)
     pub zastap: bool,
-    /// Głośność (1.0 = bez zmian): [gra, mikrofon] dla klipów z osobnymi ścieżkami albo [dźwięk];
+    /// Głośność (1.0 = bez zmian): każda osobna ścieżka po kolei (gra, [Discord i reszta,] mikrofon) albo [dźwięk];
     /// pusta lista = bez zmian
     #[serde(default)]
     pub glosnosci: Vec<f64>,
@@ -385,8 +385,8 @@ fn argumenty_animacji(
     a
 }
 
-/// Argumenty dźwięku. Klip z osobnymi ścieżkami ma: 0 = miks, 1 = gra, 2 = mikrofon.
-/// Zmiana głośności składa nowy miks z gry i mikrofonu (jedna ścieżka w wyniku).
+/// Argumenty dźwięku. Klip z osobnymi ścieżkami ma: 0 = miks, potem każda ścieżka osobno (gra, mikrofon;
+/// od 1.5.0 też „Discord i reszta”). Zmiana głośności składa nowy miks z osobnych ścieżek (jedna w wyniku).
 fn argumenty_audio(z: &Zlecenie, sciezki: u32, kopiuj: bool, tylko_pierwsza: bool, kbps: u32) -> Vec<String> {
     let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
     if sciezki == 0 {
@@ -395,12 +395,13 @@ fn argumenty_audio(z: &Zlecenie, sciezki: u32, kopiuj: bool, tylko_pierwsza: boo
     let kodowanie = s(&["-c:a", "aac", "-b:a", &format!("{kbps}k")]);
     if !z.glosnosci.is_empty() {
         let g = |i: usize| z.glosnosci.get(i).copied().unwrap_or(1.0).clamp(0.0, 4.0);
-        let filtr = if sciezki >= 3 && z.glosnosci.len() >= 2 {
-            format!(
-                "[0:a:1]volume={:.2}[g];[0:a:2]volume={:.2}[m];[g][m]amix=inputs=2:duration=longest:normalize=0[a]",
-                g(0),
-                g(1)
-            )
+        // Osobne ścieżki to wszystkie poza miksem (pierwszą)
+        let osobne = if sciezki >= 3 { (sciezki - 1) as usize } else { 0 };
+        let filtr = if osobne >= 2 && z.glosnosci.len() >= 2 {
+            let mut f: String = (0..osobne).map(|i| format!("[0:a:{}]volume={:.2}[s{i}];", i + 1, g(i))).collect();
+            f.extend((0..osobne).map(|i| format!("[s{i}]")));
+            f.push_str(&format!("amix=inputs={osobne}:duration=longest:normalize=0[a]"));
+            f
         } else {
             format!("[0:a:0]volume={:.2}[a]", g(0))
         };

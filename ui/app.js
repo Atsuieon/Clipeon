@@ -7,12 +7,14 @@ const $ = (id) => document.getElementById(id);
 
 // Ikony Lucide (linie 1.5 px)
 const IKONY = {
+  sluchawki: '<path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/>',
   zapisz: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
   pauza: '<rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/>',
   graj: '<polygon points="6 3 20 12 6 21 6 3"/>',
   pelny: '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
   okno: '<path d="M3 8h3a2 2 0 0 0 2-2V3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/>',
   folder: '<path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/>',
+  kopiuj: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
   kosz: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
   zamknij: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
   odswiez: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
@@ -914,7 +916,7 @@ function odswiezEdytor() {
   else if (rozmiarDocelowy !== null) b.textContent = `Zapisz jako ${rozmiarDocelowy} MB`;
   else if (kadr) b.textContent = "Zapisz wykadrowany";
   else if (przyciete()) b.textContent = "Zapisz przycięty";
-  else if (maMikrofon && glosnosci()[1] === 0 && glosnosci()[0] === 1) b.textContent = "Zapisz bez mojego głosu";
+  else if (bezJednejSciezki()) b.textContent = `Zapisz bez ${bezJednejSciezki()}`;
   else if (glosnosciZmienione()) b.textContent = "Zapisz z nową głośnością";
   else b.textContent = "Zapisz";
   b.disabled = eksportTrwa || !zmiany() || zaDlugi;
@@ -996,15 +998,37 @@ listen("postep", (e) => {
   $("eksport-info").textContent = `Zapisuję… ${p}%`;
 });
 
-// ---------- Edytor: ścieżki dźwięku (Gra / Mikrofon albo jedna) ----------
+// ---------- Edytor: ścieżki dźwięku (Gra / Discord i reszta / Mikrofon albo jedna) ----------
 // Każda ścieżka to wykres głośności na osi czasu klipu, z poziomą linią głośności (0–200%).
 // Linię przeciąga się w górę i w dół, a zmianę słychać od razu (patrz „głośność słychać od razu”).
 // Wykres stoi w miejscu: głośność zmienia jego jasność (0% = blady, 200% = najjaśniejszy) i tylko
 // odrobinę wysokość słupków.
 // Każdy wpis: { nazwa, glosnosc (0..2), przed (głośność sprzed wyciszenia), fala (0–255 albo null), el, … }
 let sciezkiGlosu = [];
-let maMikrofon = false;
 const KUBELKI_FALI = 800;
+
+// Ścieżki do edycji: klip z osobnymi ścieżkami ma najpierw miks (nr 0), a potem każdą osobno —
+// Gra i Mikrofon, od 1.5.0 też „Discord i reszta”. Nazwy bierzemy z pliku; starsze pliki bez nazw
+// dostają domyślne. Każdy wpis: { nr (numer ścieżki w pliku), nazwa, ikona }.
+function opisySciezek(info) {
+  const n = info.sciezki_audio || 0;
+  if (n < 3) return n >= 1 ? [{ nr: 0, nazwa: "Dźwięk", ikona: "glosnik" }] : [];
+  const domyslne = n === 3 ? ["Gra", "Mikrofon"] : ["Gra", "Discord i reszta", "Mikrofon"];
+  return Array.from({ length: n - 1 }, (_, i) => {
+    const nazwa = (info.nazwy_sciezek || [])[i + 1] || domyslne[i] || `Ścieżka ${i + 1}`;
+    const ikona = /mikrofon/i.test(nazwa) ? "mikrofon" : /discord|reszta/i.test(nazwa) ? "sluchawki" : "glosnik";
+    return { nr: i + 1, nazwa, ikona };
+  });
+}
+
+// Wyciszona dokładnie jedna z kilku ścieżek, reszta bez zmian: co wypada („mojego głosu”, „Discorda”…)
+function bezJednejSciezki() {
+  if (sciezkiGlosu.length < 2) return "";
+  const zero = sciezkiGlosu.filter((s) => s.glosnosc === 0);
+  if (zero.length !== 1 || sciezkiGlosu.some((s) => s.glosnosc !== 0 && s.glosnosc !== 1)) return "";
+  const { ikonaNazwa, nazwa } = zero[0];
+  return ikonaNazwa === "mikrofon" ? "mojego głosu" : ikonaNazwa === "sluchawki" ? "Discorda i reszty" : nazwa === "Gra" ? "dźwięku gry" : nazwa;
+}
 
 async function przygotujGlosnosc(klip) {
   const kont = $("sciezki-dzwieku");
@@ -1021,11 +1045,8 @@ async function przygotujGlosnosc(klip) {
     dlugosc = info.dlugosc;
     zakres = { start: 0, koniec: dlugosc };
   }
-  // Klip z osobnymi ścieżkami ma: miks, gra, mikrofon
-  maMikrofon = info.sciezki_audio >= 3;
-  const opisy = maMikrofon ? [["Gra", "glosnik"], ["Mikrofon", "mikrofon"]] : info.sciezki_audio >= 1 ? [["Dźwięk", "glosnik"]] : [];
-  const numery = maMikrofon ? [1, 2] : [0];
-  const moje = opisy.map(([nazwa, ikonaNazwa]) => {
+  const opisy = opisySciezek(info);
+  const moje = opisy.map(({ nazwa, ikona: ikonaNazwa }) => {
     const s = { nazwa, ikonaNazwa, glosnosc: 1, przed: 1, fala: null };
     s.el = document.createElement("div");
     s.el.className = "sciezka";
@@ -1051,7 +1072,7 @@ async function przygotujGlosnosc(klip) {
   // Wykresy dochodzą po chwili (ffmpeg musi przejść przez dźwięk klipu); bez nich zostaje sama linia głośności
   moje.forEach(async (s, i) => {
     try {
-      const fala = await invoke("fala_dzwieku", { sciezka: klip.sciezka, nr: numery[i], kubelki: KUBELKI_FALI });
+      const fala = await invoke("fala_dzwieku", { sciezka: klip.sciezka, nr: opisy[i].nr, kubelki: KUBELKI_FALI });
       if (odtwarzany !== klip || !fala) return;
       s.fala = Array.from(fala);
       rysujFale(s);
@@ -1411,12 +1432,12 @@ document.addEventListener("fullscreenchange", () =>
 );
 
 // ---------- Edytor: głośność słychać od razu ----------
-// Ścieżki gry i mikrofonu (albo jedyna ścieżka) grają osobno, każda przez własny „gain” (0–200%),
+// Osobne ścieżki (gra, Discord i reszta, mikrofon — albo jedyna ścieżka) grają osobno, każda przez własny „gain” (0–200%),
 // a wideo jest wyciszone. Bez tego suwaki działałyby dopiero w zapisanym pliku.
 
 async function przygotujDzwiekNaZywo(klip, info) {
   zatrzymajDzwiekNaZywo();
-  const numery = info.sciezki_audio >= 3 ? [1, 2] : info.sciezki_audio >= 1 ? [0] : [];
+  const numery = opisySciezek(info).map((o) => o.nr);
   if (!numery.length) return;
   dzwiek.klip = klip;
   try {
@@ -1605,6 +1626,7 @@ function pokazWynik(klip) {
 
 przeciagalny($("wynik-przeciagnij"), () => wynikKlip && wynikKlip.sciezka);
 $("wynik-folder").addEventListener("click", () => wynikKlip && pokazWFolderze(wynikKlip));
+$("wynik-kopiuj").addEventListener("click", () => wynikKlip && kopiujKlip(wynikKlip));
 $("wynik-otworz").addEventListener("click", () => wynikKlip && odtworz(wynikKlip));
 przeciagalny($("wideo"), plikDoPrzeciagniecia);
 
@@ -1613,7 +1635,18 @@ $("odtwarzacz").addEventListener("click", (e) => {
   if (e.target === $("odtwarzacz")) zamknijOdtwarzacz();
 });
 $("odtw-folder").addEventListener("click", () => odtwarzany && pokazWFolderze(odtwarzany));
+$("odtw-kopiuj").addEventListener("click", () => odtwarzany && kopiujKlip(odtwarzany));
 $("odtw-usun").addEventListener("click", () => odtwarzany && usun(odtwarzany));
+
+// Klip do schowka jako plik — Ctrl+V w Discordzie, Eksploratorze albo przeglądarce wkleja go od razu
+async function kopiujKlip(klip) {
+  try {
+    await invoke("kopiuj_klip", { sciezka: klip.sciezka });
+    dymek("Skopiowano — wklej Ctrl+V w Discordzie");
+  } catch (e) {
+    dymek(String(e));
+  }
+}
 
 async function pokazWFolderze(klip) {
   try {
@@ -1677,6 +1710,7 @@ function pokazMenu(x, y, klip) {
   for (const mb of ROZMIARY.slice(1)) {
     if (mb * 1e6 < klip.rozmiar) pozycja("kompresja", `Kompresuj do ${mb} MB`, () => kompresuj(klip, mb));
   }
+  pozycja("kopiuj", "Kopiuj (wklej Ctrl+V w Discordzie)", () => kopiujKlip(klip));
   pozycja("folder", "Pokaż w folderze", () => pokazWFolderze(klip));
   pozycja("kosz", "Usuń", () => usun(klip));
   m.hidden = false;
@@ -1714,6 +1748,12 @@ document.addEventListener("keydown", (e) => {
     else return;
     e.preventDefault();
     obudzSterowanie();
+  } else if (
+    !$("odtwarzacz").hidden && e.ctrlKey && !e.shiftKey && (e.key === "c" || e.key === "C") &&
+    !e.target.closest("input, textarea") && !getSelection().toString()
+  ) {
+    e.preventDefault();
+    if (odtwarzany) kopiujKlip(odtwarzany);
   } else if (!$("odtwarzacz").hidden && e.ctrlKey && e.shiftKey && (e.key === "D" || e.key === "d")) {
     e.preventDefault();
     przelaczLicznik();
@@ -1756,6 +1796,7 @@ const POLA = [
   ["fps-pulpitu", "fps_pulpitu", "liczba"],
   ["bitrate-pulpitu", "bitrate_pulpitu_mbps", "liczba"],
   ["dzwiek", "dzwiek_systemowy", "tak"],
+  ["dzwiek-osobno", "dzwiek_osobno", "tak"],
   ["mikrofon", "mikrofon", "tak"],
   ["dzwiek-zapisu", "dzwiek_zapisu", "tak"],
   ["powiadomienie-zapisu", "powiadomienie_zapisu", "tak"],
@@ -1857,7 +1898,8 @@ function odswiezFormularz() {
   $("format-filmu-uwaga").textContent = film[$("format-filmu").value] || "";
   // Szacunek RAM bufora: obraz (bitrate) + dźwięk (160 kb/s na ścieżkę)
   const s = Number($("bufor").value);
-  const sciezki = Number($("dzwiek").checked) + Number($("mikrofon").checked);
+  $("dzwiek-osobno").disabled = !$("dzwiek").checked;
+  const sciezki = Number($("dzwiek").checked) * (1 + Number($("dzwiek-osobno").checked)) + Number($("mikrofon").checked);
   const ram = (mbps) => formatMB((s * ((Number(mbps) || 0) * 1e6 + sciezki * 160e3)) / 8);
   $("ram-pulpitu").textContent = `Bufor pulpitu zajmuje ok. ${ram($("bitrate-pulpitu").value)} pamięci RAM.`;
   $("ram").textContent = `Zajmuje to ok. ${ram($("bitrate").value)} pamięci RAM.`;
@@ -2027,6 +2069,8 @@ function odswiezPrzyciskZapisu() {
 
 $("odswiez").innerHTML = ikona("odswiez");
 $("otworz-folder").innerHTML = zIkona("folder", "Folder");
+$("odtw-kopiuj").innerHTML = zIkona("kopiuj", "Kopiuj");
+$("odtw-kopiuj").title = "Kopiuj plik klipu (Ctrl+C) — potem Ctrl+V w Discordzie";
 $("odtw-folder").innerHTML = zIkona("folder", "Pokaż w folderze");
 $("odtw-usun").innerHTML = zIkona("kosz", "Usuń");
 $("odtw-zamknij").innerHTML = ikona("zamknij");

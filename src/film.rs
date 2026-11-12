@@ -381,7 +381,7 @@ fn wpis_listy(plik: &Path) -> String {
 fn opisz_sciezki(cmd: &mut std::process::Command, nazwy: &[&str]) {
     let tytuly: Vec<&str> = match nazwy.len() {
         0 | 1 => return,
-        _ => std::iter::once("Gra + mikrofon").chain(nazwy.iter().copied()).collect(),
+        _ => std::iter::once(crate::zapis::tytul_miksu(nazwy)).chain(nazwy.iter().copied()).collect(),
     };
     for (i, t) in tytuly.iter().enumerate() {
         cmd.args([format!("-metadata:s:a:{i}"), format!("title={t}")])

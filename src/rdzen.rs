@@ -162,6 +162,9 @@ struct Wnetrze {
     lekki: bool,
     /// Gra na wierzchu nagrywanego ekranu (do pokazania w oknie i w zasobniku)
     gra: Option<crate::gra::Gra>,
+    /// Program, którego dźwięk idzie do ścieżki „Gra”: wybrana gra albo ostatnia gra na wierzchu
+    /// (zostaje, gdy przełączysz się np. na Discorda, dopóki działa)
+    gra_dzwieku: String,
     /// Wybrana gra nie działa — nagrywanie czeka na nią
     czeka_na_gre: bool,
     /// Trwająca seria chwilowych awarii drogi w ffmpeg (np. gra zmienia tryb ekranu): od kiedy i która
@@ -193,6 +196,8 @@ struct Zachowane {
 #[derive(Clone)]
 pub struct Rdzen {
     w: Arc<Mutex<Wnetrze>>,
+    /// Proces gry, której dźwięk idzie do ścieżki „Gra” (0 = gry nie widać); czytają go wątki dźwięku
+    cel_dzwieku: audio::CelDzwieku,
     powiadom: Powiadom,
 }
 
@@ -217,6 +222,7 @@ impl Rdzen {
             odrzucone: HashSet::new(),
             lekki: false,
             gra: None,
+            gra_dzwieku: String::new(),
             czeka_na_gre: false,
             seria_awarii: None,
             odrzucone_chwilowo: HashMap::new(),
@@ -224,7 +230,7 @@ impl Rdzen {
             gra_znikla_od: None,
             zachowane: None,
         };
-        Rdzen { w: Arc::new(Mutex::new(w)), powiadom: Arc::new(powiadom) }
+        Rdzen { w: Arc::new(Mutex::new(w)), cel_dzwieku: Default::default(), powiadom: Arc::new(powiadom) }
     }
 
     /// Blokada stanu odporna na „zatrucie” (awarię innego wątku w trakcie blokady).
@@ -244,7 +250,10 @@ impl Rdzen {
             pauza: w.pauza,
             bledy: w.bledy.values().cloned().collect(),
             wznawianie: w.wznawianie.clone(),
-            przelaczanie: match (w.przelaczanie.contains_key("system"), w.przelaczanie.contains_key("mikrofon")) {
+            przelaczanie: match (
+                w.przelaczanie.contains_key("system") || w.przelaczanie.contains_key("reszta"),
+                w.przelaczanie.contains_key("mikrofon"),
+            ) {
                 (true, true) => Some("dźwięk i mikrofon".into()),
                 (true, false) => Some("dźwięk".into()),
                 (false, true) => Some("mikrofon".into()),
@@ -619,8 +628,11 @@ impl Rdzen {
         // Dźwięk: AAC 160 kb/s; bufor dłuższy o 2 s, żeby na pewno pokrył początek obrazu
         // Gdy obraz nagrywa się dalej do starego bufora, dźwięk też (to samo urządzenie = ta sama ścieżka)
         let (mut audio_, mut bufory_audio, mut urzadzenia_audio) = (Vec::new(), Vec::new(), Vec::new());
+        // Gra osobno od reszty komputera (loopback procesu, Windows 10 2004+), inaczej jedna ścieżka
+        let osobno = cfg.dzwiek_osobno && audio::dzwiek_procesu_dostepny();
         for (wlaczone, zrodlo, urzadzenie, klucz, nazwa) in [
-            (cfg.dzwiek_systemowy, Zrodlo::System, String::new(), "system", "Gra"),
+            (cfg.dzwiek_systemowy, if osobno { Zrodlo::Gra } else { Zrodlo::System }, String::new(), "system", "Gra"),
+            (cfg.dzwiek_systemowy && osobno, Zrodlo::Reszta, String::new(), "reszta", "Discord i reszta"),
             (cfg.mikrofon, Zrodlo::Mikrofon, cfg.mikrofon_urzadzenie.clone(), "mikrofon", "Mikrofon"),
         ] {
             if wlaczone {
@@ -629,7 +641,14 @@ impl Rdzen {
                     .and_then(|z| z.bufory_audio.iter().find(|(n, u, _)| *n == nazwa && *u == urzadzenie))
                     .map(|(_, _, b)| b.clone());
                 let b = stary.unwrap_or_else(|| Bufor::nowy(cfg.bufor_sekundy + 2));
-                audio_.push(audio::uruchom(zrodlo, urzadzenie.clone(), 160, b.clone(), self.zglaszacz_dzwieku(pokolenie, klucz)));
+                audio_.push(audio::uruchom(
+                    zrodlo,
+                    urzadzenie.clone(),
+                    160,
+                    b.clone(),
+                    self.cel_dzwieku.clone(),
+                    self.zglaszacz_dzwieku(pokolenie, klucz),
+                ));
                 bufory_audio.push((nazwa, b));
                 urzadzenia_audio.push(urzadzenie);
             }
@@ -935,12 +954,14 @@ impl Rdzen {
         }
         // Nazwa gry na wierzchu — tylko do pokazania w oknie i w zasobniku
         let teraz = crate::gra::na_pierwszym_planie(&monitor);
+        let teraz_proces = teraz.as_ref().map(|g| g.proces.clone());
         let zmiana_nazwy = {
             let mut w = self.zamek();
             let zmiana = w.gra != teraz;
             w.gra = teraz;
             zmiana
         };
+        self.pilnuj_dzwieku_gry(&wybrana, teraz_proces.as_deref());
 
         if wybrana.is_empty() {
             if czekal {
@@ -984,6 +1005,32 @@ impl Rdzen {
         } else if zmiana_nazwy {
             self.wyslij_stan();
         }
+    }
+
+    /// Wybiera proces, którego dźwięk idzie do ścieżki „Gra”: wybrana w ustawieniach gra, a bez wyboru —
+    /// ostatnia gra na wierzchu (przełączenie na Discorda czy pulpit jej nie zmienia, dopóki gra działa).
+    fn pilnuj_dzwieku_gry(&self, wybrana: &str, na_wierzchu: Option<&str>) {
+        let poprzednia = self.zamek().gra_dzwieku.clone();
+        let mut nazwa = match (wybrana, na_wierzchu) {
+            ("", Some(p)) => p.to_string(),
+            ("", None) => poprzednia.clone(),
+            (w, _) => w.to_string(),
+        };
+        let pid = if nazwa.is_empty() { None } else { crate::gra::pid(&nazwa) };
+        if pid.is_none() {
+            nazwa.clear();
+        }
+        let pid = pid.unwrap_or(0);
+        if self.cel_dzwieku.swap(pid, Ordering::SeqCst) != pid {
+            let ma_sesje = self.zamek().sesja.is_some();
+            if ma_sesje && (pid != 0 || !poprzednia.is_empty()) {
+                crate::dziennik::info(&match pid {
+                    0 => "Dźwięk gry: gra się zamknęła — ścieżka „Gra” nagrywa cały dźwięk komputera".to_string(),
+                    p => format!("Dźwięk gry: nagrywam {nazwa} (proces {p}) osobno od reszty"),
+                });
+            }
+        }
+        self.zamek().gra_dzwieku = nazwa;
     }
 
     /// Co nie działa w nagrywaniu obrazu (None = działa albo jest wstrzymane).
