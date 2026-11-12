@@ -1103,11 +1103,11 @@ impl Rdzen {
             let wroc = Instant::now() + w.przerwa_powrotu;
             w.odrzucone_chwilowo.insert((monitor.clone(), Droga::Dda), wroc);
             drop(w);
+            // Zapamiętujemy na stałe: po restarcie komputera nagrywanie od razu ruszy spokojną drogą,
+            // zamiast znów czekać na pierwszą utratę obrazu
             let mut p = crate::pamiec::pamiec();
-            if p.drogi.get(&monitor).is_some_and(|d| d == Droga::Dda.nazwa()) {
-                p.drogi.remove(&monitor);
-                crate::pamiec::zapisz(&p);
-            }
+            p.drogi.insert(monitor, Droga::DdaRam.nazwa().to_string());
+            crate::pamiec::zapisz(&p);
             return;
         }
         match decyzja {
@@ -1520,5 +1520,10 @@ mod testy {
         assert_eq!(kolejnosc_prob(wszystkie(), None, |d| d == Droga::Dda, None), vec![Droga::Gfx, Droga::Potok]);
         // Zapamiętana droga bez ramki idzie na początek
         assert_eq!(kolejnosc_prob(vec![Droga::Gfx, Droga::Dda, Droga::Potok], Some(Droga::Dda), nic, None), wszystkie());
+        // Zapamiętane DDA przez RAM (po utracie obrazu w ffmpeg) rusza od razu po restarcie komputera
+        assert_eq!(
+            kolejnosc_prob(vec![Droga::Dda, Droga::DdaRam, Droga::Gfx, Droga::Potok], Some(Droga::DdaRam), nic, None),
+            vec![Droga::DdaRam, Droga::Dda, Droga::Gfx, Droga::Potok]
+        );
     }
 }

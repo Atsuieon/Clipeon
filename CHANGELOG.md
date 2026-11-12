@@ -12,7 +12,8 @@
   Windows na chwilę odbierze obraz (gra przełącza pełny ekran, okno UAC), nagrywanie się nie restartuje: do
   klipu idzie ostatnia klatka, a Clipeon w tle odzyskuje obraz — bez przeskoków i bez utraty powtórki.
   Na Windows 10 Clipeon przechodzi na niego przy pierwszej utracie obrazu przez zwykłe Desktop Duplication
-  (bez restartowania w kółko) i zostaje na nim do końca uruchomienia; działa z każdym enkoderem. Można go też
+  (bez restartowania w kółko) i zapamiętuje to dla tego ekranu, więc po restarcie komputera od razu
+  nagrywa w ten sposób; działa z każdym enkoderem. Można go też
   wybrać na stałe w Ustawieniach → Zaawansowane.
 - Gdy Desktop Duplication gubi obraz raz za razem, a każdy inny sposób nagrywania rysowałby żółtą ramkę,
   Clipeon zostaje przy nagrywaniu bez ramki, dopóki ono startuje.
