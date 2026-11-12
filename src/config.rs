@@ -59,6 +59,7 @@ pub struct Config {
     /// Bitrate w trybie pulpitu (Mb/s)
     pub bitrate_pulpitu_mbps: u32,
     /// Metoda przechwytywania: "auto", "dda" (Desktop Duplication), "gfx" (Windows Graphics Capture),
+    /// "dda-ram" (Desktop Duplication w Clipeonie, obraz przez RAM — bez ramki, sam wraca po utracie obrazu),
     /// "potok" (tryb zgodności: obraz przez pamięć RAM, jak w wersjach do 1.2)
     pub metoda_przechwytywania: String,
     /// Mikrofon do nagrywania: identyfikator urządzenia (pusty = domyślny systemowy)
@@ -72,7 +73,7 @@ pub struct Config {
 
 pub const TRYB_GRA: &str = "gra";
 pub const TRYB_PULPIT: &str = "pulpit";
-pub const METODY: &[&str] = &["auto", "dda", "gfx", "potok"];
+pub const METODY: &[&str] = &["auto", "dda", "dda-ram", "gfx", "potok"];
 
 impl Default for Config {
     fn default() -> Self {

@@ -7,8 +7,14 @@
   buforem, więc Alt+F10 dawał klip kilkusekundowy. Teraz nagrywanie wraca do tego samego bufora: klip ma pełną
   długość, a w miejscu przerwy jest krótki przeskok obrazu (dźwięk z przerwy jest wycinany, żeby zgadzał się
   z obrazem). Alt+F10 w trakcie wznawiania też zapisuje to, co już było nagrane.
-- Gdy Desktop Duplication gubi obraz raz za razem, a każdy inny sposób nagrywania rysowałby żółtą ramkę
-  (Windows 10), Clipeon zostaje przy nagrywaniu bez ramki, dopóki ono startuje.
+- **Nowy sposób nagrywania: Desktop Duplication przez RAM.** Clipeon sam pobiera obraz z ekranu (bez
+  ffmpeg i bez Windows Graphics Capture, więc **bez żółtej ramki** na Windows 10) i dorysowuje kursor. Gdy
+  Windows na chwilę odbierze obraz (gra przełącza pełny ekran, okno UAC), nagrywanie się nie restartuje: do
+  klipu idzie ostatnia klatka, a Clipeon w tle odzyskuje obraz — bez przeskoków i bez utraty powtórki.
+  Na Windows 10 to pierwszy zapasowy sposób zaraz po zwykłym Desktop Duplication (działa z każdym
+  enkoderem); można go też wybrać w Ustawieniach → Zaawansowane.
+- Gdy Desktop Duplication gubi obraz raz za razem, a każdy inny sposób nagrywania rysowałby żółtą ramkę,
+  Clipeon zostaje przy nagrywaniu bez ramki, dopóki ono startuje.
 - W dzienniku przy awarii nagrywania są trzy ostatnie komunikaty ffmpeg zamiast jednego (łatwiej znaleźć przyczynę).
 - **Żółta ramka nie zostaje już na stałe po zmianie trybu ekranu (NVIDIA i inne karty).** Gdy gra albo
   Windows przełączał tryb ekranu, nagrywanie Desktop Duplication na chwilę traciło obraz. Clipeon brał to za

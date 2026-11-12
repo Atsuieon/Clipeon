@@ -263,7 +263,7 @@ listen("film-zmniejszony", () => {
 listen("film-blad", (e) => dymek(String(e.payload)));
 
 // Którym sposobem Clipeon naprawdę przechwytuje obraz (przy „Automatycznie” wybiera sam)
-const DROGI = { dda: "Desktop Duplication", gfx: "Windows Graphics Capture", potok: "Tryb zgodności" };
+const DROGI = { dda: "Desktop Duplication", "dda-ram": "Desktop Duplication przez RAM", gfx: "Windows Graphics Capture", potok: "Tryb zgodności" };
 
 function pokazDroge(s) {
   const nazwa = DROGI[s.droga];

@@ -37,6 +37,9 @@ const OPOZNIENIE_KLATEK: i64 = 2;
 pub enum Droga {
     Dda,
     Gfx,
+    /// Desktop Duplication prowadzone przez Clipeona (dda.rs), obraz do ffmpeg przez RAM. Bez żółtej
+    /// ramki i bez restartu, gdy Windows na chwilę odbierze obraz (sam go odzyskuje).
+    DdaRam,
     Potok,
 }
 
@@ -45,32 +48,39 @@ impl Droga {
         match self {
             Droga::Dda => "dda",
             Droga::Gfx => "gfx",
+            Droga::DdaRam => "dda-ram",
             Droga::Potok => "potok",
         }
     }
 
     pub fn z_nazwy(n: &str) -> Option<Droga> {
-        [Droga::Dda, Droga::Gfx, Droga::Potok].into_iter().find(|d| d.nazwa() == n)
+        [Droga::Dda, Droga::Gfx, Droga::DdaRam, Droga::Potok].into_iter().find(|d| d.nazwa() == n)
     }
 
     pub fn opis(self) -> &'static str {
         match self {
             Droga::Dda => "Desktop Duplication (obraz zostaje na karcie)",
             Droga::Gfx => "Windows Graphics Capture (obraz zostaje na karcie)",
+            Droga::DdaRam => "Desktop Duplication w Clipeonie (obraz przez pamięć RAM)",
             Droga::Potok => "tryb zgodności (obraz przez pamięć RAM)",
         }
     }
 
     /// Czy przechwytuje ffmpeg (a nie Clipeon).
     pub fn w_ffmpeg(self) -> bool {
-        self != Droga::Potok
+        matches!(self, Droga::Dda | Droga::Gfx)
+    }
+
+    /// Czy obraz idzie do ffmpeg przez stdin (przechwytuje Clipeon).
+    fn przez_ram(self) -> bool {
+        !self.w_ffmpeg()
     }
 
     /// Czy przy tej drodze Windows rysuje wokół ekranu żółtą ramkę. Desktop Duplication nie rysuje jej
     /// nigdy; pozostałe drogi korzystają z Windows Graphics Capture, w którym ramkę da się wyłączyć
     /// dopiero od Windows 11.
     pub fn z_ramka(self) -> bool {
-        self != Droga::Dda && !mozliwosci_przechwytywania().bez_ramki
+        matches!(self, Droga::Gfx | Droga::Potok) && !mozliwosci_przechwytywania().bez_ramki
     }
 }
 
@@ -89,12 +99,19 @@ pub struct Warunki<'a> {
     pub skalowanie: bool,
     pub filtr_dda: bool,
     pub filtr_gfx: bool,
+    /// Windows umie wyłączyć żółtą ramkę Windows Graphics Capture (Windows 11)
+    pub bez_ramki: bool,
+    /// Wiadomo, do którego wyjścia karty podłączony jest monitor (warunek Desktop Duplication)
+    pub wyjscie: bool,
 }
 
 /// Drogi do wypróbowania, od najlepszej. Potok jest zawsze na końcu — działa wszędzie.
+/// DDA przez RAM (dowolny enkoder) idzie przed drogami z żółtą ramką, czyli na Windows 10 zaraz po DDA;
+/// na Windows 11 Windows Graphics Capture nie ma ramki, więc tam nie jest potrzebna.
 pub fn kolejnosc_drog(w: &Warunki) -> Vec<Droga> {
     let dda = w.enkoder_tekstury && w.filtr_dda && w.ta_sama_karta && !w.skalowanie;
     let gfx = w.enkoder_tekstury && w.filtr_gfx && w.karta_enkodera;
+    let dda_ram = w.wyjscie;
     let mut l = Vec::new();
     match w.metoda {
         "potok" => {}
@@ -107,10 +124,21 @@ pub fn kolejnosc_drog(w: &Warunki) -> Vec<Droga> {
             if dda {
                 l.push(Droga::Dda);
             }
+            if dda_ram {
+                l.push(Droga::DdaRam);
+            }
+        }
+        "dda-ram" => {
+            if dda_ram {
+                l.push(Droga::DdaRam);
+            }
         }
         _ => {
             if dda {
                 l.push(Droga::Dda);
+            }
+            if dda_ram && !w.bez_ramki {
+                l.push(Droga::DdaRam);
             }
             if gfx {
                 l.push(Droga::Gfx);
@@ -334,6 +362,8 @@ fn zglos_problem(p: &Problem, opis: String) {
 /// Uchwyt trzymający nagrywanie obrazu przy życiu; zniszczenie go zatrzymuje nagrywanie.
 pub struct Wideo {
     sterowanie: Option<CaptureControl<Przechwyt, Blad>>,
+    /// Wątek Desktop Duplication w Clipeonie (droga DdaRam); zatrzymuje się przy zniszczeniu
+    _dda: Option<crate::dda::Przechwyt>,
     stop: Arc<AtomicBool>,
     proces: Arc<Mutex<std::process::Child>>,
     problem: Problem,
@@ -409,6 +439,8 @@ impl Plan {
             skalowanie: (self.wybor.w, self.wybor.h) != (self.ekran.0 & !1, self.ekran.1 & !1),
             filtr_dda: crate::ffmpeg::ma_filtr("ddagrab"),
             filtr_gfx: crate::ffmpeg::ma_filtr("gfxcapture"),
+            bez_ramki: mozliwosci_przechwytywania().bez_ramki,
+            wyjscie: self.wyjscie.is_some(),
         }
     }
 }
@@ -456,6 +488,7 @@ pub fn uruchom(
     let statystyki = Arc::new(Statystyki::default());
     let przeciazenie = Arc::new(AtomicBool::new(false));
     let mut sterowanie = None;
+    let mut dda = None;
 
     let mut cmd = crate::ffmpeg::komenda_nagrywania();
     cmd.args(["-hide_banner", "-loglevel", "error"]);
@@ -486,7 +519,7 @@ pub fn uruchom(
                 ),
             ]);
         }
-        Droga::Potok => {
+        Droga::Potok | Droga::DdaRam => {
             let (ew, eh) = p.ekran;
             let mut filtry = Vec::new();
             if (w, h) != (ew & !1, eh & !1) {
@@ -502,20 +535,30 @@ pub fn uruchom(
             if !filtry.is_empty() {
                 cmd.args(["-vf", &filtry.join(",")]);
             }
-            let (s, wspolna) = uruchom_przechwyt(&p.monitor, p.ekran, fps, &problem, &statystyki)?;
-            sterowanie = Some(s);
-            wejscie_potoku = Some(wspolna);
+            if droga == Droga::DdaRam {
+                let rozmiar_klatki = (ew * eh * 4) as usize;
+                let wspolna = Arc::new(Mutex::new(OstatniaKlatka { piksele: vec![0; rozmiar_klatki], nowa: false }));
+                let problem_dda = problem.clone();
+                dda = Some(crate::dda::uruchom(&p.nazwa_monitora, p.ekran, fps, wspolna.clone(), statystyki.clone(), move |e| {
+                    zglos_problem(&problem_dda, e)
+                })?);
+                wejscie_potoku = Some(wspolna);
+            } else {
+                let (s, wspolna) = uruchom_przechwyt(&p.monitor, p.ekran, fps, &problem, &statystyki)?;
+                sterowanie = Some(s);
+                wejscie_potoku = Some(wspolna);
+            }
         }
     }
     cmd.args(enkodery::argumenty_nagrywania(enkoder, fps, lekki))
         .args(argumenty_strumienia(mbps, fps, w, h))
         .args(znaczniki_koloru(enkoder));
-    if droga != Droga::Potok {
+    if droga.w_ffmpeg() {
         cmd.args(enkodery::znaczniki_tekstur(enkoder));
     }
     cmd
         .args(["-f", format, "-"])
-        .stdin(if droga == Droga::Potok { Stdio::piped() } else { Stdio::null() })
+        .stdin(if droga.przez_ram() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut ffmpeg = match crate::ffmpeg::uruchom_nagrywanie(&mut cmd, "obraz") {
@@ -558,7 +601,7 @@ pub fn uruchom(
 
     // Potok: oś czasu zaczyna się teraz (klatki nadaje nasz wątek taktujący).
     // ffmpeg: początek ustalamy przy pierwszym pakiecie (start przechwytywania trwa różnie długo).
-    let t0 = (droga == Droga::Potok).then(teraz_100ns);
+    let t0 = droga.przez_ram().then(teraz_100ns);
     if let (Some(wspolna), Some(wejscie)) = (wejscie_potoku, wejscie) {
         watek_taktujacy(wspolna, wejscie, fps, stop.clone(), problem.clone(), statystyki.clone(), przeciazenie.clone(), p.ekran);
     }
@@ -593,7 +636,7 @@ pub fn uruchom(
 
     let (nazwa, id) = cfg.aktywny_monitor();
     let zastepczy = p.zastepczy.then(|| (nazwa.to_string(), id.to_string()));
-    Ok(Wideo { sterowanie, stop, proces, problem, format, fps, rozmiar: (w, h), enkoder, droga, statystyki, przeciazenie, zastepczy, opis })
+    Ok(Wideo { sterowanie, _dda: dda, stop, proces, problem, format, fps, rozmiar: (w, h), enkoder, droga, statystyki, przeciazenie, zastepczy, opis })
 }
 
 struct Odczyt {
@@ -692,9 +735,9 @@ fn bez_obrazu_z_przechwytywania(droga: Droga, klatki: i64, opis: &str) -> bool {
 // ---------- Droga „Potok”: przechwytywanie w Clipeonie ----------
 
 /// Ostatnia klatka z ekranu, wymieniana z wątkiem taktującym.
-struct OstatniaKlatka {
-    piksele: Vec<u8>,
-    nowa: bool,
+pub(crate) struct OstatniaKlatka {
+    pub(crate) piksele: Vec<u8>,
+    pub(crate) nowa: bool,
 }
 
 struct Przechwyt {
@@ -972,6 +1015,8 @@ mod testy {
             skalowanie: false,
             filtr_dda: true,
             filtr_gfx: true,
+            bez_ramki: true,
+            wyjscie: true,
         }
     }
 
@@ -989,16 +1034,29 @@ mod testy {
     }
 
     #[test]
+    fn drogi_na_windows_10_omijaja_zolta_ramke() {
+        let win10 = Warunki { bez_ramki: false, ..warunki() };
+        // DDA przez RAM przed drogami, które rysują żółtą ramkę
+        assert_eq!(kolejnosc_drog(&win10), vec![Droga::Dda, Droga::DdaRam, Droga::Gfx, Droga::Potok]);
+        // Także dla enkoderów bez tekstur (Quick Sync, procesor)
+        assert_eq!(kolejnosc_drog(&Warunki { enkoder_tekstury: false, ..win10 }), vec![Droga::DdaRam, Droga::Potok]);
+        // Nieznane wyjście karty: zostaje dawna kolejność
+        assert_eq!(kolejnosc_drog(&Warunki { wyjscie: false, ..win10 }), vec![Droga::Dda, Droga::Gfx, Droga::Potok]);
+        assert!(!Droga::DdaRam.w_ffmpeg());
+    }
+
+    #[test]
     fn drogi_wymuszone() {
         assert_eq!(kolejnosc_drog(&Warunki { metoda: "potok", ..warunki() }), vec![Droga::Potok]);
         assert_eq!(kolejnosc_drog(&Warunki { metoda: "gfx", ..warunki() }), vec![Droga::Gfx, Droga::Potok]);
-        assert_eq!(kolejnosc_drog(&Warunki { metoda: "dda", ..warunki() }), vec![Droga::Dda, Droga::Potok]);
-        assert_eq!(kolejnosc_drog(&Warunki { metoda: "dda", ta_sama_karta: false, ..warunki() }), vec![Droga::Potok]);
+        assert_eq!(kolejnosc_drog(&Warunki { metoda: "dda", ..warunki() }), vec![Droga::Dda, Droga::DdaRam, Droga::Potok]);
+        assert_eq!(kolejnosc_drog(&Warunki { metoda: "dda", ta_sama_karta: false, ..warunki() }), vec![Droga::DdaRam, Droga::Potok]);
+        assert_eq!(kolejnosc_drog(&Warunki { metoda: "dda-ram", ..warunki() }), vec![Droga::DdaRam, Droga::Potok]);
     }
 
     #[test]
     fn nazwy_drog() {
-        for d in [Droga::Dda, Droga::Gfx, Droga::Potok] {
+        for d in [Droga::Dda, Droga::Gfx, Droga::DdaRam, Droga::Potok] {
             assert_eq!(Droga::z_nazwy(d.nazwa()), Some(d));
         }
         assert_eq!(Droga::z_nazwy("inna"), None);
