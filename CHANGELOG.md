@@ -46,6 +46,7 @@
   przeciąganiu przyskakuje do równych wartości (30 s, 1 min, 1 min 30 s…). Strzałki dalej zmieniają co 5 s.
 - Zniknęło ustawienie „Edytor zaczyna od: Z moim głosem / Bez głosu”. Edytor zawsze zaczyna z głosem,
   a mikrofon wyciszasz przyciskiem przy jego ścieżce.
+- **Okno bez ramki.** Treść i tło sięgają do brzegów okna, a pasek z zakładkami oddziela tylko cienka linia.
 - Okno otwiera się trochę szersze (1200 px), żeby pasek z nową zakładką i przyciskiem filmu się mieścił.
 - **Poprawka:** ponowne uruchomienie po instalacji aktualizacji nie jest już zapisywane w dzienniku jako
   „uruchomiony ponownie po awarii”.
