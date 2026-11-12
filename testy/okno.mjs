@@ -125,7 +125,7 @@ await zrzut("0-mikrofon-wylaczony");
 await strona.evaluate(() => pokazStan({ ...stan, mikrofon: true }));
 await strona.evaluate(() => pokazStan({ ...stan, tryb: "gra", pauza: false, czeka_na_gre: false, bledy: [], wznawianie: null, nagrywa: true, film: null, film_zapis: false, droga: "dda", ramka: false, skrot_filmu_blad: null }));
 
-// ---------- Tło ze znaków i smuga za ruchem myszki ----------
+// ---------- Tło ze znaków i płyn pod myszką ----------
 // Jasne znaki (przezroczystość ≥ 0,4) rysuje tylko smuga — liczymy je wokół podanego punktu
 const jasneZnaki = (x, y) =>
   strona.evaluate(([x, y]) => {
@@ -174,12 +174,16 @@ await zrzut("0a-tlo-smuga");
 // …myszka, która stoi, niczego nie podtrzymuje: smuga sama gaśnie
 await strona.waitForTimeout(6000);
 sprawdz((await jasneZnaki(500, 640)) === 0 && (await jasneZnaki(640, 640)) === 0, "smuga nie gaśnie, gdy myszka stoi");
-// Powolny ruch prawie nic nie zostawia
+// Powolny ruch zostawia najwyżej maleńką plamkę (szybki — szeroką strugę)
 for (let i = 1; i <= 30; i++) {
   await strona.mouse.move(440 + i * 2, 660);
   await strona.waitForTimeout(25);
 }
-sprawdz((await jasneZnaki(470, 660)) === 0, "powolny ruch myszki zostawia jasną smugę");
+await strona.waitForTimeout(60);
+const wolno = await jasneZnaki(490, 660);
+sprawdz(wolno * 4 < Math.max(poczatek, koniec), `powolny ruch myszki zostawia za dużą plamę: ${wolno} (szybki: ${poczatek}, ${koniec})`);
+await strona.waitForTimeout(6000);
+sprawdz((await jasneZnaki(490, 660)) === 0, "plamka po powolnym ruchu nie gaśnie");
 // Nad przyciskiem smuga nie powstaje
 const przyciskFolder = await strona.locator("#otworz-folder").boundingBox();
 await strona.mouse.move(przyciskFolder.x + 4, przyciskFolder.y + 10);
