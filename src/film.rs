@@ -3,6 +3,9 @@
 // bez ponownego kodowania obrazu. Nie ma drugiego enkodera — film kosztuje tylko miejsce na dysku.
 // Każdy restart sesji nagrywania (gra zmieniła tryb ekranu, pauza) zaczyna nowy segment; segmenty
 // o tych samych parametrach są na końcu sklejane w jeden plik, a inne dają kolejne pliki.
+// Znaczniki (skrót w trakcie filmu) trafiają do pliku jako rozdziały MP4.
+// Obok plików tymczasowych leżą opisy (film.json, s0.json, postęp zapisu): gdy program padnie w trakcie
+// filmu, przy następnym starcie składamy film z tego, co zdążyło się zapisać.
 use crate::Zablokuj;
 use crate::bufor::{Bufor, Pakiet, WspolnyBufor, teraz_100ns};
 use std::collections::VecDeque;
@@ -23,6 +26,16 @@ const FOLDER_TMP: &str = ".nagrywanie";
 const MIEJSCE_NA_START: u64 = 2_000_000_000;
 /// Poniżej tylu wolnych bajtów film kończy się sam (zostaje miejsce na złożenie pliku)
 const MIEJSCE_NA_KONIEC: u64 = 500_000_000;
+/// Opis filmu w folderze plików tymczasowych (do odzyskania po awarii)
+const OPIS_FILMU: &str = "film.json";
+/// Czasy znaczników (po jednym w wierszu)
+const ZNACZNIKI: &str = "znaczniki.txt";
+/// Ślad próby odzyskania: gdy odzyskiwanie samo się wywróci, następny start już go nie powtarza
+const PROBA_ODZYSKANIA: &str = "odzyskiwanie";
+/// Co tyle klatek wątek obrazu dopisuje na dysk, ile już bezpiecznie zapisał (przy 60 FPS co 2 s)
+const POSTEP_CO: u64 = 120;
+/// Znacznik tuż po końcu segmentu (spóźniony o ułamek sekundy skrót) wciąż należy do tego segmentu
+const ZAPAS_ZNACZNIKA: i64 = 10_000_000;
 /// Do tego rozmiaru film dostaje „szybki start” (nagłówek na początku pliku — wygodne do wysyłania);
 /// większe pliki musiałyby być przepisywane drugi raz
 const SZYBKI_START_DO: u64 = 2_000_000_000;
@@ -50,6 +63,24 @@ pub struct Obraz {
     pub fps: u32,
     pub rozmiar: (u32, u32),
     pub enkoder: &'static str,
+}
+
+/// Opis filmu na dysku (film.json).
+#[derive(serde::Serialize, serde::Deserialize)]
+struct OpisFilmu {
+    znacznik: String,
+    gra: Option<String>,
+}
+
+/// Opis segmentu na dysku (s{nr}.json): parametry obrazu i nazwy ścieżek dźwięku.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct OpisSegmentu {
+    format: String,
+    fps: u32,
+    szerokosc: u32,
+    wysokosc: u32,
+    enkoder: String,
+    dzwiek: Vec<String>,
 }
 
 /// Wspólne liczniki wątków zapisujących.
@@ -116,6 +147,8 @@ pub struct Film {
     gra: Option<String>,
     segmenty: Vec<Segment>,
     wspolne: Arc<Wspolne>,
+    /// Czasy znaczników (zegar QPC, jak pakiety)
+    znaczniki: Vec<i64>,
 }
 
 impl Film {
@@ -131,7 +164,17 @@ impl Film {
         let znacznik = crate::zapis::znacznik_czasu();
         let tmp = folder.join(FOLDER_TMP).join(&znacznik);
         std::fs::create_dir_all(&tmp).map_err(|e| format!("Nie mogę utworzyć {}: {e}", tmp.display()))?;
-        Ok(Film { folder: folder.to_path_buf(), tmp, znacznik, start: Instant::now(), gra, segmenty: Vec::new(), wspolne: Arc::default() })
+        zapisz_json(&tmp.join(OPIS_FILMU), &OpisFilmu { znacznik: znacznik.clone(), gra: gra.clone() })?;
+        Ok(Film {
+            folder: folder.to_path_buf(),
+            tmp,
+            znacznik,
+            start: Instant::now(),
+            gra,
+            segmenty: Vec::new(),
+            wspolne: Arc::default(),
+            znaczniki: Vec::new(),
+        })
     }
 
     /// Podłącza film do buforów nowej sesji nagrywania (nowy segment).
@@ -139,10 +182,20 @@ impl Film {
         let nr = self.segmenty.len();
         let poczatek = Arc::new(AtomicI64::new(0));
         let blad_pliku = |e: std::io::Error| format!("Nie mogę zapisać pliku filmu: {e}");
+        let opis = OpisSegmentu {
+            format: obraz.format.to_string(),
+            fps: obraz.fps,
+            szerokosc: obraz.rozmiar.0,
+            wysokosc: obraz.rozmiar.1,
+            enkoder: obraz.enkoder.to_string(),
+            dzwiek: audio.iter().map(|(n, _)| n.to_string()).collect(),
+        };
+        zapisz_json(&self.tmp.join(format!("s{nr}.json")), &opis)?;
 
         let plik_wideo = self.tmp.join(format!("s{nr}-obraz.tmp"));
         let (tx, rx) = channel();
-        let watek = pisz_obraz(std::fs::File::create(&plik_wideo).map_err(blad_pliku)?, rx, poczatek.clone(), self.wspolne.clone())?;
+        let postep = self.tmp.join(format!("s{nr}-postep.txt"));
+        let watek = pisz_obraz(std::fs::File::create(&plik_wideo).map_err(blad_pliku)?, rx, poczatek.clone(), self.wspolne.clone(), postep)?;
         // Film zaczyna się od ostatniej klatki kluczowej w buforze (najwyżej sekundę wstecz)
         let od = wideo.zablokuj().podlacz_od_klucza(tx).unwrap_or_else(teraz_100ns);
         let tor_wideo = Tor { nazwa: "", plik: plik_wideo, watek };
@@ -151,13 +204,31 @@ impl Film {
         for (i, (nazwa, bufor)) in audio.iter().enumerate() {
             let plik = self.tmp.join(format!("s{nr}-dzwiek{i}.aac"));
             let (tx, rx) = channel();
-            let watek = pisz_dzwiek(std::fs::File::create(&plik).map_err(blad_pliku)?, rx, poczatek.clone(), self.wspolne.clone())?;
+            let watek = pisz_dzwiek(
+                std::fs::File::create(&plik).map_err(blad_pliku)?,
+                rx,
+                poczatek.clone(),
+                self.wspolne.clone(),
+                plik.with_extension("poczatek"),
+            )?;
             bufor.zablokuj().podlacz_od_czasu(tx, od);
             tory.push(Tor { nazwa, plik, watek });
         }
         let bufory = std::iter::once(wideo).chain(audio.iter().map(|(_, b)| b)).map(Arc::downgrade).collect();
         self.segmenty.push(Segment { obraz, wideo: tor_wideo, audio: tory, bufory });
         Ok(())
+    }
+
+    /// Dodaje znacznik w tej chwili (zapisany też na dysku, na wypadek awarii). Zwraca jego numer.
+    pub fn dodaj_znacznik(&mut self) -> usize {
+        let czas = teraz_100ns();
+        self.znaczniki.push(czas);
+        let _ = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.tmp.join(ZNACZNIKI))
+            .and_then(|mut f| writeln!(f, "{czas}"));
+        self.znaczniki.len()
     }
 
     /// Ile sekund trwa nagrywanie (razem z przerwami).
@@ -215,79 +286,163 @@ impl Film {
         }
         let sekundy: f64 = gotowe.iter().map(|g| g.klatki as f64 / tempo(g)).sum();
         let szybki_start = self.wspolne.bajty.load(Ordering::Relaxed) < SZYBKI_START_DO;
-        let folder_miesiaca = self.folder.join(crate::zapis::miesiac(&self.znacznik));
-        std::fs::create_dir_all(&folder_miesiaca).map_err(|e| format!("Nie mogę utworzyć {}: {e}", folder_miesiaca.display()))?;
-
-        let mut pliki = Vec::new();
-        for (nr, grupa) in grupuj(&gotowe).into_iter().enumerate() {
-            let segmenty = &gotowe[grupa];
-            let plik = crate::zapis::nowa_nazwa(&folder_miesiaca, PRZEDROSTEK, &self.znacznik);
-            // Jak przy klipach: najpierw plik tymczasowy, nazwa docelowa dopiero po udanym zapisie
-            let tymczasowy = plik.with_extension("mp4.tmp");
-            let wynik = self.zloz_grupe(nr, segmenty, &tymczasowy, szybki_start).and_then(|()| {
-                std::fs::rename(&tymczasowy, &plik).map_err(|e| format!("Nie udało się nadać nazwy filmowi: {e}"))
-            });
-            if let Err(e) = wynik {
-                let _ = std::fs::remove_file(&tymczasowy);
-                // Pliki tymczasowe zostają (to jedyna kopia nagrania); sprzątanie usunie je po kilku dniach
-                crate::dziennik::blad(&format!("Nie udało się złożyć filmu z {}: {e}", self.tmp.display()));
-                return Err(if crate::zapis::wolne_miejsce(&self.folder).is_some_and(|w| w < 64 * 1024 * 1024) {
-                    format!("Za mało miejsca na dysku z folderem {} — zwolnij miejsce", self.folder.display())
-                } else {
-                    e
-                });
-            }
-            pliki.push(plik);
-        }
+        let gra = self.gra.as_deref().filter(|g| !g.is_empty());
+        let pliki = zloz(&self.folder, &self.tmp, &self.znacznik, gra, &gotowe, &self.znaczniki, szybki_start)?;
         self.posprzataj();
         crate::dziennik::info(&format!(
-            "Zapisano film: {} ({:.0} s, części: {}) w {:.1} s",
+            "Zapisano film: {} ({:.0} s, części: {}, znaczniki: {}) w {:.1} s",
             pliki[0].display(),
             sekundy,
             pliki.len(),
+            self.znaczniki.len(),
             start.elapsed().as_secs_f64()
         ));
         Ok(Wynik { pliki, sekundy })
     }
 
-    /// Jeden plik wynikowy z grupy zgodnych segmentów (kilka segmentów: każdy do MP4, potem sklejenie).
-    fn zloz_grupe(&self, nr: usize, segmenty: &[Gotowy], wyjscie: &Path, szybki_start: bool) -> Result<(), String> {
-        let gra = self.gra.as_deref().filter(|g| !g.is_empty());
-        if let [jeden] = segmenty {
-            return zloz_segment(jeden, gra, wyjscie, szybki_start);
-        }
-        let mut lista = String::new();
-        for (i, s) in segmenty.iter().enumerate() {
-            let czesc = self.tmp.join(format!("g{nr}-czesc{i}.mp4"));
-            zloz_segment(s, None, &czesc, false)?;
-            lista.push_str(&wpis_listy(&czesc));
-        }
-        let plik_listy = self.tmp.join(format!("g{nr}-lista.txt"));
-        std::fs::write(&plik_listy, lista).map_err(|e| format!("Nie mogę zapisać listy części filmu: {e}"))?;
-        let mut cmd = crate::ffmpeg::komenda();
-        cmd.args(["-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i"]).arg(&plik_listy);
-        cmd.args(["-map", "0", "-c", "copy"]);
-        opisz_sciezki(&mut cmd, &segmenty[0].nazwy());
-        wykonaj(dokoncz(cmd, gra, wyjscie, szybki_start))
-    }
-
     /// Usuwa pliki tymczasowe tego filmu.
     fn posprzataj(&self) {
-        usun_folder(&self.tmp);
-        // Pusty folder .nagrywanie też znika
-        if let Some(rodzic) = self.tmp.parent() {
-            let _ = std::fs::remove_dir(rodzic);
-        }
+        posprzataj(&self.tmp);
     }
 }
 
+/// Usuwa folder plików tymczasowych filmu (i pusty folder .nagrywanie).
+fn posprzataj(tmp: &Path) {
+    usun_folder(tmp);
+    if let Some(rodzic) = tmp.parent() {
+        let _ = std::fs::remove_dir(rodzic);
+    }
+}
+
+fn zapisz_json(plik: &Path, wartosc: &impl serde::Serialize) -> Result<(), String> {
+    let tekst = serde_json::to_string(wartosc).map_err(|e| e.to_string())?;
+    std::fs::write(plik, tekst).map_err(|e| format!("Nie mogę zapisać pliku filmu: {e}"))
+}
+
+/// Składa gotowe segmenty w pliki MP4 w folderze miesiąca: grupa zgodnych segmentów = jeden plik.
+/// Wspólne dla zakończonego filmu i filmu odzyskanego po awarii.
+fn zloz(folder: &Path, tmp: &Path, znacznik: &str, gra: Option<&str>, gotowe: &[Gotowy], znaczniki: &[i64], szybki_start: bool) -> Result<Vec<PathBuf>, String> {
+    let folder_miesiaca = folder.join(crate::zapis::miesiac(znacznik));
+    std::fs::create_dir_all(&folder_miesiaca).map_err(|e| format!("Nie mogę utworzyć {}: {e}", folder_miesiaca.display()))?;
+    let grupy = grupuj(gotowe);
+    let pozycje = pozycje_znacznikow(gotowe, &grupy, znaczniki);
+    let mut pliki = Vec::new();
+    for (nr, (grupa, znaczniki)) in grupy.into_iter().zip(&pozycje).enumerate() {
+        let segmenty = &gotowe[grupa];
+        let plik = crate::zapis::nowa_nazwa(&folder_miesiaca, PRZEDROSTEK, znacznik);
+        // Jak przy klipach: najpierw plik tymczasowy, nazwa docelowa dopiero po udanym zapisie
+        let tymczasowy = plik.with_extension("mp4.tmp");
+        let wynik = zloz_grupe(tmp, nr, segmenty, gra, znaczniki, &tymczasowy, szybki_start)
+            .and_then(|()| std::fs::rename(&tymczasowy, &plik).map_err(|e| format!("Nie udało się nadać nazwy filmowi: {e}")));
+        if let Err(e) = wynik {
+            let _ = std::fs::remove_file(&tymczasowy);
+            // Pliki tymczasowe zostają (to jedyna kopia nagrania); następny start spróbuje jeszcze raz,
+            // a sprzątanie usunie je po kilku dniach
+            crate::dziennik::blad(&format!("Nie udało się złożyć filmu z {}: {e}", tmp.display()));
+            return Err(if crate::zapis::wolne_miejsce(folder).is_some_and(|w| w < 64 * 1024 * 1024) {
+                format!("Za mało miejsca na dysku z folderem {} — zwolnij miejsce", folder.display())
+            } else {
+                e
+            });
+        }
+        pliki.push(plik);
+    }
+    Ok(pliki)
+}
+
+/// Jeden plik wynikowy z grupy zgodnych segmentów (kilka segmentów: każdy do MP4, potem sklejenie).
+/// `znaczniki` to sekundy od początku tego pliku (trafiają do niego jako rozdziały).
+fn zloz_grupe(tmp: &Path, nr: usize, segmenty: &[Gotowy], gra: Option<&str>, znaczniki: &[f64], wyjscie: &Path, szybki_start: bool) -> Result<(), String> {
+    let rozdzialy = if znaczniki.is_empty() {
+        None
+    } else {
+        let plik = tmp.join(format!("g{nr}-rozdzialy.txt"));
+        let dlugosc = segmenty.iter().map(|s| s.klatki as f64 / tempo(s)).sum();
+        std::fs::write(&plik, opis_rozdzialow(znaczniki, dlugosc)).map_err(|e| format!("Nie mogę zapisać znaczników filmu: {e}"))?;
+        Some(plik)
+    };
+    if let [jeden] = segmenty {
+        return zloz_segment(jeden, gra, rozdzialy.as_deref(), wyjscie, szybki_start);
+    }
+    let mut lista = String::new();
+    for (i, s) in segmenty.iter().enumerate() {
+        let czesc = tmp.join(format!("g{nr}-czesc{i}.mp4"));
+        zloz_segment(s, None, None, &czesc, false)?;
+        lista.push_str(&wpis_listy(&czesc));
+    }
+    let plik_listy = tmp.join(format!("g{nr}-lista.txt"));
+    std::fs::write(&plik_listy, lista).map_err(|e| format!("Nie mogę zapisać listy części filmu: {e}"))?;
+    let mut cmd = crate::ffmpeg::komenda();
+    cmd.args(["-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i"]).arg(&plik_listy);
+    if let Some(r) = &rozdzialy {
+        cmd.args(["-f", "ffmetadata", "-i"]).arg(r);
+    }
+    cmd.args(["-map", "0", "-c", "copy"]);
+    if rozdzialy.is_some() {
+        cmd.args(["-map_chapters", "1"]);
+    }
+    opisz_sciezki(&mut cmd, &segmenty[0].nazwy());
+    wykonaj(dokoncz(cmd, gra, wyjscie, szybki_start))
+}
+
+/// Znaczniki (czasy QPC) jako sekundy w każdym pliku wynikowym (plik = grupa kolejnych segmentów).
+/// Znacznik należy do pierwszej grupy, która kończy się po nim, a w grupie do pierwszego segmentu, który
+/// kończy się po nim; w przerwie między segmentami (pauza, restart) trafia na początek następnego.
+fn pozycje_znacznikow(gotowe: &[Gotowy], grupy: &[std::ops::Range<usize>], znaczniki: &[i64]) -> Vec<Vec<f64>> {
+    let mut wynik = vec![Vec::new(); grupy.len()];
+    for &t in znaczniki {
+        let przed_koncem = |s: &Gotowy| t <= s.koniec + ZAPAS_ZNACZNIKA;
+        // Znacznik po końcu ostatniej grupy (np. tuż przed zatrzymaniem) — na koniec ostatniego pliku
+        let Some(g) = grupy.iter().position(|g| przed_koncem(&gotowe[g.end - 1])).or(grupy.len().checked_sub(1)) else { continue };
+        let segmenty = &gotowe[grupy[g].clone()];
+        let mut przesuniecie = 0.0;
+        for (i, s) in segmenty.iter().enumerate() {
+            let dlugosc = s.klatki as f64 / tempo(s);
+            if przed_koncem(s) || i + 1 == segmenty.len() {
+                wynik[g].push(przesuniecie + ((t - s.poczatek) as f64 / 1e7).clamp(0.0, dlugosc));
+                break;
+            }
+            przesuniecie += dlugosc;
+        }
+    }
+    for w in &mut wynik {
+        w.sort_by(f64::total_cmp);
+    }
+    wynik
+}
+
+/// Rozdziały dla ffmpeg (format FFMETADATA): „Znacznik 1”, „Znacznik 2”… od każdego znacznika do następnego.
+/// MP4 trzyma rozdziały jako ścieżkę, która zaczyna się od zera — bez rozdziału „Początek” pierwszy
+/// znacznik po odczycie wypadałby na początku filmu.
+fn opis_rozdzialow(znaczniki: &[f64], dlugosc: f64) -> String {
+    let ms = |s: f64| (s * 1000.0).round() as i64;
+    let mut opis = String::from(";FFMETADATA1\n");
+    if let Some(&pierwszy) = znaczniki.first().filter(|p| ms(**p) > 0) {
+        opis.push_str(&format!("[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND={}\ntitle=Początek\n", ms(pierwszy)));
+    }
+    for (i, &od) in znaczniki.iter().enumerate() {
+        let do_ = znaczniki.get(i + 1).copied().unwrap_or(dlugosc).max(od);
+        opis.push_str(&format!("[CHAPTER]\nTIMEBASE=1/1000\nSTART={}\nEND={}\ntitle=Znacznik {}\n", ms(od), ms(do_), i + 1));
+    }
+    opis
+}
+
 /// Wątek zapisujący obraz: zaczyna od klatki kluczowej i ogłasza jej czas (dźwięk zaczyna się od niego).
-fn pisz_obraz(plik: std::fs::File, rx: Receiver<Pakiet>, poczatek: Arc<AtomicI64>, wspolne: Arc<Wspolne>) -> Result<JoinHandle<WynikToru>, String> {
+/// Co POSTEP_CO klatek zapisuje do pliku `postep`, ile klatek i bajtów jest już na pewno na dysku
+/// (po awarii programu film składamy dokładnie z tej części).
+fn pisz_obraz(
+    plik: std::fs::File,
+    rx: Receiver<Pakiet>,
+    poczatek: Arc<AtomicI64>,
+    wspolne: Arc<Wspolne>,
+    postep: PathBuf,
+) -> Result<JoinHandle<WynikToru>, String> {
     std::thread::Builder::new()
         .name("film-obraz".into())
         .spawn(move || {
             let mut plik = std::io::BufWriter::with_capacity(1 << 20, plik);
             let mut w = WynikToru { pierwszy: None, ostatni: 0, pakiety: 0 };
+            let mut bajty = 0u64;
             for p in rx {
                 if w.pierwszy.is_none() {
                     if !p.klucz {
@@ -301,6 +456,10 @@ fn pisz_obraz(plik: std::fs::File, rx: Receiver<Pakiet>, poczatek: Arc<AtomicI64
                 }
                 w.pakiety += 1;
                 w.ostatni = p.czas;
+                bajty += p.dane.len() as u64;
+                if w.pakiety % POSTEP_CO == 1 && plik.flush().is_ok() {
+                    zapisz_postep(&postep, &Postep { pierwszy: w.pierwszy.unwrap_or(p.czas), ostatni: w.ostatni, klatki: w.pakiety, bajty });
+                }
             }
             zamknij(plik, &wspolne);
             w
@@ -308,8 +467,15 @@ fn pisz_obraz(plik: std::fs::File, rx: Receiver<Pakiet>, poczatek: Arc<AtomicI64
         .map_err(|e| format!("Nie udało się uruchomić zapisu filmu: {e}"))
 }
 
-/// Wątek zapisujący jedną ścieżkę dźwięku: pomija ramki sprzed pierwszej klatki obrazu.
-fn pisz_dzwiek(plik: std::fs::File, rx: Receiver<Pakiet>, poczatek: Arc<AtomicI64>, wspolne: Arc<Wspolne>) -> Result<JoinHandle<WynikToru>, String> {
+/// Wątek zapisujący jedną ścieżkę dźwięku: pomija ramki sprzed pierwszej klatki obrazu. Czas pierwszej
+/// zapisanej ramki idzie też do pliku `plik_poczatku` (do odzyskania filmu po awarii).
+fn pisz_dzwiek(
+    plik: std::fs::File,
+    rx: Receiver<Pakiet>,
+    poczatek: Arc<AtomicI64>,
+    wspolne: Arc<Wspolne>,
+    plik_poczatku: PathBuf,
+) -> Result<JoinHandle<WynikToru>, String> {
     std::thread::Builder::new()
         .name("film-dzwiek".into())
         .spawn(move || {
@@ -330,7 +496,10 @@ fn pisz_dzwiek(plik: std::fs::File, rx: Receiver<Pakiet>, poczatek: Arc<AtomicI6
                     if !zapisz_pakiet(&mut plik, &p, &wspolne) {
                         return w;
                     }
-                    w.pierwszy.get_or_insert(p.czas);
+                    if w.pierwszy.is_none() {
+                        w.pierwszy = Some(p.czas);
+                        let _ = std::fs::write(&plik_poczatku, p.czas.to_string());
+                    }
                     w.pakiety += 1;
                 }
             }
@@ -338,6 +507,35 @@ fn pisz_dzwiek(plik: std::fs::File, rx: Receiver<Pakiet>, poczatek: Arc<AtomicI6
             w
         })
         .map_err(|e| format!("Nie udało się uruchomić zapisu filmu: {e}"))
+}
+
+/// Ile obrazu segmentu jest na pewno na dysku (plik s{nr}-postep.txt).
+#[derive(Debug, PartialEq)]
+struct Postep {
+    pierwszy: i64,
+    ostatni: i64,
+    klatki: u64,
+    bajty: u64,
+}
+
+impl Postep {
+    fn tekst(&self) -> String {
+        format!("{} {} {} {}", self.pierwszy, self.ostatni, self.klatki, self.bajty)
+    }
+
+    fn z_tekstu(t: &str) -> Option<Postep> {
+        let mut l = t.split_whitespace();
+        let p = Postep { pierwszy: l.next()?.parse().ok()?, ostatni: l.next()?.parse().ok()?, klatki: l.next()?.parse().ok()?, bajty: l.next()?.parse().ok()? };
+        (p.klatki > 0 && p.bajty > 0 && p.ostatni >= p.pierwszy).then_some(p)
+    }
+}
+
+/// Zapis postępu przez plik pośredni: awaria w trakcie zapisu nie zostawi połowy wiersza.
+fn zapisz_postep(plik: &Path, p: &Postep) {
+    let nowy = plik.with_extension("nowy");
+    if std::fs::write(&nowy, p.tekst()).is_ok() {
+        let _ = std::fs::rename(&nowy, plik);
+    }
 }
 
 /// Dopisuje pakiet; błąd (np. pełny dysk) zapamiętuje dla strażnika i kończy wątek (false).
@@ -391,7 +589,8 @@ fn opisz_sciezki(cmd: &mut std::process::Command, nazwy: &[&str]) {
 }
 
 /// Jeden segment -> MP4: obraz bez ponownego kodowania, dźwięk przesunięty względem pierwszej klatki.
-fn zloz_segment(s: &Gotowy, gra: Option<&str>, wyjscie: &Path, szybki_start: bool) -> Result<(), String> {
+/// `rozdzialy` = plik FFMETADATA ze znacznikami (None = bez znaczników).
+fn zloz_segment(s: &Gotowy, gra: Option<&str>, rozdzialy: Option<&Path>, wyjscie: &Path, szybki_start: bool) -> Result<(), String> {
     let mut cmd = crate::ffmpeg::komenda();
     cmd.args(["-hide_banner", "-loglevel", "error", "-y"])
         .args(["-fflags", "+genpts", "-f", s.obraz.format, "-framerate", &format!("{:.6}", tempo(s)), "-i"])
@@ -400,8 +599,15 @@ fn zloz_segment(s: &Gotowy, gra: Option<&str>, wyjscie: &Path, szybki_start: boo
         let przesuniecie = (pierwszy - s.poczatek).max(0) as f64 / 1e7;
         cmd.args(["-itsoffset", &format!("{przesuniecie:.6}"), "-f", "aac", "-i"]).arg(plik);
     }
+    if let Some(r) = rozdzialy {
+        cmd.args(["-f", "ffmetadata", "-i"]).arg(r);
+    }
     cmd.args(["-map", "0:v", "-c:v", "copy"]);
     crate::zapis::mapuj_dzwiek(&mut cmd, &s.nazwy());
+    if rozdzialy.is_some() {
+        // Plik ze znacznikami jest ostatnim wejściem: za obrazem i ścieżkami dźwięku
+        cmd.args(["-map_chapters", &(1 + s.audio.len()).to_string()]);
+    }
     wykonaj(dokoncz(cmd, gra, wyjscie, szybki_start))
 }
 
@@ -471,6 +677,98 @@ pub fn usun_resztki(folder_klipow: &Path) {
     let _ = std::fs::remove_dir(tmp);
 }
 
+// ---------- Odzyskiwanie filmu po awarii ----------
+
+/// Foldery filmów przerwanych awarią programu (albo komputera), które da się złożyć. Woła się przy
+/// starcie programu, zanim użytkownik zdąży zacząć nowy film.
+pub fn przerwane(folder_klipow: &Path) -> Vec<PathBuf> {
+    let Ok(wpisy) = std::fs::read_dir(folder_klipow.join(FOLDER_TMP)) else { return Vec::new() };
+    let mut foldery: Vec<PathBuf> = wpisy
+        .flatten()
+        .map(|w| w.path())
+        .filter(|f| f.join(OPIS_FILMU).is_file() && !f.join(PROBA_ODZYSKANIA).exists())
+        .collect();
+    foldery.sort();
+    foldery
+}
+
+/// Składa film z plików tymczasowych przerwanego nagrania (to, co zdążyło trafić na dysk) i sprząta je.
+/// Gdy się nie uda, pliki zostają (sprzątanie usunie je po kilku dniach), a następny start już nie próbuje.
+pub fn odzyskaj(tmp: &Path) -> Result<Wynik, String> {
+    let folder = tmp.parent().and_then(Path::parent).ok_or("zła ścieżka plików tymczasowych")?;
+    std::fs::write(tmp.join(PROBA_ODZYSKANIA), "").map_err(|e| format!("Nie mogę zapisać w {}: {e}", tmp.display()))?;
+    let opis: OpisFilmu = std::fs::read_to_string(tmp.join(OPIS_FILMU))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .ok_or("brak opisu filmu")?;
+    let gotowe = wczytaj_segmenty(tmp);
+    if gotowe.is_empty() {
+        posprzataj(tmp);
+        return Err("w przerwanym filmie nie zdążył się zapisać żaden obraz".into());
+    }
+    let znaczniki: Vec<i64> =
+        std::fs::read_to_string(tmp.join(ZNACZNIKI)).unwrap_or_default().lines().filter_map(|l| l.trim().parse().ok()).collect();
+    let rozmiar: u64 = std::fs::read_dir(tmp).map(|w| w.flatten().filter_map(|w| w.metadata().ok()).map(|m| m.len()).sum()).unwrap_or(0);
+    let sekundy = gotowe.iter().map(|g| g.klatki as f64 / tempo(g)).sum();
+    let gra = opis.gra.as_deref().filter(|g| !g.is_empty());
+    let pliki = zloz(folder, tmp, &opis.znacznik, gra, &gotowe, &znaczniki, rozmiar < SZYBKI_START_DO)?;
+    posprzataj(tmp);
+    crate::dziennik::info(&format!("Odzyskano przerwany film: {} ({sekundy:.0} s, części: {})", pliki[0].display(), pliki.len()));
+    Ok(Wynik { pliki, sekundy })
+}
+
+/// Segmenty przerwanego filmu z opisów na dysku. Obraz ucinamy do ostatniego zapisanego postępu
+/// (za nim może być niepełna klatka); ścieżka dźwięku bez zapisanego początku jest pomijana.
+fn wczytaj_segmenty(tmp: &Path) -> Vec<Gotowy> {
+    let mut gotowe = Vec::new();
+    for nr in 0.. {
+        let Ok(tekst) = std::fs::read_to_string(tmp.join(format!("s{nr}.json"))) else { break };
+        let Ok(opis) = serde_json::from_str::<OpisSegmentu>(&tekst) else { continue };
+        let Some(postep) = std::fs::read_to_string(tmp.join(format!("s{nr}-postep.txt"))).ok().and_then(|t| Postep::z_tekstu(&t)) else {
+            continue;
+        };
+        let wideo = tmp.join(format!("s{nr}-obraz.tmp"));
+        let uciete = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&wideo)
+            .and_then(|f| if f.metadata()?.len() >= postep.bajty { f.set_len(postep.bajty) } else { Err(std::io::ErrorKind::UnexpectedEof.into()) });
+        if uciete.is_err() {
+            continue;
+        }
+        let Some(format) = ["h264", "hevc", "obu"].into_iter().find(|f| *f == opis.format) else { continue };
+        let audio = opis
+            .dzwiek
+            .iter()
+            .enumerate()
+            .filter_map(|(i, nazwa)| {
+                let plik = tmp.join(format!("s{nr}-dzwiek{i}.aac"));
+                let pierwszy = std::fs::read_to_string(plik.with_extension("poczatek")).ok()?.trim().parse().ok()?;
+                Some((nazwa_sciezki(nazwa), plik, pierwszy))
+            })
+            .collect();
+        gotowe.push(Gotowy {
+            obraz: Obraz {
+                format,
+                fps: opis.fps,
+                rozmiar: (opis.szerokosc, opis.wysokosc),
+                // Nazwa enkodera służy tylko do porównania segmentów; odzyskiwanie zdarza się rzadko
+                enkoder: Box::leak(opis.enkoder.into_boxed_str()),
+            },
+            wideo,
+            poczatek: postep.pierwszy,
+            koniec: postep.ostatni,
+            klatki: postep.klatki,
+            audio,
+        });
+    }
+    gotowe
+}
+
+/// Nazwa ścieżki dźwięku z opisu na dysku (nazwy w filmie są stałe).
+fn nazwa_sciezki(nazwa: &str) -> &'static str {
+    ["Gra", "Discord i reszta", "Mikrofon"].into_iter().find(|n| *n == nazwa).unwrap_or_else(|| Box::leak(nazwa.into()))
+}
+
 // ---------- Zmniejszanie gotowego filmu ----------
 
 pub fn poprawny_format(format: &str) -> bool {
@@ -538,7 +836,8 @@ pub fn zmniejsz(plik: &Path, format: &str, postep: &dyn Fn(f64)) -> Result<Optio
     // Dekodowanie też kartą (gdy się nie da, ffmpeg sam przechodzi na procesor)
     let mut a: Vec<String> = ["-hwaccel", "d3d11va", "-i"].map(String::from).to_vec();
     a.push(tekst(plik));
-    a.extend(["-map", "0", "-c:a", "copy"].map(String::from));
+    // Obraz i dźwięk; znaczniki (rozdziały) ffmpeg przenosi sam — `-map 0` dokleiłby ich ścieżkę jako dane
+    a.extend(["-map", "0:v", "-map", "0:a", "-c:a", "copy"].map(String::from));
     a.extend(crate::enkodery::argumenty_eksportu(enkoder, bps, false));
     if *kodek == Kodek::Hevc {
         // Z tym znacznikiem HEVC w MP4 odtwarzają też programy Apple

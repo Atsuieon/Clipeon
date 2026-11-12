@@ -56,6 +56,8 @@ pub struct Stan {
     pub film_zmniejszanie: Option<u8>,
     /// Skrót filmu jest zajęty przez inny program (opis) — film da się wtedy włączyć tylko z okna
     pub skrot_filmu_blad: Option<String>,
+    /// Skrót znacznika jest zajęty przez inny program (opis)
+    pub skrot_znacznika_blad: Option<String>,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -77,6 +79,10 @@ pub enum Zdarzenie {
     /// Zmniejszanie się nie udało — film został w pełnej jakości
     FilmNiezmniejszony(String),
     BladFilmu(String),
+    /// Znacznik w filmie: (numer, sekunda filmu); None = skrót wciśnięty, gdy film nie trwa
+    Znacznik(Option<(usize, u64)>),
+    /// Film przerwany awarią programu został złożony przy starcie
+    FilmOdzyskany { plik: PathBuf, sekundy: f64, czesci: usize },
 }
 
 /// Po tylu sekundach bez nowych klatek strażnik uznaje, że nagrywanie stoi
@@ -138,9 +144,11 @@ struct Wnetrze {
     bledy: BTreeMap<&'static str, String>,
     _skrot: Option<skrot::Nasluch>,
     _skrot_filmu: Option<skrot::Nasluch>,
+    _skrot_znacznika: Option<skrot::Nasluch>,
     /// Okno ustawia właśnie nowy skrót: skróty są wyrejestrowane, żeby wciskane klawisze nie robiły klipów
     skroty_wstrzymane: bool,
     skrot_filmu_blad: Option<String>,
+    skrot_znacznika_blad: Option<String>,
     /// Trwające długie nagrywanie
     film: Option<Film>,
     /// Zakończony film jest składany w plik (w tle)
@@ -210,8 +218,10 @@ impl Rdzen {
             bledy: BTreeMap::new(),
             _skrot: None,
             _skrot_filmu: None,
+            _skrot_znacznika: None,
             skroty_wstrzymane: false,
             skrot_filmu_blad: None,
+            skrot_znacznika_blad: None,
             film: None,
             zapis_filmu: false,
             zmniejszanie_filmu: None,
@@ -273,6 +283,7 @@ impl Rdzen {
             film_zapis: w.zapis_filmu,
             film_zmniejszanie: w.zmniejszanie_filmu,
             skrot_filmu_blad: w.skrot_filmu_blad.clone(),
+            skrot_znacznika_blad: w.skrot_znacznika_blad.clone(),
         }
     }
 
@@ -446,28 +457,46 @@ impl Rdzen {
                 w.bledy.insert("skrot", e);
             }
         }
+        // Zajęty skrót filmu albo znacznika to nie alarm (film da się włączyć z okna) — tylko uwaga w ustawieniach
         w.skrot_filmu_blad = None;
-        if w.cfg.skrot_filmu.is_empty() {
-            return;
+        w.skrot_znacznika_blad = None;
+        if !w.cfg.skrot_filmu.is_empty() {
+            let r = self.clone();
+            let zglos = self.zglaszacz_skrotu(pokolenie, |w| &mut w.skrot_filmu_blad);
+            match skrot::nasluchuj(&w.cfg.skrot_filmu, move || r.przelacz_film(), zglos) {
+                Ok(n) => w._skrot_filmu = Some(n),
+                Err(e) => w.skrot_filmu_blad = Some(e),
+            }
         }
-        // Zajęty skrót filmu to nie alarm (film da się włączyć z okna) — tylko uwaga w ustawieniach
-        let (r, r2) = (self.clone(), self.clone());
-        let zglos = move |b: Option<String>| {
+        if !w.cfg.skrot_znacznika.is_empty() {
+            let r = self.clone();
+            let zglos = self.zglaszacz_skrotu(pokolenie, |w| &mut w.skrot_znacznika_blad);
+            match skrot::nasluchuj(&w.cfg.skrot_znacznika, move || r.dodaj_znacznik(), zglos) {
+                Ok(n) => w._skrot_znacznika = Some(n),
+                Err(e) => w.skrot_znacznika_blad = Some(e),
+            }
+        }
+    }
+
+    /// Zgłoszenia nasłuchu dodatkowego skrótu (film, znacznik): opis zajętego skrótu trafia do `pole`.
+    fn zglaszacz_skrotu(
+        &self,
+        pokolenie: u64,
+        pole: fn(&mut Wnetrze) -> &mut Option<String>,
+    ) -> impl Fn(Option<String>) + Send + 'static {
+        let r = self.clone();
+        move |b: Option<String>| {
             {
-                let mut w = r2.zamek();
-                if w.pokolenie != pokolenie || w.skrot_filmu_blad == b {
+                let mut w = r.zamek();
+                if w.pokolenie != pokolenie || *pole(&mut w) == b {
                     return;
                 }
                 if let Some(b) = &b {
                     crate::dziennik::info(b);
                 }
-                w.skrot_filmu_blad = b;
+                *pole(&mut w) = b;
             }
-            r2.wyslij_stan();
-        };
-        match skrot::nasluchuj(&w.cfg.skrot_filmu, move || r.przelacz_film(), zglos) {
-            Ok(n) => w._skrot_filmu = Some(n),
-            Err(e) => w.skrot_filmu_blad = Some(e),
+            r.wyslij_stan();
         }
     }
 
@@ -481,10 +510,10 @@ impl Rdzen {
             }
             w.skroty_wstrzymane = wstrzymaj;
             if wstrzymaj {
-                (w._skrot.take(), w._skrot_filmu.take())
+                (w._skrot.take(), w._skrot_filmu.take(), w._skrot_znacznika.take())
             } else {
                 self.zarejestruj_skroty(&mut w);
-                (None, None)
+                (None, None, None)
             }
         };
         // Poza blokadą: wątek skrótu może właśnie na nią czekać
@@ -493,6 +522,7 @@ impl Rdzen {
             let mut w = self.zamek();
             w.bledy.remove("skrot");
             w.skrot_filmu_blad = None;
+            w.skrot_znacznika_blad = None;
         }
         self.wyslij_stan();
     }
@@ -551,7 +581,7 @@ impl Rdzen {
                     pulpit: s.pulpit,
                 });
             }
-            ((w._skrot.take(), w._skrot_filmu.take()), sesja)
+            ((w._skrot.take(), w._skrot_filmu.take(), w._skrot_znacznika.take()), sesja)
         };
         drop(skroty);
         drop(sesja);
@@ -815,6 +845,26 @@ impl Rdzen {
                 powiadom(Zdarzenie::BladZapisu(e));
             }
         });
+    }
+
+    /// Znacznik w trwającym filmie (skrót): w pliku filmu będzie rozdziałem, a edytor pozwala do niego skoczyć.
+    pub fn dodaj_znacznik(&self) {
+        let znacznik = self.zamek().film.as_mut().map(|f| (f.dodaj_znacznik(), f.sekundy()));
+        if let Some((nr, sek)) = znacznik {
+            crate::dziennik::info(&format!("Film: znacznik {nr} w {sek} s"));
+        }
+        (self.powiadom)(Zdarzenie::Znacznik(znacznik));
+    }
+
+    /// Przy starcie programu: składa filmy przerwane awarią (`foldery` z film::przerwane).
+    pub fn odzyskaj_filmy(&self, foldery: Vec<PathBuf>) {
+        for tmp in foldery {
+            crate::dziennik::info(&format!("Odzyskuję film przerwany awarią: {}", tmp.display()));
+            match crate::film::odzyskaj(&tmp) {
+                Ok(w) => (self.powiadom)(Zdarzenie::FilmOdzyskany { plik: w.pliki[0].clone(), sekundy: w.sekundy, czesci: w.pliki.len() }),
+                Err(e) => crate::dziennik::blad(&format!("Nie udało się odzyskać filmu z {}: {e}", tmp.display())),
+            }
+        }
     }
 
     /// Zaczyna albo kończy długie nagrywanie (skrót, przycisk w oknie, menu przy zegarze).

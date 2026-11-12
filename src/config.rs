@@ -27,6 +27,8 @@ pub struct Config {
     pub skrot: String,
     /// Skrót, który zaczyna i kończy długie nagrywanie (film); pusty = bez skrótu
     pub skrot_filmu: String,
+    /// Skrót znacznika w trwającym filmie (do skoku w edytorze); pusty = bez skrótu
+    pub skrot_znacznika: String,
     /// W jakim formacie film zostaje na dysku: "bez_zmian" albo mniejszy plik ("hevc", "av1")
     pub format_filmu: String,
     /// Animowane tło okna (znaki ASCII i smuga za ruchem myszki)
@@ -92,6 +94,7 @@ impl Default for Config {
             folder_klipow: profil.join("Videos").join("Clipeon"),
             skrot: "Alt+F10".into(),
             skrot_filmu: "Alt+F9".into(),
+            skrot_znacznika: "Alt+F8".into(),
             format_filmu: crate::film::BEZ_ZMIAN.into(),
             animowane_tlo: true,
             kolorowy_napis: true,
@@ -228,11 +231,21 @@ impl Config {
             return Err(format!("Nieznany format filmu \"{}\"", self.format_filmu));
         }
         let klip = crate::skrot::parsuj(&self.skrot)?;
-        if !self.skrot_filmu.is_empty() {
-            let film = crate::skrot::parsuj(&self.skrot_filmu)?;
-            if (film.0.0, film.1) == (klip.0.0, klip.1) {
-                return Err("Skrót filmu musi być inny niż skrót klipu".into());
+        let klawisze = |s: &str| -> Result<Option<(u32, u32)>, String> {
+            if s.is_empty() {
+                return Ok(None);
             }
+            let k = crate::skrot::parsuj(s)?;
+            Ok(Some((k.0.0, k.1)))
+        };
+        let klip = Some((klip.0.0, klip.1));
+        let film = klawisze(&self.skrot_filmu)?;
+        let znacznik = klawisze(&self.skrot_znacznika)?;
+        if film.is_some() && film == klip {
+            return Err("Skrót filmu musi być inny niż skrót klipu".into());
+        }
+        if znacznik.is_some() && (znacznik == klip || znacznik == film) {
+            return Err("Skrót znacznika musi być inny niż skróty klipu i filmu".into());
         }
         Ok(())
     }
@@ -264,5 +277,22 @@ mod testy {
         assert!(c.sprawdz().is_ok());
         c.skrot_filmu = "Ctrl+Shift+R".into();
         assert!(c.sprawdz().is_ok());
+    }
+
+    #[test]
+    fn skrot_znacznika() {
+        let mut c = Config { folder_klipow: r"C:\Klipy".into(), ..Config::default() };
+        assert_eq!(c.skrot_znacznika, "Alt+F8");
+        // Znacznik nie może zająć skrótu klipu ani filmu
+        c.skrot_znacznika = "Alt+F10".into();
+        assert!(c.sprawdz().is_err());
+        c.skrot_znacznika = "alt+f9".into();
+        assert!(c.sprawdz().is_err());
+        c.skrot_znacznika = String::new();
+        assert!(c.sprawdz().is_ok());
+        // Bez skrótu filmu znacznik dalej nie może być skrótem klipu
+        c.skrot_filmu = String::new();
+        c.skrot_znacznika = "Alt+F10".into();
+        assert!(c.sprawdz().is_err());
     }
 }

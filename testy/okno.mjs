@@ -692,6 +692,29 @@ const domyslne = await strona.locator("#sciezki-dzwieku .sciezka-opis span").all
 sprawdz(domyslne.join("|") === "Gra|Discord i reszta|Mikrofon", `domyślne nazwy ścieżek: ${domyslne}`);
 await v(() => zamknijOdtwarzacz());
 
+// Znaczniki filmu: kreski na osi, kliknięcie skacze, [ i ] do poprzedniego / następnego
+await v(() => (window.__info = { znaczniki: [5, 12.5] }));
+await strona.evaluate((k) => odtworz(k), klip);
+await strona.waitForFunction(() => document.querySelectorAll("#os .os-znacznik").length === 2, null, { timeout: 3000 }).catch(() => {});
+sprawdz((await strona.locator("#os .os-znacznik").count()) === 2, "nie ma dwóch znaczników na osi czasu");
+await strona.locator("#os .os-znacznik").nth(1).click();
+sprawdz(Math.abs((await v(() => $("wideo").currentTime)) - 12.5) < 0.05, "kliknięcie znacznika nie skacze do niego");
+await strona.locator("#wideo").focus().catch(() => {});
+await v(() => document.activeElement.blur());
+await strona.keyboard.press("[");
+sprawdz(Math.abs((await v(() => $("wideo").currentTime)) - 5) < 0.05, "[ nie skacze do poprzedniego znacznika");
+await strona.keyboard.press("]");
+sprawdz(Math.abs((await v(() => $("wideo").currentTime)) - 12.5) < 0.05, "] nie skacze do następnego znacznika");
+await zrzut("7-znaczniki");
+await v(() => zamknijOdtwarzacz());
+await v(() => (window.__info = {}));
+// Klip bez znaczników nie ma kresek (stare kreski znikają)
+await strona.evaluate((k) => odtworz(k), klip);
+await strona.waitForTimeout(300);
+sprawdz((await strona.locator("#os .os-znacznik").count()) === 0, "kreski znaczników zostały po poprzednim filmie");
+await v(() => zamknijOdtwarzacz());
+sprawdz((await v(() => $("skrot-znacznika").dataset.wartosc)) === "Alt+F8", "w ustawieniach nie ma domyślnego skrótu znacznika Alt+F8");
+
 await przegladarka.close();
 if (bledy.length) {
   console.error("Test okna nie przeszedł:\n- " + bledy.join("\n- "));

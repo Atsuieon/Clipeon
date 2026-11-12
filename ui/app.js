@@ -240,6 +240,8 @@ function pokazFilm(s) {
   // Zajęty skrót filmu: uwaga w ustawieniach (film da się wtedy włączyć przyciskiem)
   $("skrot-filmu-uwaga").hidden = !s.skrot_filmu_blad;
   $("skrot-filmu-uwaga").textContent = s.skrot_filmu_blad || "";
+  $("skrot-znacznika-uwaga").hidden = !s.skrot_znacznika_blad;
+  $("skrot-znacznika-uwaga").textContent = s.skrot_znacznika_blad || "";
   // Zapisany film jest zmniejszany w tle do formatu z ustawień
   $("film-zmniejszanie").hidden = s.film_zmniejszanie == null;
   $("film-zmniejszanie").textContent = `Zmniejszam ostatni film: ${s.film_zmniejszanie ?? 0}%. Do końca jest w bibliotece w pełnej jakości.`;
@@ -714,7 +716,8 @@ let dlugosc = 0;
 let rozmiarDocelowy = null; // null = bez zmian, inaczej MB
 let eksportTrwa = false;
 let formatZapisu = "mp4"; // "mp4", "gif" albo "webp"
-let infoKlipu = { sciezki_audio: 1, fps: 0, szerokosc: 0, wysokosc: 0, webp: false };
+const INFO_DOMYSLNE = { sciezki_audio: 1, fps: 0, szerokosc: 0, wysokosc: 0, webp: false, znaczniki: [] };
+let infoKlipu = INFO_DOMYSLNE;
 // GIF i WebP: najdłuższy fragment (tak samo pilnuje tego rdzeń)
 const ANIMACJA_MAX = 15;
 const animacja = () => formatZapisu !== "mp4";
@@ -740,6 +743,8 @@ function odtworz(klip) {
   kadr = null;
   kadrowanie = false;
   dlugosc = 0;
+  infoKlipu = INFO_DOMYSLNE;
+  ulozZnaczniki();
   ostatniEksport = null;
   zatrzymajDzwiekNaZywo();
   przygotujGlosnosc(klip);
@@ -782,6 +787,7 @@ $("wideo").addEventListener("loadedmetadata", () => {
   zakres = { start: 0, koniec: dlugosc };
   odswiezEdytor();
   ulozKadr();
+  ulozZnaczniki();
 });
 
 // Odtwarzanie tylko w zaznaczonym zakresie (w pętli)
@@ -1040,6 +1046,7 @@ async function przygotujGlosnosc(klip) {
   } catch {}
   if (odtwarzany !== klip) return;
   infoKlipu = info;
+  ulozZnaczniki();
   // Gdy podgląd nie zna długości (kodek nieobsługiwany przez WebView), bierzemy ją z pliku
   if (!dlugosc && info.dlugosc) {
     dlugosc = info.dlugosc;
@@ -1253,6 +1260,48 @@ function klatka(ile) {
   const nr = Math.floor(v.currentTime * fps + 0.01) + ile;
   v.currentTime = Math.min(Math.max((nr + 0.5) / fps, 0), Math.max(dlugosc - 0.5 / fps, 0));
   odswiezGlowice();
+}
+
+// ---------- Edytor: znaczniki filmu ----------
+// Znaczniki (skrót w trakcie filmu) są w pliku rozdziałami: kreski na osi czasu, kliknięcie skacze
+// do znacznika, a [ i ] do poprzedniego / następnego.
+
+function ulozZnaczniki() {
+  const os = $("os");
+  os.querySelectorAll(".os-znacznik").forEach((z) => z.remove());
+  if (!dlugosc) return;
+  (infoKlipu.znaczniki || []).forEach((t, i) => {
+    if (t > dlugosc) return;
+    const z = document.createElement("button");
+    z.type = "button";
+    z.className = "os-znacznik";
+    z.style.left = `${procent(t)}%`;
+    z.title = `Znacznik ${i + 1} (${formatCzas(t)})`;
+    z.setAttribute("aria-label", z.title);
+    // Bez przewijania osi pod spodem — skok dokładnie do znacznika
+    z.addEventListener("pointerdown", (e) => e.stopPropagation());
+    z.addEventListener("click", (e) => {
+      e.stopPropagation();
+      skoczDoZnacznika(t);
+    });
+    os.insertBefore(z, $("os-glowica"));
+  });
+}
+
+function skoczDoZnacznika(t) {
+  const v = $("wideo");
+  v.currentTime = Math.min(Math.max(t, zakres.start), Math.max(zakres.koniec - 0.05, zakres.start));
+  odswiezGlowice();
+}
+
+// Poprzedni (-1) albo następny (1) znacznik. Poprzedni liczymy z pół sekundy zapasu, żeby przy
+// odtwarzaniu [ cofało do wcześniejszego, a nie do tego, który właśnie minął
+function znacznikObok(kierunek) {
+  const t = $("wideo").currentTime;
+  const lista = infoKlipu.znaczniki || [];
+  const cel = kierunek < 0 ? lista.findLast((z) => z < t - 0.5) : lista.find((z) => z > t + 0.05);
+  if (cel === undefined) dymek(lista.length ? "Dalej nie ma znaczników" : "Ten film nie ma znaczników");
+  else skoczDoZnacznika(cel);
 }
 
 // ---------- Edytor: format zapisu (MP4 / GIF / WebP) ----------
@@ -1740,11 +1789,12 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     przelaczPelnyEkran();
   } else if (!$("odtwarzacz").hidden && !e.target.closest("input, select, textarea, .uchwyt") && !e.ctrlKey && !e.altKey) {
-    // ← / → o 5 s, , / . (czyli < / >) o jedną klatkę, C = kadrowanie
+    // ← / → o 5 s, , / . (czyli < / >) o jedną klatkę, C = kadrowanie, [ / ] = poprzedni / następny znacznik
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") przewin(e.key === "ArrowLeft" ? -5 : 5);
     else if (e.key === "," || e.key === "<") klatka(-1);
     else if (e.key === "." || e.key === ">") klatka(1);
     else if (e.key === "c" || e.key === "C") przelaczKadrowanie();
+    else if (e.key === "[" || e.key === "]") znacznikObok(e.key === "[" ? -1 : 1);
     else return;
     e.preventDefault();
     obudzSterowanie();
@@ -1866,6 +1916,7 @@ async function wczytajUstawienia() {
   $("sprz-gb").value = cfg.sprzatanie_gb || 50;
   ustawSkrot($("skrot"), cfg.skrot);
   ustawSkrot($("skrot-filmu"), cfg.skrot_filmu);
+  ustawSkrot($("skrot-znacznika"), cfg.skrot_znacznika ?? "Alt+F8");
   $("folder").textContent = cfg.folder_klipow;
   $("autostart").checked = u.autostart;
   $("wersja").textContent = u.wersja;
@@ -2037,6 +2088,7 @@ $("zapisz-ustawienia").addEventListener("click", async () => {
     ...odczytajPola(),
     skrot: $("skrot").dataset.wartosc,
     skrot_filmu: $("skrot-filmu").dataset.wartosc,
+    skrot_znacznika: $("skrot-znacznika").dataset.wartosc,
     folder_klipow: $("folder").textContent,
     sprzatanie_dni: $("sprz-dni-wl").checked ? Number($("sprz-dni").value) || 30 : 0,
     sprzatanie_gb: $("sprz-gb-wl").checked ? Number($("sprz-gb").value) || 50 : 0,
