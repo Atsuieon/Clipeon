@@ -2,6 +2,11 @@
 
 ## 1.4.2
 
+- **Powtórka nie przepada, gdy nagrywanie się wznawia.** Gdy gra (np. Fightcade) co chwilę przełącza tryb
+  ekranu, nagrywanie na moment traci obraz i Clipeon uruchamia je od nowa — dawniej za każdym razem z pustym
+  buforem, więc Alt+F10 dawał klip kilkusekundowy. Teraz nagrywanie wraca do tego samego bufora: klip ma pełną
+  długość, a w miejscu przerwy jest krótki przeskok obrazu (dźwięk z przerwy jest wycinany, żeby zgadzał się
+  z obrazem). Alt+F10 w trakcie wznawiania też zapisuje to, co już było nagrane.
 - **Żółta ramka nie zostaje już na stałe po zmianie trybu ekranu (NVIDIA i inne karty).** Gdy gra albo
   Windows przełączał tryb ekranu, nagrywanie Desktop Duplication na chwilę traciło obraz. Clipeon brał to za
   awarię enkodera, sprawdzał go od nowa akurat w trakcie zmiany trybu, uznawał, że enkoder nie bierze obrazu

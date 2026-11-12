@@ -427,7 +427,7 @@ pub fn uruchom(
     cfg: &Config,
     droga: Droga,
     lekki: bool,
-    bufor: WspolnyBufor,
+    bufor: impl FnOnce(&str) -> WspolnyBufor,
     zglos: impl Fn(String) + Send + 'static,
 ) -> Result<Wideo, Blad> {
     let p = plan(cfg)?;
@@ -553,7 +553,9 @@ pub fn uruchom(
         watek_taktujacy(wspolna, wejscie, fps, stop.clone(), problem.clone(), statystyki.clone(), przeciazenie.clone(), p.ekran);
     }
 
-    // Wątek czytający: dzieli strumień na klatki i wrzuca je do bufora
+    // Wątek czytający: dzieli strumień na klatki i wrzuca je do bufora. Bufor wybiera wołający po opisie
+    // strumienia: przy takim samym obrazie (restart po chwilowej utracie ekranu) dostajemy stary bufor
+    let bufor = bufor(&opis);
     {
         let (stop, problem, statystyki, przeciazenie) = (stop.clone(), problem.clone(), statystyki.clone(), przeciazenie.clone());
         let kodek_strumienia = enkodery::kodek(enkoder);

@@ -105,6 +105,8 @@ struct Sesja {
     _audio: Vec<audio::Audio>,
     bufor_wideo: WspolnyBufor,
     bufory_audio: Vec<(&'static str, WspolnyBufor)>,
+    /// Urządzenia ścieżek dźwięku (w kolejności `bufory_audio`) — do ponownego użycia buforów
+    urzadzenia_audio: Vec<String>,
     /// Format surowego strumienia wideo dla ffmpeg (h264 / hevc / obu)
     format_wideo: &'static str,
     /// Klucz monitora (do pamięci dróg): nazwa urządzenia, pusta = główny
@@ -161,6 +163,21 @@ struct Wnetrze {
     przerwa_powrotu: Duration,
     /// Od kiedy wybranej gry nie ma na liście procesów (zatrzymujemy nagrywanie dopiero po chwili)
     gra_znikla_od: Option<Instant>,
+    /// Bufory zatrzymanej sesji: następna sesja z takim samym obrazem nagrywa dalej do nich, więc restart
+    /// (np. Fightcade przełącza tryb ekranu co kilka sekund) nie kasuje powtórki
+    zachowane: Option<Zachowane>,
+}
+
+/// Bufory poprzedniej sesji i to, czym była nagrywana.
+struct Zachowane {
+    /// Opis strumienia obrazu (monitor, rozmiar, FPS, enkoder, droga) — musi się zgadzać co do znaku
+    opis: String,
+    bufor_wideo: WspolnyBufor,
+    /// (nazwa ścieżki, urządzenie, bufor)
+    bufory_audio: Vec<(&'static str, String, WspolnyBufor)>,
+    format_wideo: &'static str,
+    fps: u32,
+    pulpit: bool,
 }
 
 #[derive(Clone)]
@@ -194,6 +211,7 @@ impl Rdzen {
             odrzucone_chwilowo: HashMap::new(),
             przerwa_powrotu: POWROT_NA_DROGE_PO,
             gra_znikla_od: None,
+            zachowane: None,
         };
         Rdzen { w: Arc::new(Mutex::new(w)), powiadom: Arc::new(powiadom) }
     }
@@ -290,7 +308,14 @@ impl Rdzen {
             // W serii chwilowych awarii ponawiamy tylko drogę, która je miała
             let tylko = w.seria_awarii.map(|(_, d)| d);
             let mut odlozone = Vec::new();
-            let wynik = self.nowa_sesja(&cfg, pokolenie, &mut odrzucone, &chwilowo, tylko, lekki, &mut odlozone);
+            // Film zaczyna nowy segment od świeżych buforów (inaczej dostałby powtórzone pakiety)
+            let zachowane = if w.film.is_some() { None } else { w.zachowane.take() };
+            let wynik = self.nowa_sesja(&cfg, pokolenie, &mut odrzucone, &chwilowo, tylko, lekki, &mut odlozone, zachowane.as_ref());
+            // Nowa sesja nagrywa do zachowanych buforów albo do własnych — wtedy stare przepadają.
+            // Gdy sesja nie ruszyła, bufory czekają na następną próbę (i na Alt+F10 w międzyczasie).
+            if wynik.is_err() {
+                w.zachowane = zachowane;
+            }
             for (m, d) in &odrzucone {
                 w.odrzucone_chwilowo.remove(&(m.clone(), *d));
             }
@@ -436,7 +461,24 @@ impl Rdzen {
             let mut w = self.zamek();
             w.pokolenie += 1;
             w.bledy.retain(|k, _| zostaw.contains(k));
-            ((w._skrot.take(), w._skrot_filmu.take()), w.sesja.take())
+            let sesja = w.sesja.take();
+            // Bufory zostają na następną sesję — chyba że trwa film (ten dostaje nowy segment)
+            if let Some(s) = sesja.as_ref().filter(|_| w.film.is_none()) {
+                w.zachowane = Some(Zachowane {
+                    opis: s._wideo.opis.clone(),
+                    bufor_wideo: s.bufor_wideo.clone(),
+                    bufory_audio: s
+                        .bufory_audio
+                        .iter()
+                        .zip(&s.urzadzenia_audio)
+                        .map(|((n, b), u)| (*n, u.clone(), b.clone()))
+                        .collect(),
+                    format_wideo: s.format_wideo,
+                    fps: s._wideo.fps,
+                    pulpit: s.pulpit,
+                });
+            }
+            ((w._skrot.take(), w._skrot_filmu.take()), sesja)
         };
         drop(skroty);
         drop(sesja);
@@ -456,6 +498,7 @@ impl Rdzen {
         tylko: Option<Droga>,
         lekki: bool,
         odlozone: &mut Vec<Droga>,
+        zachowane: Option<&Zachowane>,
     ) -> Result<Sesja, String> {
         let monitor = cfg.aktywny_monitor().0.to_string();
         let zapamietana = crate::pamiec::pamiec().drogi.get(&monitor).and_then(|d| Droga::z_nazwy(d));
@@ -470,11 +513,23 @@ impl Rdzen {
         let zapamietaj_droge = !wszystkie.iter().any(|d| chwilowo.contains(d));
         let mut ostatni_blad = String::new();
         let mut wideo_ = None;
+        let mut ciag_dalszy = false;
         for droga in kolejnosc {
-            let bufor = Bufor::nowy(cfg.bufor_sekundy);
+            let wybrany = std::cell::RefCell::new(None);
+            let wybierz_bufor = |opis: &str| {
+                // Ten sam obraz co w poprzedniej sesji: nagrywamy dalej do jej bufora (powtórka nie przepada)
+                let b = match zachowane.filter(|z| z.opis == opis) {
+                    Some(z) => z.bufor_wideo.clone(),
+                    None => Bufor::nowy(cfg.bufor_sekundy),
+                };
+                *wybrany.borrow_mut() = Some((b.clone(), zachowane.is_some_and(|z| z.opis == opis)));
+                b
+            };
             let zglos_wideo = self.zglaszacz(pokolenie, "wideo");
-            match wideo::uruchom(cfg, droga, lekki, bufor.clone(), move |e| zglos_wideo(Some(e))) {
+            match wideo::uruchom(cfg, droga, lekki, wybierz_bufor, move |e| zglos_wideo(Some(e))) {
                 Ok(w) => {
+                    let (bufor, dalej) = wybrany.into_inner().expect("wideo::uruchom wybiera bufor");
+                    ciag_dalszy = dalej;
                     wideo_ = Some((w, bufor));
                     break;
                 }
@@ -498,19 +553,38 @@ impl Rdzen {
         let Some((wideo, bufor_wideo)) = wideo_ else { return Err(ostatni_blad) };
 
         // Dźwięk: AAC 160 kb/s; bufor dłuższy o 2 s, żeby na pewno pokrył początek obrazu
-        let (mut audio_, mut bufory_audio) = (Vec::new(), Vec::new());
+        // Gdy obraz nagrywa się dalej do starego bufora, dźwięk też (to samo urządzenie = ta sama ścieżka)
+        let (mut audio_, mut bufory_audio, mut urzadzenia_audio) = (Vec::new(), Vec::new(), Vec::new());
         for (wlaczone, zrodlo, urzadzenie, klucz, nazwa) in [
             (cfg.dzwiek_systemowy, Zrodlo::System, String::new(), "system", "Gra"),
             (cfg.mikrofon, Zrodlo::Mikrofon, cfg.mikrofon_urzadzenie.clone(), "mikrofon", "Mikrofon"),
         ] {
             if wlaczone {
-                let b = Bufor::nowy(cfg.bufor_sekundy + 2);
-                audio_.push(audio::uruchom(zrodlo, urzadzenie, 160, b.clone(), self.zglaszacz(pokolenie, klucz)));
+                let stary = zachowane
+                    .filter(|_| ciag_dalszy)
+                    .and_then(|z| z.bufory_audio.iter().find(|(n, u, _)| *n == nazwa && *u == urzadzenie))
+                    .map(|(_, _, b)| b.clone());
+                let b = stary.unwrap_or_else(|| Bufor::nowy(cfg.bufor_sekundy + 2));
+                audio_.push(audio::uruchom(zrodlo, urzadzenie.clone(), 160, b.clone(), self.zglaszacz(pokolenie, klucz)));
                 bufory_audio.push((nazwa, b));
+                urzadzenia_audio.push(urzadzenie);
             }
         }
+        if ciag_dalszy {
+            crate::dziennik::info("Nagrywanie wznowione — powtórka sprzed przerwy zostaje w buforze");
+        }
         let format_wideo = wideo.format;
-        Ok(Sesja { _wideo: wideo, _audio: audio_, bufor_wideo, bufory_audio, format_wideo, monitor, pulpit: cfg.pulpit(), zapamietaj_droge })
+        Ok(Sesja {
+            _wideo: wideo,
+            _audio: audio_,
+            bufor_wideo,
+            bufory_audio,
+            urzadzenia_audio,
+            format_wideo,
+            monitor,
+            pulpit: cfg.pulpit(),
+            zapamietaj_droge,
+        })
     }
 
     /// Nowy config: zapis na dysk i restart nagrywania. Zawartość bufora przepada.
@@ -535,6 +609,8 @@ impl Rdzen {
                 w.lekki = false;
             }
             w.seria_awarii = None;
+            // Nowe ustawienia (długość bufora, dźwięk, jakość) = nowe bufory
+            w.zachowane = None;
             w.cfg = cfg;
             w.bledy.remove("config");
         }
@@ -598,6 +674,7 @@ impl Rdzen {
         let pauza = {
             let mut w = self.zamek();
             w.pauza = !w.pauza;
+            w.zachowane = None;
             w.pauza
         };
         if pauza {
@@ -630,6 +707,14 @@ impl Rdzen {
                 let audio: Vec<_> =
                     s.bufory_audio.iter().map(|(n, b)| (*n, b.zablokuj().migawka())).collect();
                 (wideo, audio, s.format_wideo, s._wideo.fps, s.pulpit)
+            });
+            // Alt+F10 akurat w chwili wznawiania nagrywania: zapisujemy to, co zostało w buforze
+            let migawka = migawka.or_else(|| {
+                w.zachowane.as_ref().filter(|_| !w.pauza && !w.czeka_na_gre).map(|z| {
+                    let wideo = z.bufor_wideo.zablokuj().migawka();
+                    let audio: Vec<_> = z.bufory_audio.iter().map(|(n, _, b)| (*n, b.zablokuj().migawka())).collect();
+                    (wideo, audio, z.format_wideo, z.fps, z.pulpit)
+                })
             });
             (migawka, w.cfg.folder_klipow.clone(), brak_sesji(&w, "zapisywać klipy"), w.gra.as_ref().map(|g| g.nazwa.clone()))
         };
@@ -822,6 +907,7 @@ impl Rdzen {
             let sesja = {
                 let mut w = self.zamek();
                 w.czeka_na_gre = true;
+                w.zachowane = None;
                 w.wznawianie = None;
                 // Błędy zatrzymanej sesji nie dotyczą czekania na grę (inaczej wisi czerwony baner)
                 w.bledy.remove("nagrywanie");
