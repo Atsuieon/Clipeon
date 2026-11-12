@@ -127,7 +127,7 @@ await strona.evaluate(() => pokazStan({ ...stan, tryb: "gra", pauza: false, czek
 
 // Windows zmienił urządzenie dźwięku (np. po zamknięciu gry): żółta kropka z napisem, bez paska z błędem
 await strona.evaluate(() => pokazStan({ ...stan, przelaczanie: "dźwięk" }));
-sprawdz((await strona.textContent("#status-tekst")) === "Przełączam dźwięk…", "przełączanie dźwięku nie zmienia napisu przy kropce");
+sprawdz((await strona.textContent("#status-tekst")) === "Przełączam…", "przełączanie dźwięku nie zmienia napisu przy kropce");
 sprawdz((await strona.locator("#kropka.wznawianie").count()) === 1, "przełączanie dźwięku nie daje żółtej kropki");
 sprawdz(await strona.isHidden("#baner"), "przełączanie dźwięku pokazuje pasek z problemem");
 await zrzut("0-przelaczanie-dzwieku");

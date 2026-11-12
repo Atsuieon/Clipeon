@@ -174,7 +174,7 @@ function pokazStan(s) {
     : s.wznawianie
       ? "Wznawiam…"
       : s.przelaczanie
-        ? `Przełączam ${s.przelaczanie}…`
+        ? "Przełączam…"
         : s.pauza
           ? "Wstrzymane"
           : s.czeka_na_gre
@@ -199,7 +199,7 @@ function pokazStan(s) {
   $("status").title = s.bledy.length
     ? s.bledy.join("\n")
     : s.przelaczanie && !s.wznawianie
-      ? "Windows zmienił urządzenie dźwięku (np. po zamknięciu gry). Clipeon przełącza nagrywanie na nowe — obraz nagrywa się dalej."
+      ? `Windows zmienił urządzenie dźwięku (np. po zamknięciu gry). Clipeon przełącza na nowe: ${s.przelaczanie}. Obraz nagrywa się dalej.`
       : "";
   $("pauza").innerHTML = s.pauza ? zIkona("graj", "Wznów") : zIkona("pauza", "Wstrzymaj");
   $("zapisz-klip").disabled = !s.nagrywa;
