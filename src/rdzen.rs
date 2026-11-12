@@ -1089,6 +1089,27 @@ impl Rdzen {
         {
             decyzja = Decyzja::Ponow(seria);
         }
+        // Desktop Duplication w ffmpeg straciło obraz, a jest DDA w Clipeonie, które przeczeka taką chwilę bez
+        // restartu (jak OBS): przechodzimy na nie od razu, zamiast restartować ffmpeg w kółko
+        if let Decyzja::Ponow((_, Droga::Dda)) = decyzja
+            && w.seria_awarii.is_none()
+            && !w.odrzucone.contains(&(monitor.clone(), Droga::DdaRam))
+            && wideo::drogi(&w.cfg).contains(&Droga::DdaRam)
+        {
+            crate::dziennik::info(&format!(
+                "Droga przechwytywania „dda” chwilowo straciła obraz ({powod}) — przechodzę na „dda-ram”, która przeczekuje takie chwile bez restartu"
+            ));
+            w.seria_awarii = None;
+            let wroc = Instant::now() + w.przerwa_powrotu;
+            w.odrzucone_chwilowo.insert((monitor.clone(), Droga::Dda), wroc);
+            drop(w);
+            let mut p = crate::pamiec::pamiec();
+            if p.drogi.get(&monitor).is_some_and(|d| d == Droga::Dda.nazwa()) {
+                p.drogi.remove(&monitor);
+                crate::pamiec::zapisz(&p);
+            }
+            return;
+        }
         match decyzja {
             Decyzja::Nic => return,
             Decyzja::Ponow(seria) => {
