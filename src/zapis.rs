@@ -67,7 +67,7 @@ pub fn zapisz(
     let wynik = (|| {
         for (i, (_, przesuniecie, sciezka)) in sciezki.iter().enumerate() {
             let tmp = std::env::temp_dir().join(format!("clipeon-{}-{poczatek}-{i}.aac", std::process::id()));
-            let dane: Vec<u8> = sciezka.iter().flat_map(|p| p.dane.iter().copied()).collect();
+            let dane = sciezka.iter().map(|p| &p.dane[..]).collect::<Vec<_>>().concat();
             std::fs::write(&tmp, dane).map_err(|e| format!("Nie mogę zapisać pliku tymczasowego: {e}"))?;
             // Przesunięcie dźwięku względem pierwszej klatki obrazu (synchronizacja po QPC)
             let przesuniecie = *przesuniecie as f64 / 1e7;
@@ -108,14 +108,14 @@ pub fn zapisz(
     }
 
     let rozmiar = std::fs::metadata(&plik).map(|m| m.len()).unwrap_or(0);
-    println!(
+    crate::dziennik::info(&format!(
         "Zapisano klip: {} ({:.1} s, {:.1} MB, ścieżek dźwięku: {}) w {:.2} s",
         plik.display(),
         wideo.len() as f64 / fps as f64,
         rozmiar as f64 / 1e6,
         sciezki.len(),
         start.elapsed().as_secs_f64()
-    );
+    ));
     Ok(plik)
 }
 

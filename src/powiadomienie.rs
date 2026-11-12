@@ -84,7 +84,7 @@ pub fn pokaz(miejsce: Miejsce, tytul: &str, opis: &str, blad: bool, trwale: bool
             Some(instancja.into()),
             None,
         ) else {
-            return eprintln!("Nie udało się utworzyć dymka");
+            return crate::dziennik::blad("Nie udało się utworzyć dymka");
         };
         // Dymek nie trafia do nagrania (tryb pulpitu, ddagrab i Windows.Graphics.Capture go pomijają);
         // Windows 10 starszy niż 2004 nie zna tej flagi — wtedy dymek po prostu bywa widoczny w klipie

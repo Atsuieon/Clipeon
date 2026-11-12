@@ -1,9 +1,11 @@
 // Wideo: przechwytywanie ekranu -> enkoder (H.264 / HEVC / AV1) -> zakodowane klatki w buforze RAM.
-// Trzy drogi przechwytywania (od najlżejszej):
+// Cztery drogi przechwytywania (od najlżejszej):
 // - Dda: ffmpeg sam przechwytuje ekran przez Desktop Duplication (`ddagrab`); obraz zostaje na karcie
 //   aż do enkodera — prawie bez pracy procesora. Wymaga, żeby monitor i enkoder były na tej samej karcie.
 // - Gfx: ffmpeg przechwytuje przez Windows.Graphics.Capture (`gfxcapture`) na karcie enkodera — działa
 //   też, gdy monitor jest podłączony do innej karty (laptopy z dwiema kartami).
+// - DdaRam: Desktop Duplication prowadzone przez Clipeona (dda.rs), obraz do ffmpeg przez RAM — bez żółtej
+//   ramki i bez restartu, gdy Windows na chwilę odbierze obraz.
 // - Potok: tryb zgodności, jak w wersjach do 1.2: Clipeon przechwytuje ekran (windows-capture), kopiuje
 //   klatki do RAM i wysyła je potokiem do ffmpeg. Działa z każdym enkoderem, ale kosztuje procesor.
 // Którą drogę wybrać, decyduje `kolejnosc_drog`; rdzeń przechodzi na następną, gdy poprzednia zawiedzie.
@@ -166,12 +168,12 @@ pub struct Statystyki {
     pub bajty: AtomicU64,
 }
 
-impl Statystyki {
-    fn dodaj(&self, licznik: &AtomicU64, ile: u64) {
-        let _ = self;
-        licznik.fetch_add(ile, Ordering::Relaxed);
-    }
+/// Dolicza do licznika statystyk (kolejność bez znaczenia — to tylko liczby do dziennika).
+fn dolicz(licznik: &AtomicU64, ile: u64) {
+    licznik.fetch_add(ile, Ordering::Relaxed);
+}
 
+impl Statystyki {
     /// Wartości liczników (do policzenia różnic co minutę).
     pub fn odczyt(&self) -> [u64; 6] {
         [&self.przechwycone, &self.pominiete, &self.powtorzone, &self.spoznione, &self.pakiety, &self.bajty]
@@ -287,14 +289,16 @@ struct Mozliwosci {
     odstep_klatek: bool,
 }
 
-fn mozliwosci_przechwytywania() -> Mozliwosci {
-    let m = Mozliwosci {
-        kursor: GraphicsCaptureApi::is_cursor_settings_supported().unwrap_or(false),
-        bez_ramki: GraphicsCaptureApi::is_border_settings_supported().unwrap_or(false),
-        odstep_klatek: GraphicsCaptureApi::is_minimum_update_interval_supported().unwrap_or(false),
-    };
-    static ZAPISANO: std::sync::OnceLock<()> = std::sync::OnceLock::new();
-    ZAPISANO.get_or_init(|| {
+/// Sprawdzane raz na uruchomienie (Windows się w trakcie nie zmieni), bo pytają o to m.in. `Droga::z_ramka`
+/// przy każdym odświeżeniu stanu.
+fn mozliwosci_przechwytywania() -> &'static Mozliwosci {
+    static M: std::sync::OnceLock<Mozliwosci> = std::sync::OnceLock::new();
+    M.get_or_init(|| {
+        let m = Mozliwosci {
+            kursor: GraphicsCaptureApi::is_cursor_settings_supported().unwrap_or(false),
+            bez_ramki: GraphicsCaptureApi::is_border_settings_supported().unwrap_or(false),
+            odstep_klatek: GraphicsCaptureApi::is_minimum_update_interval_supported().unwrap_or(false),
+        };
         let mut braki = Vec::new();
         if !m.bez_ramki {
             braki.push("wyłączanie żółtej ramki (nagrywanie działa, ramka może być widoczna)");
@@ -308,8 +312,8 @@ fn mozliwosci_przechwytywania() -> Mozliwosci {
         if !braki.is_empty() {
             crate::dziennik::info(&format!("Ten Windows nie obsługuje: {} — używam ustawień domyślnych", braki.join(", ")));
         }
-    });
-    m
+        m
+    })
 }
 
 // ---------- Parametry kodowania ----------
@@ -328,9 +332,8 @@ fn argumenty_strumienia(mbps: u32, fps: u32, w: u32, h: u32) -> Vec<String> {
         "-b:v", &format!("{b}M"), "-maxrate", &format!("{}M", b * 3 / 2), "-bufsize", &format!("{b}M"),
         "-g", &g, "-bf", "0", "-force_key_frames", "expr:gte(t,n_forced)",
     ]
-    .iter()
-    .map(|x| x.to_string())
-    .collect()
+    .map(String::from)
+    .into()
 }
 
 /// Znaczniki kolorów BT.709 (tak samo na każdej karcie i w każdym odtwarzaczu). NVENC przy wejściu RGB
@@ -339,10 +342,7 @@ fn znaczniki_koloru(enkoder: &str) -> Vec<String> {
     if enkoder.ends_with("_nvenc") {
         return Vec::new();
     }
-    ["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv"]
-        .iter()
-        .map(|x| x.to_string())
-        .collect()
+    ["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv"].map(String::from).into()
 }
 
 // ---------- Uruchomienie ----------
@@ -427,6 +427,16 @@ fn plan(cfg: &Config) -> Result<Plan, Blad> {
 }
 
 impl Plan {
+    /// Ekran przycięty do parzystych wymiarów (tego wymagają enkodery).
+    fn ekran_parzysty(&self) -> (u32, u32) {
+        (self.ekran.0 & !1, self.ekran.1 & !1)
+    }
+
+    /// Enkoder koduje mniejszy obraz niż ekran (za duży ekran dla karty).
+    fn skalowanie(&self) -> bool {
+        (self.wybor.w, self.wybor.h) != self.ekran_parzysty()
+    }
+
     fn warunki<'a>(&self, metoda: &'a str) -> Warunki<'a> {
         Warunki {
             metoda,
@@ -436,7 +446,7 @@ impl Plan {
                 _ => false,
             },
             karta_enkodera: self.karta_enkodera.is_some(),
-            skalowanie: (self.wybor.w, self.wybor.h) != (self.ekran.0 & !1, self.ekran.1 & !1),
+            skalowanie: self.skalowanie(),
             filtr_dda: crate::ffmpeg::ma_filtr("ddagrab"),
             filtr_gfx: crate::ffmpeg::ma_filtr("gfxcapture"),
             bez_ramki: mozliwosci_przechwytywania().bez_ramki,
@@ -508,21 +518,20 @@ pub fn uruchom(
             // Próba na obrazie z ekranu, gdy monitor jest na karcie enkodera (klatki gfxcapture są takie same)
             let ekran = p.wyjscie.as_ref().filter(|wyj| wyj.karta == karta).map(|wyj| wyj.wyjscie);
             enkodery::dziala_z_tekstura(enkoder, w, h, karta, ekran)?;
-            let skaluj = (w, h) != (p.ekran.0 & !1, p.ekran.1 & !1);
             cmd.args(["-init_hw_device", &format!("d3d11va=gpu:{karta}"), "-filter_hw_device", "gpu"]);
             cmd.args([
                 "-filter_complex",
                 &format!(
                     "gfxcapture=hmonitor={}:max_framerate={fps}:capture_cursor=1:display_border=0:width={w}:height={h}:resize_mode={},fps={fps}",
                     p.monitor.as_raw_hmonitor() as usize,
-                    if skaluj { "scale_aspect" } else { "crop" }
+                    if p.skalowanie() { "scale_aspect" } else { "crop" }
                 ),
             ]);
         }
         Droga::Potok | Droga::DdaRam => {
             let (ew, eh) = p.ekran;
             let mut filtry = Vec::new();
-            if (w, h) != (ew & !1, eh & !1) {
+            if p.skalowanie() {
                 filtry.push(format!("scale={w}:{h}"));
             } else if (w, h) != (ew, eh) {
                 filtry.push(format!("crop={w}:{h}:0:0"));
@@ -597,8 +606,6 @@ pub fn uruchom(
     let wyjscie = ffmpeg.stdout.take().unwrap();
     let wejscie = ffmpeg.stdin.take();
     let proces = Arc::new(Mutex::new(ffmpeg));
-    let okres = Duration::from_secs_f64(1.0 / fps as f64);
-
     // Potok: oś czasu zaczyna się teraz (klatki nadaje nasz wątek taktujący).
     // ffmpeg: początek ustalamy przy pierwszym pakiecie (start przechwytywania trwa różnie długo).
     let t0 = droga.przez_ram().then(teraz_100ns);
@@ -632,7 +639,6 @@ pub fn uruchom(
             })
         })?;
     }
-    let _ = okres;
 
     let (nazwa, id) = cfg.aktywny_monitor();
     let zastepczy = p.zastepczy.then(|| (nazwa.to_string(), id.to_string()));
@@ -693,14 +699,14 @@ fn czytaj_strumien(mut o: Odczyt) {
             let t0 = *o.t0.get_or_insert(teraz - OPOZNIENIE_KLATEK * okres_100ns);
             let czas = t0 + nr * 10_000_000 / o.fps as i64;
             nr += 1;
-            o.statystyki.dodaj(&o.statystyki.pakiety, 1);
-            o.statystyki.dodaj(&o.statystyki.bajty, dane.len() as u64);
+            dolicz(&o.statystyki.pakiety, 1);
+            dolicz(&o.statystyki.bajty, dane.len() as u64);
             // Przechwytywanie w ffmpeg: czy enkoder nadąża (pakiety nie przychodzą coraz później niż zegar).
             // Gfx pomijamy — przy nieruchomym ekranie stoi, a potem dogania powtórzonymi klatkami.
             if o.droga == Droga::Dda {
                 let opoznienie = teraz - OPOZNIENIE_KLATEK * okres_100ns - czas;
                 if opoznienie > 5_000_000 {
-                    o.statystyki.dodaj(&o.statystyki.spoznione, 1);
+                    dolicz(&o.statystyki.spoznione, 1);
                     let od = *spoznione_od.get_or_insert_with(Instant::now);
                     if od.elapsed() > Duration::from_secs(5) {
                         o.przeciazenie.store(true, Ordering::SeqCst);
@@ -712,7 +718,7 @@ fn czytaj_strumien(mut o: Odczyt) {
                     spoznione_od = None;
                 }
             }
-            o.bufor.zablokuj().dodaj(Pakiet { czas, klucz, dane: dane.into() });
+            o.bufor.zablokuj().dodaj(Pakiet { czas, klucz, dane });
         }
     }
 }
@@ -773,7 +779,7 @@ impl GraphicsCaptureApiHandler for Przechwyt {
     fn on_frame_arrived(&mut self, frame: &mut Frame, _: InternalCaptureControl) -> Result<(), Self::Error> {
         if let (Some(min), Some(t)) = (self.min_odstep, self.ostatnia)
             && t.elapsed() < min {
-                self.statystyki.dodaj(&self.statystyki.pominiete, 1);
+                dolicz(&self.statystyki.pominiete, 1);
                 return Ok(());
             }
         self.ostatnia = Some(Instant::now());
@@ -791,7 +797,7 @@ impl GraphicsCaptureApiHandler for Przechwyt {
             std::mem::swap(&mut w.piksele, &mut self.wlasna);
             w.nowa = true;
         }
-        self.statystyki.dodaj(&self.statystyki.przechwycone, 1);
+        dolicz(&self.statystyki.przechwycone, 1);
         Ok(())
     }
 }
@@ -863,7 +869,7 @@ fn watek_taktujacy(
                         std::mem::swap(&mut w.piksele, &mut moja);
                         w.nowa = false;
                     } else {
-                        statystyki.dodaj(&statystyki.powtorzone, 1);
+                        dolicz(&statystyki.powtorzone, 1);
                     }
                 }
                 if wejscie.write_all(&moja).is_err() {
@@ -877,7 +883,7 @@ fn watek_taktujacy(
                     std::thread::sleep(cel - teraz);
                 } else {
                     if teraz - cel > okres {
-                        statystyki.dodaj(&statystyki.spoznione, 1);
+                        dolicz(&statystyki.spoznione, 1);
                         spoznione_w_oknie += 1;
                     }
                     if teraz - cel > Duration::from_secs(2) {
@@ -901,6 +907,9 @@ fn watek_taktujacy(
 
 // ---------- Dzielenie strumienia na klatki ----------
 
+/// Zakodowana klatka i czy jest kluczowa. Od razu `Arc` — tak trafia do bufora, bez dodatkowej kopii.
+type Klatka = (Arc<[u8]>, bool);
+
 /// Dzieli surowy strumień enkodera na klatki i rozpoznaje klatki kluczowe:
 /// H.264 / HEVC (Annex B) po znacznikach AUD, AV1 (OBU) po ogranicznikach czasowych.
 struct Dzielnik {
@@ -914,7 +923,7 @@ impl Dzielnik {
         Dzielnik { kodek, bufor: Vec::new(), skan: 0 }
     }
 
-    fn karm(&mut self, dane: &[u8]) -> Vec<(Vec<u8>, bool)> {
+    fn karm(&mut self, dane: &[u8]) -> Vec<Klatka> {
         self.bufor.extend_from_slice(dane);
         match self.kodek {
             Kodek::Av1 => self.karm_av1(),
@@ -922,7 +931,7 @@ impl Dzielnik {
         }
     }
 
-    fn karm_annex_b(&mut self, k: Kodek) -> Vec<(Vec<u8>, bool)> {
+    fn karm_annex_b(&mut self, k: Kodek) -> Vec<Klatka> {
         // Typ jednostki NAL z pierwszego bajtu nagłówka
         let typ = |b: u8| if k == Kodek::Hevc { (b >> 1) & 0x3f } else { b & 0x1f };
         let aud = |b: u8| typ(b) == if k == Kodek::Hevc { 35 } else { 9 };
@@ -931,7 +940,8 @@ impl Dzielnik {
         let mut klatki = Vec::new();
         // Pomijamy AUD na samym początku bufora (należy do bieżącej klatki)
         while let Some(p) = znajdz_nal(&self.bufor, self.skan.max(4), aud) {
-            let klatka: Vec<u8> = self.bufor.drain(..p).collect();
+            let klatka: Arc<[u8]> = Arc::from(&self.bufor[..p]);
+            self.bufor.drain(..p);
             let klucz = znajdz_nal(&klatka, 0, kluczowa).is_some();
             klatki.push((klatka, klucz));
             self.skan = 0;
@@ -941,14 +951,14 @@ impl Dzielnik {
     }
 
     /// AV1: każda klatka (temporal unit) zaczyna się OBU typu 2; klatka kluczowa ma nagłówek sekwencji (typ 1).
-    fn karm_av1(&mut self) -> Vec<(Vec<u8>, bool)> {
+    fn karm_av1(&mut self) -> Vec<Klatka> {
         let mut klatki = Vec::new();
         let mut poz = self.skan; // początek pierwszego nieprzeczytanego OBU
         let mut poczatek_klatki = 0;
         let mut klucz = false;
         while let Some((typ, dl)) = obu(&self.bufor[poz..]) {
             if typ == 2 && poz > poczatek_klatki {
-                klatki.push((self.bufor[poczatek_klatki..poz].to_vec(), klucz));
+                klatki.push((Arc::from(&self.bufor[poczatek_klatki..poz]), klucz));
                 poczatek_klatki = poz;
                 klucz = false;
             }
@@ -1093,6 +1103,11 @@ mod testy {
         assert!(!chwilowy("[vost#0:0/h264_nvenc @ 0x1] Terminating thread with return code -542398533 (Generic error in an external library)"));
     }
 
+    /// Klatki z dzielnika jako zwykłe wektory (do porównań)
+    fn wektory(k: Vec<Klatka>) -> Vec<(Vec<u8>, bool)> {
+        k.into_iter().map(|(d, klucz)| (d.to_vec(), klucz)).collect()
+    }
+
     fn nal(typ: &[u8], dane: &[u8]) -> Vec<u8> {
         let mut v = vec![0, 0, 0, 1];
         v.extend_from_slice(typ);
@@ -1111,7 +1126,7 @@ mod testy {
         let mut d = Dzielnik::nowy(Kodek::H264);
         let mut klatki = Vec::new();
         for kawalek in strumien.chunks(3) {
-            klatki.extend(d.karm(kawalek));
+            klatki.extend(wektory(d.karm(kawalek)));
         }
         assert_eq!(klatki.len(), 2);
         assert_eq!(klatki[0], (k1, true));
@@ -1124,8 +1139,8 @@ mod testy {
         let k1 = [nal(&[35 << 1, 1], &[0x50]), nal(&[19 << 1, 1], &[5, 5, 5])].concat();
         let k2 = [nal(&[35 << 1, 1], &[0x50]), nal(&[1 << 1, 1], &[6, 6])].concat();
         let mut d = Dzielnik::nowy(Kodek::Hevc);
-        let mut klatki = d.karm(&[k1.clone(), k2.clone()].concat());
-        klatki.extend(d.karm(&nal(&[35 << 1, 1], &[0x50])));
+        let mut klatki = wektory(d.karm(&[k1.clone(), k2.clone()].concat()));
+        klatki.extend(wektory(d.karm(&nal(&[35 << 1, 1], &[0x50]))));
         assert_eq!(klatki, vec![(k1, true), (k2, false)]);
     }
 
@@ -1139,7 +1154,7 @@ mod testy {
         let mut d = Dzielnik::nowy(Kodek::Av1);
         let mut klatki = Vec::new();
         for kawalek in [k1.clone(), k2.clone(), obu(2, &[])].concat().chunks(2) {
-            klatki.extend(d.karm(kawalek));
+            klatki.extend(wektory(d.karm(kawalek)));
         }
         assert_eq!(klatki, vec![(k1, true), (k2, false)]);
     }

@@ -191,8 +191,8 @@ fn sesja(
                     };
                     let czas = t0 + (k - 1) * RAMKA_AAC * 10_000_000 / czestotliwosc as i64;
                     k += 1;
-                    let ramka: Box<[u8]> = dane[poz..poz + dl].into();
-                    bufor_watku.zablokuj().dodaj(Pakiet { czas, klucz: true, dane: ramka.into() });
+                    let ramka = Arc::from(&dane[poz..poz + dl]);
+                    bufor_watku.zablokuj().dodaj(Pakiet { czas, klucz: true, dane: ramka });
                     poz += dl;
                 }
                 dane.drain(..poz);
@@ -279,8 +279,15 @@ impl Zegar {
     }
 
     fn zera(&mut self, wejscie: &mut ChildStdin, ile: i64) -> std::io::Result<()> {
+        // Cisza idzie co ~100 ms — kawałkami ze stałego bufora zamiast nowej tablicy za każdym razem
+        static ZERA: [u8; 16 * 1024] = [0; 16 * 1024];
         if ile > 0 {
-            wejscie.write_all(&vec![0u8; ile as usize * self.bajtow_na_probke])?;
+            let mut bajty = ile as usize * self.bajtow_na_probke;
+            while bajty > 0 {
+                let n = bajty.min(ZERA.len());
+                wejscie.write_all(&ZERA[..n])?;
+                bajty -= n;
+            }
             self.wyslane += ile;
         }
         Ok(())
@@ -327,7 +334,7 @@ fn dlugosc_adts(d: &[u8]) -> Option<usize> {
     if d[0] != 0xFF || d[1] & 0xF0 != 0xF0 {
         return None;
     }
-    let dl = ((d[3] as usize & 0x03) << 11) | ((d[4] as usize) << 3) | (d[5] as usize >> 5);
+    let dl = adts_dlugosc_pola(d);
     (dl >= 7 && d.len() >= dl).then_some(dl)
 }
 

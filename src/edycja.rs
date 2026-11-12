@@ -310,7 +310,7 @@ fn eksportuj_plik(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dy
             return Err(format!("Nie udało się zastąpić oryginału: {e}"));
         }
         if let Err(e) = trash::delete(&odsuniety) {
-            eprintln!("Oryginał zostaje jako {}: {e}", odsuniety.display());
+            crate::dziennik::blad(&format!("Oryginał zostaje jako {}: {e}", odsuniety.display()));
         }
         return Ok(zrodlo.to_path_buf());
     }

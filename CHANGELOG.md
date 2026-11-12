@@ -1,5 +1,17 @@
 # Zmiany
 
+## 1.4.3
+
+Porządki w kodzie — bez zmian w działaniu programu.
+
+- Szybszy start: lista enkoderów z ffmpeg jest pobierana raz (dawniej dwa razy, osobnym procesem ffmpeg).
+- Mniej pracy przy nagrywaniu: każda zakodowana klatka obrazu i ramka dźwięku jest kopiowana w pamięci raz
+  zamiast dwóch, a cisza w dźwięku nie zajmuje co chwilę nowej pamięci. Możliwości Windows Graphics Capture
+  są sprawdzane raz na uruchomienie, a nie przy każdym odświeżeniu stanu.
+- Dziennik: zapisane klipy, sprzątanie starych klipów i błędy otwierania okna, dymka i przeciągania trafiają
+  teraz do `clipeon.log` (dawniej szły na niewidoczną konsolę).
+- Krótszy i czytelniejszy kod (wspólne funkcje zamiast powtórzeń, poprawione mylące nazwy i komentarze).
+
 ## 1.4.2
 
 - **Powtórka nie przepada, gdy nagrywanie się wznawia.** Gdy gra (np. Fightcade) co chwilę przełącza tryb

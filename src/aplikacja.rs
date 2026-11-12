@@ -83,7 +83,7 @@ fn pokaz_okno(app: &AppHandle, zakladka: &str) {
             .build();
         match wynik {
             Ok(okno) => ciemna_obwodka(&okno),
-            Err(e) => eprintln!("Nie udało się otworzyć okna: {e}"),
+            Err(e) => crate::dziennik::blad(&format!("Nie udało się otworzyć okna: {e}")),
         }
     });
 }
@@ -521,7 +521,7 @@ fn przeciagnij(okno: tauri::WebviewWindow, rdzen: State<'_, Rdzen>, sciezka: Pat
             let _ = app.emit("przeciaganie-koniec", opis);
         }, Default::default());
         if let Err(e) = wynik {
-            eprintln!("Nie udało się rozpocząć przeciągania: {e}");
+            crate::dziennik::blad(&format!("Nie udało się rozpocząć przeciągania: {e}"));
         }
     })
     .map_err(|e| e.to_string())

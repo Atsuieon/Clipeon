@@ -101,7 +101,8 @@ type Powiadom = Arc<dyn Fn(Zdarzenie) + Send + Sync>;
 
 /// Jedna sesja nagrywania. Zniszczenie jej zatrzymuje obraz i dźwięk.
 struct Sesja {
-    _wideo: wideo::Wideo,
+    wideo: wideo::Wideo,
+    /// Nagrywanie dźwięku (trzymane tylko po to, żeby działało, dopóki żyje sesja)
     _audio: Vec<audio::Audio>,
     bufor_wideo: WspolnyBufor,
     bufory_audio: Vec<(&'static str, WspolnyBufor)>,
@@ -118,7 +119,7 @@ struct Sesja {
 
 impl Sesja {
     fn obraz(&self) -> crate::film::Obraz {
-        let w = &self._wideo;
+        let w = &self.wideo;
         crate::film::Obraz { format: self.format_wideo, fps: w.fps, rozmiar: w.rozmiar, enkoder: w.enkoder }
     }
 }
@@ -236,13 +237,13 @@ impl Rdzen {
             tryb: w.cfg.tryb.clone(),
             ekran: wideo::etykieta_ekranu(monitor),
             monitor: monitor.to_string(),
-            droga: w.sesja.as_ref().map(|s| s._wideo.droga.nazwa().to_string()),
+            droga: w.sesja.as_ref().map(|s| s.wideo.droga.nazwa().to_string()),
             gra: w.gra.as_ref().map(|g| g.nazwa.clone()),
             wybrana_gra: nazwa_wybranej(&w.cfg),
             gra_proces: w.cfg.gra.clone(),
             czeka_na_gre: w.czeka_na_gre,
             mikrofon: w.cfg.mikrofon,
-            ramka: w.sesja.as_ref().is_some_and(|s| s._wideo.droga.z_ramka()),
+            ramka: w.sesja.as_ref().is_some_and(|s| s.wideo.droga.z_ramka()),
             film: w.film.as_ref().map(Film::sekundy),
             film_zapis: w.zapis_filmu,
             film_zmniejszanie: w.zmniejszanie_filmu,
@@ -286,8 +287,8 @@ impl Rdzen {
     /// Startuje (albo restartuje) skrót i nagrywanie według bieżącego configu.
     pub fn uruchom(&self) {
         // Najpierw zatrzymujemy stare (poza blokadą — wątek skrótu może właśnie na nią czekać),
-        // żeby zwolnić skrót i enkoder
-        // Błąd „nagrywanie” należy do strażnika — zostaje do czasu, aż nagrywanie znów ruszy
+        // żeby zwolnić skrót i enkoder. Błąd „nagrywanie” należy do strażnika — zostaje do czasu,
+        // aż nagrywanie znów ruszy.
         self.zatrzymaj(&["config", "nagrywanie"]);
         // Wybrana gra nie działa — nagrywanie czeka na nią (bez alarmu i bez zużycia procesora)
         let wybrana = self.config().wybrana_gra().to_string();
@@ -465,7 +466,7 @@ impl Rdzen {
             // Bufory zostają na następną sesję — chyba że trwa film (ten dostaje nowy segment)
             if let Some(s) = sesja.as_ref().filter(|_| w.film.is_none()) {
                 w.zachowane = Some(Zachowane {
-                    opis: s._wideo.opis.clone(),
+                    opis: s.wideo.opis.clone(),
                     bufor_wideo: s.bufor_wideo.clone(),
                     bufory_audio: s
                         .bufory_audio
@@ -474,7 +475,7 @@ impl Rdzen {
                         .map(|((n, b), u)| (*n, u.clone(), b.clone()))
                         .collect(),
                     format_wideo: s.format_wideo,
-                    fps: s._wideo.fps,
+                    fps: s.wideo.fps,
                     pulpit: s.pulpit,
                 });
             }
@@ -575,7 +576,7 @@ impl Rdzen {
         }
         let format_wideo = wideo.format;
         Ok(Sesja {
-            _wideo: wideo,
+            wideo,
             _audio: audio_,
             bufor_wideo,
             bufory_audio,
@@ -620,7 +621,8 @@ impl Rdzen {
 
     /// Przełącza tryb (gra / pulpit) i/lub ekran bieżącego trybu (z paska w oknie albo menu przy zegarze).
     pub fn ustaw_tryb(&self, tryb: Option<String>, monitor: Option<String>) -> Result<(), String> {
-        let mut cfg = self.config();
+        let stary = self.config();
+        let mut cfg = stary.clone();
         if let Some(t) = tryb {
             cfg.tryb = t;
         }
@@ -631,7 +633,7 @@ impl Rdzen {
                 cfg.monitor = m;
             }
         }
-        if cfg.tryb == self.config().tryb && cfg.aktywny_monitor() == self.config().aktywny_monitor() {
+        if cfg.tryb == stary.tryb && cfg.aktywny_monitor() == stary.aktywny_monitor() {
             return Ok(());
         }
         crate::dziennik::info(&format!(
@@ -693,12 +695,12 @@ impl Rdzen {
         }
     }
 
-    /// Zapisuje bufor do MP4 w osobnym wątku; nagrywanie trwa dalej.
     /// Krótka informacja w dymku (nie alarm).
     pub fn uwaga(&self, tytul: &str, opis: &str) {
         (self.powiadom)(Zdarzenie::Uwaga { tytul: tytul.into(), opis: opis.into() });
     }
 
+    /// Zapisuje bufor do MP4 w osobnym wątku; nagrywanie trwa dalej.
     pub fn zapisz_klip(&self) {
         let (migawka, folder, brak_sesji, gra) = {
             let w = self.zamek();
@@ -706,7 +708,7 @@ impl Rdzen {
                 let wideo = s.bufor_wideo.zablokuj().migawka();
                 let audio: Vec<_> =
                     s.bufory_audio.iter().map(|(n, b)| (*n, b.zablokuj().migawka())).collect();
-                (wideo, audio, s.format_wideo, s._wideo.fps, s.pulpit)
+                (wideo, audio, s.format_wideo, s.wideo.fps, s.pulpit)
             });
             // Alt+F10 akurat w chwili wznawiania nagrywania: zapisujemy to, co zostało w buforze
             let migawka = migawka.or_else(|| {
@@ -939,7 +941,7 @@ impl Rdzen {
         if po_uspieniu {
             return Some("komputer był uśpiony".into());
         }
-        if let Some(p) = sesja._wideo.problem() {
+        if let Some(p) = sesja.wideo.problem() {
             return Some(p);
         }
         if let Some(b) = w.bledy.get("wideo") {
@@ -951,7 +953,7 @@ impl Rdzen {
         }
         // Windows Graphics Capture w ffmpeg nie daje klatek, gdy ekran się nie zmienia — wtedy brak
         // klatek to nie awaria (proces ffmpeg pilnuje wątek odczytu, który zgłosi jego koniec)
-        if sesja._wideo.droga == Droga::Gfx {
+        if sesja.wideo.droga == Droga::Gfx {
             return None;
         }
         let ostatnia = sesja.bufor_wideo.zablokuj().ostatni_czas();
@@ -1042,11 +1044,7 @@ impl Rdzen {
 
                 // Alarm: dowolny problem trwający ponad próg; zdejmujemy, gdy wszystko wróci do normy
                 // Pierwsza litera wielka — tytuł dymka mówi już „Clipeon nie nagrywa”
-                let wielka = |t: String| {
-                    let mut z = t.chars();
-                    z.next().map(|c| c.to_uppercase().chain(z).collect::<String>()).unwrap_or_default()
-                };
-                let opis = problem.map(wielka).or(inny_blad);
+                let opis = problem.as_deref().map(z_wielkiej).or(inny_blad);
                 let dlugo = od_problemu.is_some_and(|t| t.elapsed() >= prog_alarmu) || (opis.is_some() && problem_inny_dlugo(&r));
                 match (&opis, alarm) {
                     (Some(o), false) if dlugo => {
@@ -1076,7 +1074,7 @@ impl Rdzen {
     fn odrzuc_droge_po_problemie(&self, powod: &str, chwilowy: bool) {
         let mut w = self.zamek();
         let monitor = w.cfg.aktywny_monitor().0.to_string();
-        let w_sesji = w.sesja.as_ref().map(|s| s._wideo.droga);
+        let w_sesji = w.sesja.as_ref().map(|s| s.wideo.droga);
         let mlody = w.start_sesji.is_some_and(|t| t.elapsed() < ROZRUCH_DROGI);
         let mut decyzja = co_z_droga(w_sesji, w.seria_awarii, chwilowy, mlody, Instant::now());
         // Seria trwa długo, ale sesje na tej drodze startują (padają dopiero po chwili), a każda inna droga
@@ -1169,7 +1167,7 @@ impl Rdzen {
             }
             let lekki = w.lekki;
             let Some(s) = &w.sesja else { return };
-            let (monitor, droga) = (s.monitor.clone(), s._wideo.droga);
+            let (monitor, droga) = (s.monitor.clone(), s.wideo.droga);
             if dlugo && s.zapamietaj_droge {
                 let mut p = crate::pamiec::pamiec();
                 if p.drogi.get(&monitor).map(String::as_str) != Some(droga.nazwa()) {
@@ -1185,10 +1183,10 @@ impl Rdzen {
                 .iter()
                 .find(|((m, d), kiedy)| *m == monitor && *d != droga && **kiedy <= teraz)
                 .map(|((_, d), _)| *d);
-            let przeciazenie = s._wideo.przeciazenie.load(Ordering::SeqCst);
+            let przeciazenie = s.wideo.przeciazenie.load(Ordering::SeqCst);
             let z_ramka = droga.z_ramka();
             let zastepczy_wrocil =
-                obieg.is_multiple_of(5) && s._wideo.zastepczy.as_ref().is_some_and(|(n, id)| wideo::monitor_wrocil(n, id));
+                obieg.is_multiple_of(5) && s.wideo.zastepczy.as_ref().is_some_and(|(n, id)| wideo::monitor_wrocil(n, id));
             if dlugo && droga.w_ffmpeg() && !z_ramka {
                 // Droga bez ramki działa stabilnie: następny ewentualny powrót znów po krótkiej przerwie
                 w.przerwa_powrotu = POWROT_NA_DROGE_PO;
@@ -1237,7 +1235,7 @@ impl Rdzen {
         let (teraz, droga) = {
             let w = self.zamek();
             match &w.sesja {
-                Some(s) => (Some(s._wideo.statystyki.odczyt()), s._wideo.droga.nazwa()),
+                Some(s) => (Some(s.wideo.statystyki.odczyt()), s.wideo.droga.nazwa()),
                 None => (None, "-"),
             }
         };
@@ -1245,18 +1243,9 @@ impl Rdzen {
             *poprzednie = None;
             return;
         };
-        let roznica = match poprzednie.replace(teraz) {
-            // Nowa sesja ma liczniki od zera
-            Some(p) if p.iter().zip(teraz.iter()).all(|(a, b)| b >= a) => {
-                let mut r = [0u64; 6];
-                for i in 0..6 {
-                    r[i] = teraz[i] - p[i];
-                }
-                r
-            }
-            _ => return,
-        };
-        let [przechwycone, pominiete, powtorzone, spoznione, pakiety, bajty] = roznica;
+        // Nowa sesja ma liczniki od zera — wtedy różnicę policzymy dopiero za minutę
+        let Some(p) = poprzednie.replace(teraz).filter(|p| p.iter().zip(&teraz).all(|(a, b)| b >= a)) else { return };
+        let [przechwycone, pominiete, powtorzone, spoznione, pakiety, bajty] = std::array::from_fn(|i| teraz[i] - p[i]);
         let mut t = format!(
             "Statystyki (60 s): droga {droga}, zakodowane klatki {pakiety} ({:.1}/s, {:.1} Mb/s)",
             pakiety as f64 / 60.0,
@@ -1276,7 +1265,7 @@ impl Rdzen {
     pub fn diagnostyka(&self) -> String {
         let (cfg, sesja) = {
             let w = self.zamek();
-            (w.cfg.clone(), w.sesja.as_ref().map(|s| s._wideo.opis.clone()))
+            (w.cfg.clone(), w.sesja.as_ref().map(|s| s.wideo.opis.clone()))
         };
         let stan = self.stan();
         let mut t = String::new();
@@ -1420,6 +1409,12 @@ fn co_z_droga(w_sesji: Option<Droga>, seria: Option<(Instant, Droga)>, chwilowy:
     }
 }
 
+/// „brak klatek” -> „Brak klatek”.
+fn z_wielkiej(t: &str) -> String {
+    let mut z = t.chars();
+    z.next().map(|c| c.to_uppercase().chain(z).collect()).unwrap_or_default()
+}
+
 fn tak_nie(b: bool) -> &'static str {
     if b { "tak" } else { "nie" }
 }
@@ -1448,10 +1443,8 @@ fn id_monitora(nazwa: &str, stara_nazwa: &str, stary_id: &str) -> String {
 
 /// Czy inny błąd (skrót, dźwięk) trwa już dłużej niż próg alarmu.
 fn problem_inny_dlugo(r: &Rdzen) -> bool {
-    use std::sync::OnceLock;
-    static OD: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
-    let od = OD.get_or_init(|| Mutex::new(None));
-    let mut od = od.zablokuj();
+    static OD: Mutex<Option<Instant>> = Mutex::new(None);
+    let mut od = OD.zablokuj();
     let jest = r.zamek().bledy.keys().any(|k| *k != "nagrywanie");
     if !jest {
         *od = None;

@@ -89,11 +89,11 @@ pub fn sprzataj(folder: &Path, dni: u32, gb: u32) -> usize {
                 suma = suma.saturating_sub(k.rozmiar);
                 usuniete += 1;
             }
-            Err(e) => eprintln!("Sprzątanie: {e}"),
+            Err(e) => crate::dziennik::blad(&format!("Sprzątanie: {e}")),
         }
     }
     if usuniete > 0 {
-        println!("Sprzątanie: {usuniete} klipów przeniesiono do Kosza");
+        crate::dziennik::info(&format!("Sprzątanie: {usuniete} klipów przeniesiono do Kosza"));
         usun_puste_miesiace(folder);
     }
     usuniete
