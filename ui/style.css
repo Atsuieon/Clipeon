@@ -741,9 +741,7 @@ input[type="number"]:focus-visible, select:focus-visible { outline: none; border
   position: absolute; right: 6px; top: -9px; padding: 1px 7px; border-radius: 999px; background: #fff; color: #000;
   font-size: 11px; line-height: 16px; font-variant-numeric: tabular-nums; white-space: nowrap;
 }
-/* Etykieta nie wychodzi poza wykres przy 0% i 200% */
-.fala-linia.nisko .fala-procent { top: -19px; }
-.fala-linia.wysoko .fala-procent { top: 1px; }
+/* Przy 0% i 200% etykieta zsuwa się do środka wykresu: `top` ustawia app.js (odswiezSciezki) */
 .sciezka.wyciszona .fala-linia { border-top-color: var(--pomoc); }
 .sciezka.wyciszona .fala-procent { background: var(--pomoc); }
 .sciezka.wyciszona .wycisz { color: var(--pomoc); }

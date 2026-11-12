@@ -13,6 +13,12 @@
   więc wszystko po niej było słychać o sekundę za wcześnie (w klipie zapisanym tuż po zamknięciu lub starcie
   gry). Teraz przełączenie trwa ułamek sekundy, a przerwa jest wypełniana ciszą.
 - Przełączenie na inne domyślne urządzenie (np. słuchawki) też jest natychmiastowe i bez dziury w klipie.
+- **Edytor: linia głośności nie przeskakuje.** Gdy złapało się ścieżkę „Gra” albo „Mikrofon” w innym miejscu
+  niż linia, linia od razu skakała pod kursor (np. z 100% na prawie 200%). Teraz rusza z miejsca, w którym
+  stoi, i przesuwa się o tyle, o ile ruszy się myszka. Etykieta z procentem przy 0% i 200% zsuwa się płynnie
+  zamiast przeskakiwać nad linię i pod nią.
+- **Edytor: wykres dźwięku stoi w miejscu.** Dawniej słupki rosły i malały razem z linią głośności. Teraz
+  głośność zmienia ich jasność (0% blade, 200% najjaśniejsze), a wysokość tylko odrobinę.
 
 ## 1.4.3
 

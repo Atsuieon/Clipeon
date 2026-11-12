@@ -999,6 +999,8 @@ listen("postep", (e) => {
 // ---------- Edytor: ścieżki dźwięku (Gra / Mikrofon albo jedna) ----------
 // Każda ścieżka to wykres głośności na osi czasu klipu, z poziomą linią głośności (0–200%).
 // Linię przeciąga się w górę i w dół, a zmianę słychać od razu (patrz „głośność słychać od razu”).
+// Wykres stoi w miejscu: głośność zmienia jego jasność (0% = blady, 200% = najjaśniejszy) i tylko
+// odrobinę wysokość słupków.
 // Każdy wpis: { nazwa, glosnosc (0..2), przed (głośność sprzed wyciszenia), fala (0–255 albo null), el, … }
 let sciezkiGlosu = [];
 let maMikrofon = false;
@@ -1065,12 +1067,19 @@ function ustawGlosnosc(s, v) {
   odswiezEdytor();
 }
 
+// Połowa wysokości etykiety z procentem (.fala-procent: 16 px wiersza + 2 px odstępów)
+const POL_ETYKIETY = 9;
+
 function odswiezSciezki() {
   for (const s of sciezkiGlosu) {
     const p = Math.round(s.glosnosc * 100);
     s.linia.style.bottom = `${p / 2}%`;
-    s.linia.classList.toggle("nisko", p < 45);
-    s.linia.classList.toggle("wysoko", p > 165);
+    // Etykieta siedzi na linii, a przy brzegach płynnie zsuwa się do środka wykresu (dawniej przeskakiwała
+    // nad linię poniżej 45% i pod linię powyżej 165%)
+    const h = s.pole.clientHeight || 44;
+    const y = (h * p) / 200;
+    const srodek = Math.min(Math.max(y, POL_ETYKIETY + 1), h - POL_ETYKIETY - 1);
+    s.linia.firstChild.style.top = `${y - srodek - POL_ETYKIETY}px`;
     s.linia.firstChild.textContent = `${p}%`;
     s.pole.setAttribute("aria-valuenow", p);
     s.pole.setAttribute("aria-valuetext", p === 0 ? "wyciszona" : `${p}%`);
@@ -1082,7 +1091,14 @@ function odswiezSciezki() {
   }
 }
 
-// Wykres: słupki od dołu; pełna wysokość = 200%, więc przy 100% najgłośniejsze miejsca sięgają linii
+// Jasność słupków wykresu dla głośności 0..2: 0% blado (ale dalej widać, gdzie jest dźwięk), 100% jak
+// dawniej, 200% najjaśniej
+const jasnoscFali = (g) => (g <= 1 ? 0.16 + 0.34 * g : 0.5 + 0.35 * (g - 1));
+// Jaką część wysokości pola zajmuje najgłośniejszy słupek: głośność rusza wykresem tylko odrobinę
+// (po 8% wysokości na każde 100%), żeby było widać kierunek zmiany
+const wysokoscFali = (g) => 0.54 + 0.08 * g;
+
+// Wykres: słupki od dołu. Nie rośnie razem z linią głośności — zmienia głównie jasność
 function rysujFale(s) {
   const c = s.plotno;
   const dpr = window.devicePixelRatio || 1;
@@ -1096,9 +1112,8 @@ function rysujFale(s) {
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, w, h);
   if (!s.fala) return;
-  // Wyciszona ścieżka dalej pokazuje (blado), gdzie jest dźwięk
-  const glosnosc = s.glosnosc === 0 ? 1 : s.glosnosc;
-  g.fillStyle = s.glosnosc === 0 ? "rgba(255, 255, 255, 0.16)" : "rgba(255, 255, 255, 0.5)";
+  g.fillStyle = `rgba(255, 255, 255, ${jasnoscFali(s.glosnosc).toFixed(3)})`;
+  const skala = wysokoscFali(s.glosnosc) * h;
   const krok = 3;
   for (let x = 0; x < w; x += krok) {
     // Najgłośniejsze miejsce z kawałka klipu pod tym słupkiem
@@ -1107,24 +1122,33 @@ function rysujFale(s) {
     let szczyt = 0;
     for (let i = od; i < od + ile && i < s.fala.length; i++) szczyt = Math.max(szczyt, s.fala[i]);
     // Pierwiastek, żeby ciche dźwięki (rozmowa, kroki) też było widać
-    const wys = Math.min(h, Math.sqrt(szczyt / 255) * glosnosc * (h / 2));
+    const wys = Math.sqrt(szczyt / 255) * skala;
     if (wys >= 0.5) g.fillRect(x, h - wys, krok - 1, wys);
   }
 }
 
-// Przeciąganie w górę / w dół = głośność; samo kliknięcie = przewinięcie w to miejsce klipu
+// Przeciąganie w górę / w dół = głośność; samo kliknięcie = przewinięcie w to miejsce klipu.
+// Linia rusza z miejsca, w którym stoi, i idzie o tyle, o ile ruszy się myszka — niezależnie od tego,
+// gdzie na ścieżce złapano. Dawniej skakała pod kursor (złapanie przy górnej krawędzi od razu dawało
+// prawie 200%), a każde przesunięcie się układu okna w trakcie ciągnięcia zmieniało głośność.
 function podepnijFale(s) {
   const pole = s.pole;
   pole.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
     pole.setPointerCapture(e.pointerId);
-    const y0 = e.clientY;
+    // Wysokość pola = 200%; mierzona raz, na początku
+    const wysokosc = pole.getBoundingClientRect().height || 44;
+    const g0 = s.glosnosc;
+    let y0 = e.clientY;
     let ciagnie = false;
     const ruch = (m) => {
-      if (!ciagnie && Math.abs(m.clientY - y0) < 3) return;
-      ciagnie = true;
-      const r = pole.getBoundingClientRect();
-      ustawGlosnosc(s, ((r.bottom - m.clientY) / r.height) * 2);
+      if (!ciagnie) {
+        if (Math.abs(m.clientY - y0) < 3) return;
+        // Ruch liczymy od chwili, gdy przeciąganie się zaczęło, żeby linia nie drgnęła o te 3 px
+        ciagnie = true;
+        y0 = m.clientY;
+      }
+      ustawGlosnosc(s, g0 + ((y0 - m.clientY) / wysokosc) * 2);
     };
     const koniec = (k) => {
       pole.removeEventListener("pointermove", ruch);

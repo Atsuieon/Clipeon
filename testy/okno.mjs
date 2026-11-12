@@ -450,16 +450,61 @@ sprawdz((await strona.textContent("#eksportuj")) === "Zapisz bez mojego głosu",
 await strona.locator(".sciezka .wycisz").nth(1).click();
 sprawdz(await v(() => sciezkiGlosu[1].glosnosc === 1), "przycisk przy ścieżce nie włącza mikrofonu");
 
-// Przeciągnięcie linii głośności w dół = ciszej, i słychać to od razu
+// Przeciągnięcie w dół = ciszej, i słychać to od razu. Linia rusza ze swojego miejsca (100%), nawet gdy
+// złapano ścieżkę przy samej górze — dawniej skakała pod kursor, czyli tutaj na prawie 200%
 // (odciszenie mikrofonu chowa wiersz zapisu, więc ścieżki mierzymy od nowa, gdy układ się uspokoi)
 await strona.waitForTimeout(200);
 falaR = await strona.locator(".fala").first().boundingBox();
-await strona.mouse.move(falaR.x + falaR.width / 2, falaR.y + falaR.height / 2);
+const [zlapX, zlapY] = [falaR.x + falaR.width / 2, falaR.y + 4];
+await strona.mouse.move(zlapX, zlapY);
 await strona.mouse.down();
-await strona.mouse.move(falaR.x + falaR.width / 2, falaR.y + falaR.height * 0.75, { steps: 4 });
+await strona.mouse.move(zlapX, zlapY + 3);
+sprawdz((await v(() => sciezkiGlosu[0].glosnosc)) === 1, `złapanie ścieżki z dala od linii zmienia głośność skokiem: ${await v(() => sciezkiGlosu[0].glosnosc)}`);
+// Ćwierć wysokości pola w dół = o 50% ciszej
+await strona.mouse.move(zlapX, zlapY + 3 + falaR.height / 4, { steps: 4 });
 await strona.mouse.up();
 sprawdz((await v(() => sciezkiGlosu[0].glosnosc)) === 0.5, `przeciągnięcie linii głośności: ${await v(() => sciezkiGlosu[0].glosnosc)} zamiast 0.5`);
 sprawdz((await strona.locator(".fala-procent").first().textContent()) === "50%", "linia głośności nie pokazuje procentu");
+
+// Wykres nie rośnie razem z linią: głośność zmienia głównie jasność słupków, a wysokość tylko odrobinę
+const wykresPrzy = (g) =>
+  strona.evaluate((g) => {
+    const s = sciezkiGlosu[0];
+    ustawGlosnosc(s, g);
+    const c = s.plotno;
+    const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+    let [szczyt, jasnosc] = [c.height, 0];
+    for (let y = 0; y < c.height; y++) {
+      for (let x = 0; x < c.width; x++) {
+        const a = d[(y * c.width + x) * 4 + 3];
+        if (a) {
+          szczyt = Math.min(szczyt, y);
+          jasnosc = Math.max(jasnosc, a);
+        }
+      }
+    }
+    return { wys: (c.height - szczyt) / c.height, jasnosc: jasnosc / 255 };
+  }, g);
+const [w0, w100, w200] = [await wykresPrzy(0), await wykresPrzy(1), await wykresPrzy(2)];
+sprawdz(w0.wys > 0.4 && w200.wys < 0.8 && w200.wys - w0.wys < 0.2, `wykres dalej rośnie z głośnością: ${JSON.stringify([w0, w100, w200])}`);
+sprawdz(w0.wys < w100.wys && w100.wys < w200.wys, `wykres nie rusza się ani odrobinę przy zmianie głośności: ${JSON.stringify([w0, w100, w200])}`);
+sprawdz(w0.jasnosc < w100.jasnosc - 0.2 && w100.jasnosc < w200.jasnosc - 0.2, `głośność nie zmienia jasności wykresu: ${JSON.stringify([w0, w100, w200])}`);
+// Etykieta z procentem nie przeskakuje: przy sąsiednich wartościach przesuwa się najwyżej o kilka pikseli
+const etykietaY = async (g) => {
+  await strona.evaluate((g) => ustawGlosnosc(sciezkiGlosu[0], g), g);
+  return (await strona.locator(".fala-procent").first().boundingBox()).y;
+};
+let poprzedniaY = await etykietaY(0);
+let najwiekszySkok = 0;
+for (let g = 0.05; g <= 2.001; g += 0.05) {
+  const y = await etykietaY(g);
+  najwiekszySkok = Math.max(najwiekszySkok, Math.abs(y - poprzedniaY));
+  poprzedniaY = y;
+}
+sprawdz(najwiekszySkok <= 1.5, `etykieta głośności przeskakuje o ${najwiekszySkok} px między sąsiednimi wartościami`);
+const [etykieta0, etykieta200] = [await etykietaY(0), await etykietaY(2)];
+sprawdz(etykieta200 >= falaR.y && etykieta0 + 18 <= falaR.y + falaR.height + 0.5, `etykieta głośności wychodzi poza ścieżkę: ${JSON.stringify([etykieta0, etykieta200, falaR])}`);
+await v(() => ustawGlosnosc(sciezkiGlosu[0], 0.5));
 // Wyciszenie mikrofonu przyciskiem przy ścieżce
 await strona.locator(".sciezka .wycisz").nth(1).click();
 await strona.waitForTimeout(200);
