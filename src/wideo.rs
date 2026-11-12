@@ -463,9 +463,7 @@ pub fn uruchom(
     match droga {
         Droga::Dda => {
             let wyj = p.wyjscie.clone().ok_or("nie wiadomo, do której karty podłączony jest monitor")?;
-            if !enkodery::dziala_z_tekstura(enkoder, w, h, wyj.karta, Some(wyj.wyjscie)) {
-                return Err(format!("{enkoder} nie przyjmuje obrazu prosto z karty {}", wyj.karta).into());
-            }
+            enkodery::dziala_z_tekstura(enkoder, w, h, wyj.karta, Some(wyj.wyjscie))?;
             cmd.args(["-init_hw_device", &format!("d3d11va=gpu:{}", wyj.karta), "-filter_hw_device", "gpu"]);
             cmd.args([
                 "-filter_complex",
@@ -476,9 +474,7 @@ pub fn uruchom(
             let karta = p.karta_enkodera.ok_or("nie wiadomo, na której karcie koduje enkoder")?;
             // Próba na obrazie z ekranu, gdy monitor jest na karcie enkodera (klatki gfxcapture są takie same)
             let ekran = p.wyjscie.as_ref().filter(|wyj| wyj.karta == karta).map(|wyj| wyj.wyjscie);
-            if !enkodery::dziala_z_tekstura(enkoder, w, h, karta, ekran) {
-                return Err(format!("{enkoder} nie przyjmuje obrazu prosto z karty {karta}").into());
-            }
+            enkodery::dziala_z_tekstura(enkoder, w, h, karta, ekran)?;
             let skaluj = (w, h) != (p.ekran.0 & !1, p.ekran.1 & !1);
             cmd.args(["-init_hw_device", &format!("d3d11va=gpu:{karta}"), "-filter_hw_device", "gpu"]);
             cmd.args([
@@ -619,8 +615,11 @@ fn czytaj_strumien(mut o: Odczyt) {
                     std::thread::sleep(Duration::from_millis(100));
                     let opis = o.ostatni_blad.zablokuj().clone();
                     crate::dziennik::blad(&format!("Wideo: ffmpeg przestał działać: {opis}"));
-                    // Chwilowa utrata dostępu do ekranu (UAC, blokada) to nie wina enkodera
-                    if !chwilowy(&opis) {
+                    // Chwilowa utrata dostępu do ekranu (UAC, blokada) to nie wina enkodera. Tak samo
+                    // przechwytywanie w ffmpeg, które nie dało ani jednej klatki („received no packets”):
+                    // enkoder nie dostał obrazu, więc nie ma za co go zapominać (Desktop Duplication
+                    // po zmianie trybu ekranu potrafi przez chwilę nic nie dawać)
+                    if !chwilowy(&opis) && !bez_obrazu_z_przechwytywania(o.droga, nr, &opis) {
                         enkodery::zapomnij(o.enkoder);
                     }
                     (o.zglos)(if opis.is_empty() {
@@ -671,6 +670,11 @@ pub fn chwilowy(opis: &str) -> bool {
         // Błąd „zewnętrznej biblioteki” w wątku filtrów (`fc#`), czyli w ddagrab / gfxcapture: Desktop
         // Duplication traci obraz, gdy gra przełącza pełny ekran albo rozdzielczość (enkoder jest w porządku)
         || (o.contains("[fc#") && (o.contains("-542398533") || o.contains("external library")))
+}
+
+/// ffmpeg zakończył się, zanim przechwytywanie (ddagrab / gfxcapture) dało choć jedną klatkę.
+fn bez_obrazu_z_przechwytywania(droga: Droga, klatki: i64, opis: &str) -> bool {
+    droga.w_ffmpeg() && klatki == 0 && opis.to_lowercase().contains("received no packets")
 }
 
 // ---------- Droga „Potok”: przechwytywanie w Clipeonie ----------
@@ -993,6 +997,18 @@ mod testy {
         assert_eq!(numer_monitora(r"\\.\DISPLAY2"), 2);
         assert_eq!(numer_monitora(r"\\.\DISPLAY12"), 12);
         assert_eq!(numer_monitora(""), 0);
+    }
+
+    #[test]
+    fn brak_obrazu_z_przechwytywania_nie_obciaza_enkodera() {
+        let opis = "[out#0/h264 @ 0x1] Nothing was written into output file, because at least one of its streams received no packets.";
+        assert!(bez_obrazu_z_przechwytywania(Droga::Dda, 0, opis));
+        assert!(bez_obrazu_z_przechwytywania(Droga::Gfx, 0, opis));
+        assert!(!bez_obrazu_z_przechwytywania(Droga::Dda, 5, opis));
+        assert!(!bez_obrazu_z_przechwytywania(Droga::Potok, 0, opis));
+        assert!(!bez_obrazu_z_przechwytywania(Droga::Dda, 0, "Error while opening encoder"));
+        // Nieudana próba na obrazie z ekranu po wcześniejszym sukcesie: strażnik ponawia, nie odrzuca drogi
+        assert!(chwilowy("chwilowa utrata obrazu z ekranu (próba h264_nvenc z karty 0 się nie udała)"));
     }
 
     #[test]

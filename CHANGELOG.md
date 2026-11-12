@@ -1,5 +1,15 @@
 # Zmiany
 
+## 1.4.2
+
+- **Żółta ramka nie zostaje już na stałe po zmianie trybu ekranu (NVIDIA i inne karty).** Gdy gra albo
+  Windows przełączał tryb ekranu, nagrywanie Desktop Duplication na chwilę traciło obraz. Clipeon brał to za
+  awarię enkodera, sprawdzał go od nowa akurat w trakcie zmiany trybu, uznawał, że enkoder nie bierze obrazu
+  z karty, i do końca uruchomienia nagrywał przez Windows Graphics Capture — na Windows 10 z żółtą ramką
+  wokół ekranu. Teraz enkoder, który już działał, nie jest za to obwiniany: Clipeon ponawia Desktop
+  Duplication, a gdy na chwilę musi przejść na tryb zgodności, wraca na drogę bez ramki, gdy tylko ekran
+  znów da obraz.
+
 ## 1.4.1
 
 - **Tło płynie jak dym albo tusz w wodzie.** Ruch myszki wlewa jasne znaki i popycha „płyn” pod tłem: znaki

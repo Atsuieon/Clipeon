@@ -289,11 +289,20 @@ impl Rdzen {
                 w.odrzucone_chwilowo.iter().filter(|((m, _), kiedy)| *m == monitor && **kiedy > teraz).map(|((_, d), _)| *d).collect();
             // W serii chwilowych awarii ponawiamy tylko drogę, która je miała
             let tylko = w.seria_awarii.map(|(_, d)| d);
-            let wynik = self.nowa_sesja(&cfg, pokolenie, &mut odrzucone, &chwilowo, tylko, lekki);
+            let mut odlozone = Vec::new();
+            let wynik = self.nowa_sesja(&cfg, pokolenie, &mut odrzucone, &chwilowo, tylko, lekki, &mut odlozone);
             for (m, d) in &odrzucone {
                 w.odrzucone_chwilowo.remove(&(m.clone(), *d));
             }
             w.odrzucone = odrzucone;
+            if !odlozone.is_empty() {
+                let przerwa = w.przerwa_powrotu;
+                for d in odlozone {
+                    crate::dziennik::info(&format!("Droga przechwytywania „{}”: spróbuję znów za {} s", d.nazwa(), przerwa.as_secs()));
+                    w.odrzucone_chwilowo.insert((monitor.clone(), d), teraz + przerwa);
+                }
+                w.przerwa_powrotu = (przerwa * 2).min(POWROT_NAJPOZNIEJ_PO);
+            }
             match wynik {
                 Ok(s) => {
                     // Trwający film nagrywa się dalej z nowej sesji (nowy segment)
@@ -437,6 +446,7 @@ impl Rdzen {
     /// potem dźwięk. Drogi, które nie wystartowały, trafiają do `odrzucone`.
     /// `chwilowo` = drogi pomijane tylko na jakiś czas, `tylko` = jedyna droga, którą wolno teraz
     /// spróbować (trwa seria chwilowych awarii tej drogi).
+    #[allow(clippy::too_many_arguments)]
     fn nowa_sesja(
         &self,
         cfg: &Config,
@@ -445,6 +455,7 @@ impl Rdzen {
         chwilowo: &HashSet<Droga>,
         tylko: Option<Droga>,
         lekki: bool,
+        odlozone: &mut Vec<Droga>,
     ) -> Result<Sesja, String> {
         let monitor = cfg.aktywny_monitor().0.to_string();
         let zapamietana = crate::pamiec::pamiec().drogi.get(&monitor).and_then(|d| Droga::z_nazwy(d));
@@ -470,9 +481,16 @@ impl Rdzen {
                 Err(e) => {
                     ostatni_blad = e.to_string();
                     crate::dziennik::info(&format!("Droga przechwytywania „{}” nie wystartowała: {e}", droga.nazwa()));
-                    // W serii chwilowych awarii (gra zmienia tryb ekranu) nieudany start o niczym nie przesądza
+                    // W serii chwilowych awarii (gra zmienia tryb ekranu) nieudany start o niczym nie przesądza.
+                    // Chwilowa utrata obrazu przy starcie (np. powrót z trybu zgodności w trakcie zmiany trybu
+                    // ekranu) odkłada drogę tylko na jakiś czas — dawniej odrzucała ją do końca uruchomienia
+                    // i żółta ramka zostawała do restartu Clipeona.
                     if droga != Droga::Potok && tylko.is_none() {
-                        odrzucone.insert((monitor.clone(), droga));
+                        if wideo::chwilowy(&ostatni_blad) {
+                            odlozone.push(droga);
+                        } else {
+                            odrzucone.insert((monitor.clone(), droga));
+                        }
                     }
                 }
             }
