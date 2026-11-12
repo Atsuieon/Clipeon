@@ -32,7 +32,6 @@
 - **Edytor** — przycinanie, kadrowanie, zmniejszanie do 10 / 20 / 50 / 100 MB i zapis jako zapętlony GIF / WebP, np. pod Discorda. Głośność słychać od razu, a `←` / `→` przewijają o 5 s, `,` / `.` o klatkę.
 - **Przeciągnij i upuść** — gotowy klip przeciągasz prosto do Discorda, przeglądarki albo folderu.
 - **Biblioteka** — klipy pogrupowane według dni, zaznaczanie wielu naraz, usuwanie do Kosza.
-- **Czarny, spokojny wygląd** — w tle okna leżą znaki, a ruch myszki miesza je jak dym albo tusz w wodzie. Tło działa tylko przy otwartym oknie (w grze nie kosztuje nic) i da się je wyłączyć, tak jak kolory na napisie „Clipeon”.
 - **Nie przestaje nagrywać po cichu** — sam wznawia nagrywanie po problemie ze sterownikiem, przechodzi na inny sposób przechwytywania, gdy któryś nie działa, i ostrzega, gdy coś jest nie tak.
 
 ## Wymagania
