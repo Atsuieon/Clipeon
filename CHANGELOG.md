@@ -16,6 +16,12 @@ Porządki w kodzie — bez zmian w działaniu programu.
 - Poprawka: przy szybkiej zmianie klipu w edytorze podgląd dźwięku mógł wczytać ścieżkę z poprzedniego klipu.
 - Poprawka: gdy nie udało się uruchomić wątku odczytu obrazu, ffmpeg zostawał w tle aż do zamknięcia Clipeona.
 - Nazwa gry na wierzchu jest czytana z pliku programu raz, a nie co sekundę.
+- Poprawka: w trybie Pulpit dymki o aktualizacjach pokazywały się na ekranie z trybu Gra (teraz każdy dymek
+  jest na nagrywanym ekranie).
+- Poprawka: przerwany eksport GIF albo WebP zostawiał w folderze klipów plik `.gif.tmp` / `.webp.tmp`, którego
+  sprzątanie nie usuwało.
+- Poprawka: dwa eksporty tego samego klipu naraz mogły dostać tę samą nazwę i pisać do jednego pliku.
+- Dziennik: błędy ustawiania ikony przy zegarze też trafiają do `clipeon.log`.
 
 ## 1.4.2
 

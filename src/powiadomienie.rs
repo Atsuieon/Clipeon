@@ -213,7 +213,7 @@ pub fn pokaz(miejsce: Miejsce, tytul: &str, opis: &str, blad: bool, trwale: bool
 fn rysuj_tlo(piksele: &mut [u32], szer: i32, wys: i32, s: f32, blad: bool) -> Vec<f32> {
     let (w, h) = (szer as f32, wys as f32);
     let r = 18.0 * s;
-    let kropka = if blad { (239.0, 68.0, 68.0) } else { (34.0, 197.0, 94.0) };
+    let kropka = (if blad { crate::ikona::CZERWONY } else { crate::ikona::ZIELONY }).map(f32::from);
     let (kx, ky, kr) = (22.0 * s, h / 2.0, 4.5 * s);
     let mut pokrycie = vec![0.0f32; piksele.len()];
     for y in 0..wys {
@@ -229,9 +229,9 @@ fn rysuj_tlo(piksele: &mut [u32], szer: i32, wys: i32, s: f32, blad: bool) -> Ve
             let mut kol = [10.0f32 + ramka * 28.0; 3];
             let dk = ((px - kx).powi(2) + (py - ky).powi(2)).sqrt() - kr;
             let k = (0.5 - dk).clamp(0.0, 1.0);
-            kol[0] = kol[0] * (1.0 - k) + kropka.0 * k;
-            kol[1] = kol[1] * (1.0 - k) + kropka.1 * k;
-            kol[2] = kol[2] * (1.0 - k) + kropka.2 * k;
+            for (c, kr) in kol.iter_mut().zip(kropka) {
+                *c = *c * (1.0 - k) + kr * k;
+            }
             let i = (y * szer + x) as usize;
             piksele[i] = ((kol[0] as u32) << 16) | ((kol[1] as u32) << 8) | kol[2] as u32;
             pokrycie[i] = c;

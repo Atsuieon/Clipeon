@@ -34,17 +34,17 @@ pub fn ustaw_w_tle(widoczna: bool, gotowe: impl FnOnce() + Send + 'static) {
         for _ in 0..15 {
             match ustaw(widoczna) {
                 Ok(true) => {
-                    println!("Ikona w zasobniku: {}", if widoczna { "zawsze przy zegarze" } else { "w ukrytych ikonach" });
+                    crate::dziennik::info(&format!("Ikona w zasobniku: {}", if widoczna { "zawsze przy zegarze" } else { "w ukrytych ikonach" }));
                     gotowe();
                     return;
                 }
                 Ok(false) => std::thread::sleep(Duration::from_secs(2)),
                 Err(e) => {
-                    eprintln!("Nie udało się ustawić widoczności ikony: {e}");
+                    crate::dziennik::blad(&format!("Nie udało się ustawić widoczności ikony: {e}"));
                     return;
                 }
             }
         }
-        eprintln!("Windows nie utworzył wpisu ikony w rejestrze — widoczność zostaje bez zmian");
+        crate::dziennik::info("Windows nie utworzył wpisu ikony w rejestrze — widoczność zostaje bez zmian");
     });
 }

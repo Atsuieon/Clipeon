@@ -66,11 +66,8 @@ fn znajdz_wyjscie(nazwa: &str) -> Result<(IDXGIAdapter1, IDXGIOutput), String> {
         while let Ok(karta) = fabryka.EnumAdapters1(a) {
             let mut o = 0;
             while let Ok(wyjscie) = karta.EnumOutputs(o) {
-                if let Ok(opis) = wyjscie.GetDesc() {
-                    let dl = opis.DeviceName.iter().position(|&c| c == 0).unwrap_or(opis.DeviceName.len());
-                    if String::from_utf16_lossy(&opis.DeviceName[..dl]).eq_ignore_ascii_case(nazwa) {
-                        return Ok((karta, wyjscie));
-                    }
+                if wyjscie.GetDesc().is_ok_and(|opis| crate::tekst_utf16(&opis.DeviceName).eq_ignore_ascii_case(nazwa)) {
+                    return Ok((karta, wyjscie));
                 }
                 o += 1;
             }

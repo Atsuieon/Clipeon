@@ -41,6 +41,11 @@ impl<T> Zablokuj<T> for std::sync::Mutex<T> {
     }
 }
 
+/// Tekst z bufora Windows (UTF-16 zakończony zerem, np. nazwa karty albo ekranu).
+pub fn tekst_utf16(t: &[u16]) -> String {
+    String::from_utf16_lossy(&t[..t.iter().position(|&c| c == 0).unwrap_or(t.len())])
+}
+
 fn main() {
     aplikacja::uruchom();
 }

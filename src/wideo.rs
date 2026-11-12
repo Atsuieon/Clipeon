@@ -231,8 +231,7 @@ pub fn trwaly_id(nazwa_urzadzenia: &str) -> Option<String> {
             .ok()
             .ok()?;
     }
-    let dl = dd.DeviceID.iter().position(|&c| c == 0).unwrap_or(dd.DeviceID.len());
-    let id = String::from_utf16_lossy(&dd.DeviceID[..dl]);
+    let id = crate::tekst_utf16(&dd.DeviceID);
     (!id.is_empty()).then_some(id)
 }
 

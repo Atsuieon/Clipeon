@@ -101,6 +101,13 @@ fn kompresja(rozmiar_mb: u32, dlugosc: f64, zapas: f64) -> Result<Kompresja, Str
     Ok(Kompresja { wideo_bps: wideo as u64, audio_kbps, wysokosc, fps })
 }
 
+/// Plik, do którego trwa eksport (bez rozszerzenia klipu, żeby nie pojawił się w bibliotece): nazwa.mp4.tmp, nazwa.gif.tmp.
+fn plik_tymczasowy(wynik: &Path) -> PathBuf {
+    let mut nazwa = wynik.as_os_str().to_owned();
+    nazwa.push(".tmp");
+    PathBuf::from(nazwa)
+}
+
 /// Wolna nazwa: klip_cut.mp4, klip_10MB.mp4, klip_cut_kadr.mp4, klip_cut.gif (z numerem, jeśli zajęta).
 fn nazwa_wyniku(zrodlo: &Path, z: &Zlecenie) -> PathBuf {
     let mut baza = zrodlo.file_stem().unwrap_or_default().to_string_lossy().into_owned();
@@ -120,7 +127,8 @@ fn nazwa_wyniku(zrodlo: &Path, z: &Zlecenie) -> PathBuf {
     let folder = zrodlo.parent().unwrap();
     let mut plik = folder.join(format!("{baza}.{rozszerzenie}"));
     let mut i = 2;
-    while plik.exists() {
+    // Zajęta jest też nazwa, pod którą właśnie trwa inny eksport (jego plik tymczasowy)
+    while plik.exists() || plik_tymczasowy(&plik).exists() {
         plik = folder.join(format!("{baza}_{i}.{rozszerzenie}"));
         i += 1;
     }
@@ -210,9 +218,8 @@ fn eksportuj_plik(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dy
         let zrodlowy = std::fs::metadata(zrodlo).map(|m| m.len()).unwrap_or(0);
         crate::zapis::sprawdz_miejsce(folder, zrodlowy * 2 + 32 * 1024 * 1024)?;
     }
-    // Najpierw do pliku tymczasowego (bez .mp4, żeby nie pojawił się w bibliotece),
-    // żeby przerwany eksport nie zostawił połowy klipu
-    let tymczasowy = wynik.with_extension(if z.animacja() { format!("{}.tmp", z.format) } else { "mp4.tmp".into() });
+    // Najpierw do pliku tymczasowego, żeby przerwany eksport nie zostawił połowy klipu
+    let tymczasowy = plik_tymczasowy(&wynik);
     let wyjscie = |args: &mut Vec<String>| {
         args.extend(["-movflags".into(), "+faststart".into(), "-f".into(), "mp4".into()]);
         args.push(tymczasowy.to_string_lossy().into_owned());

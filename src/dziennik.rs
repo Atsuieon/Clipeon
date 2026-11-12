@@ -27,13 +27,13 @@ pub fn zapisz(poziom: &str, tekst: &str) {
     static ZAMEK: Mutex<()> = Mutex::new(());
     let _z = ZAMEK.zablokuj();
     eprintln!("[{poziom}] {tekst}");
-    let sciezka = plik();
-    let _ = std::fs::create_dir_all(folder());
+    let (folder, sciezka) = (folder(), plik());
+    let _ = std::fs::create_dir_all(&folder);
     // Rotacja: clipeon.log -> clipeon.1.log -> clipeon.2.log
     if std::fs::metadata(&sciezka).is_ok_and(|m| m.len() > MAKS_ROZMIAR) {
         for i in (1..PLIKOW).rev() {
-            let z = if i == 1 { sciezka.clone() } else { folder().join(format!("clipeon.{}.log", i - 1)) };
-            let _ = std::fs::rename(z, folder().join(format!("clipeon.{i}.log")));
+            let z = if i == 1 { sciezka.clone() } else { folder.join(format!("clipeon.{}.log", i - 1)) };
+            let _ = std::fs::rename(z, folder.join(format!("clipeon.{i}.log")));
         }
     }
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&sciezka) {

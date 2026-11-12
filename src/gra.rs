@@ -84,8 +84,7 @@ pub fn dziala(proces: &str) -> bool {
         let mut jest = false;
         let mut dalej = Process32FirstW(migawka, &mut wpis).is_ok();
         while dalej {
-            let dl = wpis.szExeFile.iter().position(|&c| c == 0).unwrap_or(wpis.szExeFile.len());
-            if ten_sam(&String::from_utf16_lossy(&wpis.szExeFile[..dl]), proces) {
+            if ten_sam(&crate::tekst_utf16(&wpis.szExeFile), proces) {
                 jest = true;
                 break;
             }
@@ -225,8 +224,7 @@ fn na_monitorze(okno: HWND, monitor: &str) -> bool {
         if monitor.is_empty() {
             return info.monitorInfo.dwFlags & MONITORINFOF_PRIMARY != 0;
         }
-        let nazwa = String::from_utf16_lossy(&info.szDevice);
-        nazwa.trim_end_matches('\0').eq_ignore_ascii_case(monitor)
+        crate::tekst_utf16(&info.szDevice).eq_ignore_ascii_case(monitor)
     }
 }
 

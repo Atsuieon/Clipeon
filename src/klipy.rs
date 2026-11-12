@@ -62,7 +62,7 @@ fn zbierz(folder: &Path, klipy: &mut Vec<Klip>) {
 
 /// Czy plik o tej nazwie to film (długie nagranie albo jego przycięta / skompresowana kopia).
 pub fn jest_filmem(nazwa: &str) -> bool {
-    nazwa.starts_with(&format!("{}_", crate::film::PRZEDROSTEK))
+    nazwa.strip_prefix(crate::film::PRZEDROSTEK).is_some_and(|r| r.starts_with('_'))
 }
 
 /// Folder pamięci podręcznej miniatur: %LOCALAPPDATA%\pl.clipper.app\miniatury (folder danych
