@@ -7,6 +7,8 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- Tło: znaki ASCII i poświata wokół myszki (rysuje tlo.js; wyłączane w Ustawieniach → System) -->
+  <canvas id="tlo" aria-hidden="true"></canvas>
   <!-- Własny pasek tytułu (okno nie ma systemowej ramki) -->
   <div class="belka" data-tauri-drag-region>
     <div class="belka-tytul" data-tauri-drag-region>
@@ -24,6 +26,7 @@
       <div class="marka">Clipeon</div>
       <nav class="zakladki" role="tablist">
         <button class="zakladka" data-zakladka="klipy" role="tab">Klipy</button>
+        <button class="zakladka" data-zakladka="filmy" role="tab">Filmy</button>
         <button class="zakladka" data-zakladka="ustawienia" role="tab">Ustawienia</button>
       </nav>
       <div class="akcje">
@@ -41,6 +44,7 @@
           <span class="kropka" id="kropka"></span><span id="status-tekst">Łączenie…</span>
           <span class="status-mik" id="status-mik" title="Mikrofon nie jest nagrywany — włączysz go w Ustawieniach → Dźwięk" hidden></span>
         </div>
+        <button class="przycisk drugorzedny film" id="film" aria-pressed="false"></button>
         <button class="przycisk drugorzedny" id="pauza"></button>
         <button class="przycisk glowny" id="zapisz-klip"></button>
       </div>
@@ -59,12 +63,13 @@
     </div>
 
     <main>
-      <!-- Klipy -->
+      <!-- Biblioteka: klipy albo filmy (długie nagrania), zależnie od zakładki -->
       <section class="widok" id="widok-klipy" hidden>
         <div class="naglowek">
           <div>
-            <h1>Klipy</h1>
+            <h1 id="biblioteka-tytul">Klipy</h1>
             <p class="pomoc" id="podsumowanie"></p>
+            <p class="pomoc" id="film-zmniejszanie" role="status" hidden></p>
           </div>
           <div class="naglowek-akcje">
             <button class="przycisk ikonowy" id="odswiez" title="Odśwież"></button>
@@ -80,7 +85,7 @@
         </div>
         <div class="pusto" id="pusto" hidden>
           <span class="ikona-duza" id="pusto-ikona"></span>
-          <h2>Brak klipów</h2>
+          <h2 id="pusto-tytul">Brak klipów</h2>
           <p class="pomoc" id="pusto-tekst"></p>
         </div>
       </section>
@@ -102,10 +107,11 @@
                 <div class="ust ust-suwak">
                   <div class="opis">
                     <label for="bufor">Ile ostatnich sekund zapisywać</label>
+                    <span class="wartosc" id="bufor-wartosc"></span>
                   </div>
                   <div class="pole">
                     <input type="range" id="bufor" min="5" max="600" step="5" aria-label="Ile ostatnich sekund zapisywać">
-                    <span class="wartosc" id="bufor-wartosc"></span>
+                    <div class="kreski" id="bufor-kreski" aria-hidden="true"></div>
                   </div>
                   <p class="pomoc" id="ram"></p>
                 </div>
@@ -126,7 +132,7 @@
                   </div>
                 </div>
 
-                <div class="ust">
+                <div class="ust ust-pod">
                   <div class="opis">
                     <label for="monitor">Ekran gry</label>
                     <p class="pomoc" id="monitor-uwaga"></p>
@@ -136,7 +142,7 @@
 
                 <details class="ust-rozwijane">
                   <summary>Tryb pulpitu<span class="pomoc">Osobny ekran i ustawienia dla przełącznika „Pulpit”</span></summary>
-                  <div class="ust">
+                  <div class="ust ust-pod">
                     <div class="opis"><label for="monitor-pulpitu">Ekran pulpitu</label></div>
                     <div class="pole"><select id="monitor-pulpitu" aria-label="Ekran pulpitu"></select></div>
                   </div>
@@ -169,25 +175,12 @@
                   <div class="opis"><label for="mikrofon">Mój mikrofon</label></div>
                   <div class="pole"><label class="przelacznik"><input type="checkbox" id="mikrofon"><span class="suwak"></span></label></div>
                 </div>
-                <div class="ust">
+                <div class="ust ust-pod">
                   <div class="opis">
                     <label for="mikrofon-urzadzenie">Który mikrofon</label>
                     <p class="pomoc" id="mikrofon-uwaga"></p>
                   </div>
                   <div class="pole"><select id="mikrofon-urzadzenie" aria-label="Który mikrofon nagrywać"></select></div>
-                </div>
-                <div class="ust">
-                  <div class="opis">
-                    <span>Edytor zaczyna od</span>
-                    <p class="pomoc">Dotyczy przyciętych i skompresowanych kopii. W edytorze zmienisz to dla każdego klipu, a oryginał zawsze ma głos.</p>
-                  </div>
-                  <div class="pole">
-                    <div class="segmenty dwojka" data-pole="glos-w-edytorze" role="radiogroup" aria-label="Mój głos w kopiach z edytora">
-                      <button type="button" class="segment" data-wartosc="tak">Z moim głosem</button>
-                      <button type="button" class="segment" data-wartosc="nie">Bez głosu</button>
-                    </div>
-                    <input type="checkbox" id="glos-w-edytorze" hidden>
-                  </div>
                 </div>
               </div>
             </section>
@@ -196,12 +189,28 @@
             <section class="grupa">
               <h2>Zapisywanie klipów</h2>
               <div class="karta ustawienia-lista">
-                <div class="ust">
+                <div class="ust ust-pod">
                   <div class="opis">
                     <span>Skrót do zapisania klipu</span>
-                    <p class="pomoc">Kliknij i wciśnij nową kombinację (Esc anuluje).</p>
+                    <p class="pomoc">Kliknij i wciśnij nową kombinację (Esc anuluje). W tym czasie skróty Clipeona są wyłączone.</p>
                   </div>
-                  <div class="pole"><button type="button" class="pole-skrotu" id="skrot"></button></div>
+                  <div class="pole"><button type="button" class="pole-skrotu" id="skrot" data-skrot></button></div>
+                </div>
+                <div class="ust ust-pod">
+                  <div class="opis">
+                    <span>Skrót do nagrywania filmu</span>
+                    <p class="pomoc">Zaczyna i kończy długie nagrywanie. Filmy znajdziesz w zakładce Filmy. Delete albo Backspace usuwa skrót.</p>
+                    <p class="pomoc uwaga" id="skrot-filmu-uwaga" hidden></p>
+                  </div>
+                  <div class="pole"><button type="button" class="pole-skrotu" id="skrot-filmu" data-skrot data-pusty="Bez skrótu"></button></div>
+                </div>
+                <div class="ust ust-pod">
+                  <div class="opis">
+                    <label for="format-filmu">Rozmiar filmów</label>
+                    <p class="pomoc">Po nagraniu Clipeon w tle zapisuje film od nowa w mniejszym formacie. Do tego czasu film jest w bibliotece w pełnej jakości.</p>
+                    <p class="pomoc" id="format-filmu-uwaga"></p>
+                  </div>
+                  <div class="pole"><select id="format-filmu" aria-label="Rozmiar filmów"></select></div>
                 </div>
                 <div class="ust">
                   <div class="opis">
@@ -251,12 +260,15 @@
                 <div class="ust">
                   <div class="opis">
                     <label for="autostart">Uruchamiaj razem z Windows</label>
-                    <p class="pomoc">Clipeon działa w tle jako ikona przy zegarze.</p>
+                    <p class="pomoc">Clipeon działa w tle jako ikona na pasku zadań, obok zegara.</p>
                   </div>
                   <div class="pole"><label class="przelacznik"><input type="checkbox" id="autostart"><span class="suwak"></span></label></div>
                 </div>
                 <div class="ust">
-                  <div class="opis"><label for="ikona-zegar">Ikona zawsze widoczna przy zegarze</label></div>
+                  <div class="opis">
+                    <label for="ikona-zegar">Ikona zawsze widoczna na pasku zadań</label>
+                    <p class="pomoc">Obok zegara, a nie schowana pod strzałką „^”.</p>
+                  </div>
                   <div class="pole"><label class="przelacznik"><input type="checkbox" id="ikona-zegar"><span class="suwak"></span></label></div>
                 </div>
                 <div class="ust">
@@ -267,6 +279,20 @@
                   <div class="pole"><label class="przelacznik"><input type="checkbox" id="aktualizacje"><span class="suwak"></span></label></div>
                 </div>
                 <div class="ust">
+                  <div class="opis">
+                    <label for="animowane-tlo">Animowane tło</label>
+                    <p class="pomoc">Znaki w tle okna i smuga, którą zostawia ruch myszki. Działa tylko, gdy okno Clipeona jest otwarte i aktywne.</p>
+                  </div>
+                  <div class="pole"><label class="przelacznik"><input type="checkbox" id="animowane-tlo"><span class="suwak"></span></label></div>
+                </div>
+                <div class="ust">
+                  <div class="opis">
+                    <label for="kolorowy-napis">Kolorowy napis „Clipeon”</label>
+                    <p class="pomoc">Kolory wędrujące po napisie w rogu okna. Po wyłączeniu napis jest biały.</p>
+                  </div>
+                  <div class="pole"><label class="przelacznik"><input type="checkbox" id="kolorowy-napis"><span class="suwak"></span></label></div>
+                </div>
+                <div class="ust">
                   <div class="opis"><span>Aktualizacja</span><p class="pomoc" id="akt-wynik" role="status"></p></div>
                   <div class="pole">
                     <button type="button" class="przycisk drugorzedny" id="sprawdz-teraz">Sprawdź teraz</button>
@@ -274,47 +300,42 @@
                   </div>
                 </div>
               </div>
-            </section>
 
-            <!-- Zaawansowane: ustawiane raz i rzadko ruszane, domyślnie zwinięte -->
-            <section class="grupa">
+              <!-- Zaawansowane: ustawiane raz i rzadko ruszane; leżą zaraz pod Systemem, żeby dało się je znaleźć -->
               <h2>Zaawansowane</h2>
-              <div class="karta ustawienia-lista">
-                <details class="ust-rozwijane zaawansowane">
-                  <summary>Format wideo, przechwytywanie obrazu, diagnostyka</summary>
-                  <div class="ust">
-                    <div class="opis">
-                      <label for="enkoder">Format wideo</label>
-                      <p class="pomoc" id="enkoder-uwaga"></p>
-                    </div>
-                    <div class="pole"><select id="enkoder" aria-label="Format wideo"></select></div>
+              <div class="karta ustawienia-lista zaawansowane">
+                <div class="ust ust-pod">
+                  <div class="opis">
+                    <label for="enkoder">Format wideo</label>
+                    <p class="pomoc" id="enkoder-uwaga"></p>
                   </div>
-                  <div class="ust">
-                    <div class="opis">
-                      <label for="metoda">Sposób przechwytywania obrazu</label>
-                      <p class="pomoc">Zostaw „Automatycznie”, chyba że nagrania się zacinają albo są czarne.</p>
-                      <p class="pomoc">Żółta ramka wokół ekranu podczas nagrywania? To znak Windows, że coś nagrywa ekran. Rysuje ją tylko Windows Graphics Capture (i Tryb zgodności) na starszym Windows 10 — wybierz <b>Desktop Duplication</b>, ten sposób nigdy jej nie pokazuje.</p>
-                    </div>
-                    <div class="pole">
-                      <select id="metoda" aria-label="Sposób przechwytywania obrazu">
-                        <option value="auto">Automatycznie (polecane)</option>
-                        <option value="dda">Desktop Duplication — najlżejszy</option>
-                        <option value="gfx">Windows Graphics Capture (na Windows 10 z żółtą ramką)</option>
-                        <option value="potok">Tryb zgodności</option>
-                      </select>
-                    </div>
+                  <div class="pole"><select id="enkoder" aria-label="Format wideo"></select></div>
+                </div>
+                <div class="ust ust-pod">
+                  <div class="opis">
+                    <label for="metoda">Sposób przechwytywania obrazu</label>
+                    <p class="pomoc">Zostaw „Automatycznie”, chyba że nagrania się zacinają albo są czarne.</p>
+                    <p class="pomoc" id="metoda-teraz"></p>
                   </div>
-                  <div class="ust">
-                    <div class="opis">
-                      <span>Zgłaszanie problemów</span>
-                      <p class="pomoc">Kopiuje opis sprzętu, ustawień i ostatnich zdarzeń. Nic nie jest wysyłane automatycznie.</p>
-                    </div>
-                    <div class="pole">
-                      <button type="button" class="przycisk drugorzedny" id="kopiuj-diagnostyke">Kopiuj diagnostykę</button>
-                      <button type="button" class="przycisk drugorzedny" id="pokaz-dziennik">Pokaż dziennik</button>
-                    </div>
+                  <div class="pole">
+                    <select id="metoda" aria-label="Sposób przechwytywania obrazu">
+                      <option value="auto">Automatycznie (polecane)</option>
+                      <option value="dda">Desktop Duplication — najlżejszy</option>
+                      <option value="gfx">Windows Graphics Capture</option>
+                      <option value="potok">Tryb zgodności</option>
+                    </select>
                   </div>
-                </details>
+                </div>
+                <div class="ust ust-pod">
+                  <div class="opis">
+                    <span>Zgłaszanie problemów</span>
+                    <p class="pomoc">Kopiuje opis sprzętu, ustawień i ostatnich zdarzeń. Nic nie jest wysyłane automatycznie.</p>
+                  </div>
+                  <div class="pole">
+                    <button type="button" class="przycisk drugorzedny" id="kopiuj-diagnostyke">Kopiuj diagnostykę</button>
+                    <button type="button" class="przycisk drugorzedny" id="pokaz-dziennik">Pokaż dziennik</button>
+                  </div>
+                </div>
               </div>
             </section>
           </div>
@@ -432,6 +453,7 @@
 
   <div class="dymek" id="dymek" role="status" hidden></div>
 
+  <script src="tlo.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

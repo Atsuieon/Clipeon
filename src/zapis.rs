@@ -64,28 +64,8 @@ pub fn zapisz(
             tymczasowe.push(tmp);
         }
         cmd.args(["-map", "0:v", "-c:v", "copy"]);
-        match sciezki.len() {
-            0 => {}
-            1 => {
-                cmd.args(["-map", "1:a", "-c:a", "copy"]);
-            }
-            n => {
-                // Ścieżka 0: miks (kodowany), dalej oryginalne ścieżki bez ponownego kodowania
-                let wejscia: String = (1..=n).map(|i| format!("[{i}:a]")).collect();
-                cmd.args(["-filter_complex", &format!("{wejscia}amix=inputs={n}:duration=longest:normalize=0[a]")])
-                    .args(["-map", "[a]", "-c:a:0", "aac", "-b:a:0", "160k"])
-                    .args(["-metadata:s:a:0", "title=Gra + mikrofon", "-metadata:s:a:0", "handler_name=Gra + mikrofon"])
-                    .args(["-disposition:a:0", "default"]);
-                for (i, (nazwa, _)) in sciezki.iter().enumerate() {
-                    let wyj = i + 1;
-                    cmd.args(["-map", &format!("{}:a", i + 1), &format!("-c:a:{wyj}"), "copy"])
-                        .args([format!("-metadata:s:a:{wyj}"), format!("title={nazwa}")])
-                        // MP4 trzyma nazwę ścieżki w handler_name
-                        .args([format!("-metadata:s:a:{wyj}"), format!("handler_name={nazwa}")])
-                        .args([format!("-disposition:a:{wyj}"), "0".to_string()]);
-                }
-            }
-        }
+        let nazwy: Vec<&str> = sciezki.iter().map(|(n, _)| *n).collect();
+        mapuj_dzwiek(&mut cmd, &nazwy);
         // Nazwa gry zostaje w metadanych pliku (biblioteka pokazuje ją przy klipie)
         if let Some(g) = gra.as_deref().filter(|g| !g.is_empty()) {
             cmd.args(["-metadata", &format!("title={g}")]);
@@ -128,6 +108,33 @@ pub fn zapisz(
     Ok(plik)
 }
 
+/// Ścieżki dźwięku pliku wynikowego. Wejścia ffmpeg nr 1.. to kolejne ścieżki z `nazwy` (0 = obraz).
+/// Jedna ścieżka jest kopiowana; przy dwóch plik dostaje trzy: miks (pierwsza — odtwarzacze zwykle
+/// grają tylko ją) i obie oryginalne bez ponownego kodowania (do zmiany głośności w edytorze).
+pub fn mapuj_dzwiek(cmd: &mut std::process::Command, nazwy: &[&str]) {
+    match nazwy.len() {
+        0 => {}
+        1 => {
+            cmd.args(["-map", "1:a", "-c:a", "copy"]);
+        }
+        n => {
+            let wejscia: String = (1..=n).map(|i| format!("[{i}:a]")).collect();
+            cmd.args(["-filter_complex", &format!("{wejscia}amix=inputs={n}:duration=longest:normalize=0[a]")])
+                .args(["-map", "[a]", "-c:a:0", "aac", "-b:a:0", "160k"])
+                .args(["-metadata:s:a:0", "title=Gra + mikrofon", "-metadata:s:a:0", "handler_name=Gra + mikrofon"])
+                .args(["-disposition:a:0", "default"]);
+            for (i, nazwa) in nazwy.iter().enumerate() {
+                let wyj = i + 1;
+                cmd.args(["-map", &format!("{}:a", i + 1), &format!("-c:a:{wyj}"), "copy"])
+                    .args([format!("-metadata:s:a:{wyj}"), format!("title={nazwa}")])
+                    // MP4 trzyma nazwę ścieżki w handler_name
+                    .args([format!("-metadata:s:a:{wyj}"), format!("handler_name={nazwa}")])
+                    .args([format!("-disposition:a:{wyj}"), "0".to_string()]);
+            }
+        }
+    }
+}
+
 /// Wolne miejsce (bajty) na dysku z danym folderem, dostępne dla bieżącego użytkownika.
 pub fn wolne_miejsce(folder: &Path) -> Option<u64> {
     use std::os::windows::ffi::OsStrExt;
@@ -158,7 +165,7 @@ pub fn sprawdz_miejsce(folder: &Path, potrzeba: u64) -> Result<(), String> {
 }
 
 /// Lokalna data i godzina w formacie 2026-11-08_17-45-03.
-fn znacznik_czasu() -> String {
+pub fn znacznik_czasu() -> String {
     let t = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
     format!("{:04}-{:02}-{:02}_{:02}-{:02}-{:02}", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond)
 }
@@ -170,7 +177,7 @@ pub fn miesiac(znacznik: &str) -> &str {
 
 /// Wolna nazwa pliku z datą (np. Clipeon_2026-11-10_18-30-00.mp4, z pulpitu Clipeon_Pulpit_…);
 /// drugi zapis w tej samej sekundzie dostaje sufiks, żeby nie nadpisać klipu.
-fn nowa_nazwa(folder: &Path, przedrostek: &str, znacznik: &str) -> PathBuf {
+pub fn nowa_nazwa(folder: &Path, przedrostek: &str, znacznik: &str) -> PathBuf {
     let baza = format!("{przedrostek}_{znacznik}");
     let mut plik = folder.join(format!("{baza}.mp4"));
     let mut i = 2;

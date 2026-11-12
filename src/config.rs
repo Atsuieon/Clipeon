@@ -22,6 +22,14 @@ pub struct Config {
     pub folder_klipow: PathBuf,
     /// Skrót zapisu klipu, np. "Alt+F10", "Ctrl+Shift+S"
     pub skrot: String,
+    /// Skrót, który zaczyna i kończy długie nagrywanie (film); pusty = bez skrótu
+    pub skrot_filmu: String,
+    /// W jakim formacie film zostaje na dysku: "bez_zmian" albo mniejszy plik ("hevc", "av1")
+    pub format_filmu: String,
+    /// Animowane tło okna (znaki ASCII i smuga za ruchem myszki)
+    pub animowane_tlo: bool,
+    /// Kolory wędrujące po napisie „Clipeon” w oknie (wyłączone = zwykły biały napis)
+    pub kolorowy_napis: bool,
     /// Ikona w zasobniku zawsze widoczna przy zegarze (a nie w ukrytych ikonach pod ^)
     pub ikona_przy_zegarze: bool,
     /// Czy Clipeon już raz ustawił widoczność ikony (później decyduje użytkownik w Windows)
@@ -34,8 +42,6 @@ pub struct Config {
     pub sprzatanie_dni: u32,
     /// Sprzątanie: folder klipów nie większy niż tyle GB (0 = wyłączone)
     pub sprzatanie_gb: u32,
-    /// Czy zapisywane wersje (przycięte, zmniejszone) mają domyślnie zawierać głos z mikrofonu
-    pub glos_w_edytorze: bool,
     /// Sprawdzanie przy starcie i raz na dobę, czy na GitHubie jest nowsza wersja
     pub sprawdzaj_aktualizacje: bool,
     /// Nagrywany monitor w trybie gry (nazwa urządzenia, np. \\.\DISPLAY2); pusty = główny
@@ -80,6 +86,10 @@ impl Default for Config {
             mikrofon: true,
             folder_klipow: profil.join("Videos").join("Clipeon"),
             skrot: "Alt+F10".into(),
+            skrot_filmu: "Alt+F9".into(),
+            format_filmu: crate::film::BEZ_ZMIAN.into(),
+            animowane_tlo: true,
+            kolorowy_napis: true,
             ikona_przy_zegarze: true,
             ikona_ustawiona: false,
             dzwiek_zapisu: true,
@@ -97,7 +107,6 @@ impl Default for Config {
             mikrofon_urzadzenie: String::new(),
             gra: String::new(),
             gra_nazwa: String::new(),
-            glos_w_edytorze: true,
             sprawdzaj_aktualizacje: true,
         }
     }
@@ -210,7 +219,17 @@ impl Config {
         if self.sprzatanie_dni > 3650 || self.sprzatanie_gb > 100_000 {
             return Err("Nieprawidłowe ustawienia sprzątania".into());
         }
-        crate::skrot::parsuj(&self.skrot).map(|_| ())
+        if !crate::film::poprawny_format(&self.format_filmu) {
+            return Err(format!("Nieznany format filmu \"{}\"", self.format_filmu));
+        }
+        let klip = crate::skrot::parsuj(&self.skrot)?;
+        if !self.skrot_filmu.is_empty() {
+            let film = crate::skrot::parsuj(&self.skrot_filmu)?;
+            if (film.0.0, film.1) == (klip.0.0, klip.1) {
+                return Err("Skrót filmu musi być inny niż skrót klipu".into());
+            }
+        }
+        Ok(())
     }
 }
 
@@ -226,5 +245,19 @@ mod testy {
         assert_eq!(c.wybrana_gra(), "");
         // Wybór gry zostaje na powrót do trybu Gra
         assert_eq!(c.gra, "fcadefbneo.exe");
+    }
+
+    #[test]
+    fn skrot_filmu() {
+        let mut c = Config { folder_klipow: r"C:\Klipy".into(), ..Config::default() };
+        assert!(c.sprawdz().is_ok());
+        // Ten sam skrót dla klipu i filmu nie przejdzie (także zapisany inaczej)
+        c.skrot_filmu = "alt + f10".into();
+        assert!(c.sprawdz().is_err());
+        // Pusty = film tylko z okna
+        c.skrot_filmu = String::new();
+        assert!(c.sprawdz().is_ok());
+        c.skrot_filmu = "Ctrl+Shift+R".into();
+        assert!(c.sprawdz().is_ok());
     }
 }

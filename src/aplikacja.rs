@@ -22,6 +22,7 @@ struct PozycjeMenu {
     aktualizacja: MenuItem<Wry>,
     zapisz: MenuItem<Wry>,
     pauza: MenuItem<Wry>,
+    film: MenuItem<Wry>,
     tryb_gra: CheckMenuItem<Wry>,
     tryb_pulpit: CheckMenuItem<Wry>,
 }
@@ -39,6 +40,20 @@ fn tekst_zapisu(cfg: &Config) -> String {
     format!("Zapisz ostatnie {} s\t{}", cfg.bufor_sekundy, cfg.skrot)
 }
 
+fn tekst_filmu(cfg: &Config, trwa: bool) -> String {
+    format!("{}\t{}", if trwa { "Zakończ film" } else { "Nagraj film" }, cfg.skrot_filmu)
+}
+
+/// Długość filmu słowami: „45 s”, „12 min 5 s”, „1 godz. 3 min”.
+fn dlugosc_slowami(sekundy: f64) -> String {
+    let s = sekundy.round() as u64;
+    match (s / 3600, s % 3600 / 60, s % 60) {
+        (0, 0, s) => format!("{s} s"),
+        (0, m, s) => format!("{m} min {s} s"),
+        (g, m, _) => format!("{g} godz. {m} min"),
+    }
+}
+
 /// Pokazuje okno na danej zakładce ("klipy" / "ustawienia"); tworzy je, jeśli zostało zamknięte.
 fn pokaz_okno(app: &AppHandle, zakladka: &str) {
     if let Some(okno) = app.get_webview_window("main") {
@@ -53,7 +68,7 @@ fn pokaz_okno(app: &AppHandle, zakladka: &str) {
     std::thread::spawn(move || {
         let wynik = WebviewWindowBuilder::new(&app, "main", WebviewUrl::App(url.into()))
             .title("Clipeon")
-            .inner_size(1120.0, 740.0)
+            .inner_size(1200.0, 760.0)
             .min_inner_size(760.0, 520.0)
             .background_color(Color(0, 0, 0, 255))
             // Bez sprzętowych nakładek wideo: w oknach z przezroczystością (np. nieaktywne okna
@@ -122,6 +137,11 @@ fn pokaz_stan(app: &AppHandle, stan: &Stan) {
             None => (ikona::ZIELONY, "Nagrywa".to_string()),
         }
     };
+    // Trwający film widać w podpowiedzi ikony
+    let opis = match stan.film {
+        Some(s) if kolor == ikona::ZIELONY => format!("{opis} · film {}", dlugosc_slowami(s as f64)),
+        _ => opis,
+    };
     if let Some(t) = app.tray_by_id(ID_ZASOBNIKA) {
         let _ = t.set_icon(Some(ikona::ikona(kolor)));
         // Windows przycina podpowiedź do 127 znaków
@@ -131,6 +151,10 @@ fn pokaz_stan(app: &AppHandle, stan: &Stan) {
         let znak = if kolor == ikona::ZIELONY { "●" } else { "○" };
         let _ = m.stan.set_text(format!("{znak} {}", opis.chars().take(70).collect::<String>()));
         let _ = m.pauza.set_text(if stan.pauza { "Wznów nagrywanie" } else { "Wstrzymaj nagrywanie" });
+        if let Some(r) = app.try_state::<Rdzen>() {
+            let _ = m.film.set_text(tekst_filmu(&r.config(), stan.film.is_some()));
+        }
+        let _ = m.film.set_enabled(!stan.film_zapis);
         let pulpit = stan.tryb == crate::config::TRYB_PULPIT;
         let _ = m.tryb_gra.set_checked(!pulpit);
         let _ = m.tryb_pulpit.set_checked(pulpit);
@@ -172,6 +196,51 @@ fn obsluz_zdarzenie(app: &AppHandle, z: Zdarzenie) {
         Zdarzenie::Alarm(None) => {
             crate::powiadomienie::ukryj();
             pokaz_dymek(app, cfg.aktywny_monitor().0, "Nagrywanie znów działa", "Clipeon sam wznowił nagrywanie", false, false);
+        }
+        // Film: czerwona kropka = nagrywa się
+        Zdarzenie::FilmStart => {
+            if cfg.dzwiek_zapisu {
+                crate::dzwiek::zagraj();
+            }
+            let opis = if cfg.skrot_filmu.is_empty() {
+                "Zakończysz go w oknie Clipeona albo w menu przy zegarze".to_string()
+            } else {
+                format!("{} kończy nagrywanie", cfg.skrot_filmu)
+            };
+            pokaz_dymek(app, cfg.aktywny_monitor().0, "Nagrywam film", &opis, true, false);
+        }
+        Zdarzenie::FilmKoniec(powod) => {
+            let (tytul, opis) = match powod {
+                Some(p) => ("Film zakończony".to_string(), format!("Powód: {p}. Zapisuję plik…")),
+                None => ("Koniec filmu".to_string(), "Zapisuję plik…".to_string()),
+            };
+            pokaz_dymek(app, cfg.aktywny_monitor().0, &tytul, &opis, false, false);
+        }
+        Zdarzenie::FilmZapisany { plik, sekundy, czesci } => {
+            if cfg.dzwiek_zapisu {
+                crate::dzwiek::zagraj();
+            }
+            let nazwa = plik.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            let opis = if czesci > 1 { format!("{nazwa} (i {} kolejne części)", czesci - 1) } else { nazwa };
+            pokaz_dymek(app, cfg.aktywny_monitor().0, &format!("Film zapisany ({})", dlugosc_slowami(sekundy)), &opis, false, false);
+            let _ = app.emit("film-zapisany", plik);
+        }
+        Zdarzenie::FilmZmniejszony { plik, przed, po } => {
+            let gb = |b: u64| format!("{:.1} GB", b as f64 / 1e9).replace('.', ",");
+            let nazwa = plik.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            pokaz_dymek(app, cfg.aktywny_monitor().0, &format!("Film zmniejszony: {} → {}", gb(przed), gb(po)), &nazwa, false, false);
+            let _ = app.emit("film-zmniejszony", plik);
+        }
+        Zdarzenie::FilmNiezmniejszony(e) => {
+            pokaz_dymek(app, cfg.aktywny_monitor().0, "Film został w pełnej jakości", &format!("Nie udało się go zmniejszyć: {e}"), true, false);
+            let _ = app.emit("film-blad", format!("Film został w pełnej jakości: {e}"));
+        }
+        Zdarzenie::BladFilmu(e) => {
+            if cfg.dzwiek_zapisu {
+                crate::dzwiek::zagraj_blad();
+            }
+            pokaz_dymek(app, cfg.aktywny_monitor().0, "Nie udało się nagrać filmu", &e, true, false);
+            let _ = app.emit("film-blad", e);
         }
     }
 }
@@ -225,6 +294,8 @@ struct Ustawienia {
     cfg: Config,
     autostart: bool,
     enkodery: Vec<(String, String)>,
+    /// Formaty filmu do wyboru: (wartość, opis) — mniejsze tylko, gdy karta je umie
+    formaty_filmu: Vec<(String, String)>,
     wersja: &'static str,
     repozytorium: &'static str,
 }
@@ -296,6 +367,7 @@ async fn zainstaluj_aktualizacje_teraz(app: &AppHandle) -> Result<(), String> {
 /// Tuż przed uruchomieniem instalatora: zatrzymujemy nagrywanie, żeby ffmpeg zwolnił swoje pliki.
 fn przed_instalacja(app: &AppHandle) {
     crate::dziennik::info("Zamykanie Clipeona na czas instalacji aktualizacji");
+    crate::odzyskiwanie::przed_aktualizacja();
     if let Some(r) = app.try_state::<Rdzen>() {
         r.zakoncz();
     }
@@ -309,6 +381,7 @@ async fn ustawienia(app: AppHandle) -> Result<Ustawienia, String> {
         cfg: app.state::<Rdzen>().config(),
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
         enkodery: crate::enkodery::do_ustawien(),
+        formaty_filmu: crate::film::formaty(),
         wersja: crate::aktualizacje::WERSJA,
         repozytorium: crate::aktualizacje::REPOZYTORIUM,
     })
@@ -335,6 +408,7 @@ fn zapisz_ustawienia(app: AppHandle, rdzen: State<'_, Rdzen>, mut cfg: Config, a
     pozwol_na_folder(&app, &folder);
     if let Some(m) = app.try_state::<PozycjeMenu>() {
         let _ = m.zapisz.set_text(tekst_zapisu(&rdzen.config()));
+        let _ = m.film.set_text(tekst_filmu(&rdzen.config(), false));
     }
     let a = app.autolaunch();
     let wynik = if autostart { a.enable() } else { a.disable() };
@@ -354,6 +428,19 @@ fn zapisz_klip(rdzen: State<'_, Rdzen>) {
 #[tauri::command]
 fn przelacz_pauze(rdzen: State<'_, Rdzen>) {
     rdzen.przelacz_pauze();
+}
+
+/// Zaczyna albo kończy długie nagrywanie (film).
+#[tauri::command]
+async fn przelacz_film(app: AppHandle) {
+    // W tle: start zakłada pliki na dysku, a okno ma reagować
+    let _ = tauri::async_runtime::spawn_blocking(move || app.state::<Rdzen>().przelacz_film()).await;
+}
+
+/// Okno ustawia nowy skrót: na ten czas skróty Clipeona nie działają (true), potem wracają (false).
+#[tauri::command]
+async fn wstrzymaj_skroty(app: AppHandle, wstrzymaj: bool) {
+    let _ = tauri::async_runtime::spawn_blocking(move || app.state::<Rdzen>().wstrzymaj_skroty(wstrzymaj)).await;
 }
 
 #[tauri::command]
@@ -595,6 +682,15 @@ pub fn uruchom() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
+        // Okno zamknięte w trakcie ustawiania skrótu nie może zostawić skrótów wyłączonych
+        .on_window_event(|okno, e| {
+            if let tauri::WindowEvent::Destroyed = e
+                && let Some(r) = okno.app_handle().try_state::<Rdzen>()
+            {
+                let r = r.inner().clone();
+                std::thread::spawn(move || r.wstrzymaj_skroty(false));
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             stan,
             ustawienia,
@@ -604,6 +700,8 @@ pub fn uruchom() {
             wybierz_folder,
             zapisz_klip,
             przelacz_pauze,
+            przelacz_film,
+            wstrzymaj_skroty,
             klipy,
             miniatura,
             pokaz_w_folderze,
@@ -637,6 +735,7 @@ pub fn uruchom() {
             let log = MenuItem::with_id(app, "log", "Pokaż dziennik zdarzeń", true, None::<&str>)?;
             let aktualizacja = MenuItem::with_id(app, "aktualizacja", "Sprawdź aktualizacje", true, None::<&str>)?;
             let pauza = MenuItem::with_id(app, "pauza", "Wstrzymaj nagrywanie", true, None::<&str>)?;
+            let film = MenuItem::with_id(app, "film", tekst_filmu(&cfg, false), true, None::<&str>)?;
             let tryb_gra = CheckMenuItem::with_id(app, "tryb_gra", "Tryb: Gra", true, !cfg.pulpit(), None::<&str>)?;
             let tryb_pulpit = CheckMenuItem::with_id(app, "tryb_pulpit", "Tryb: Pulpit", true, cfg.pulpit(), None::<&str>)?;
             let folder = MenuItem::with_id(app, "folder", "Otwórz folder klipów", true, None::<&str>)?;
@@ -646,9 +745,9 @@ pub fn uruchom() {
             let sep = || PredefinedMenuItem::separator(app);
             let menu = Menu::with_items(
                 app,
-                &[&stan, &sep()?, &zapisz, &pauza, &tryb_gra, &tryb_pulpit, &sep()?, &folder, &biblioteka, &ustawienia, &log, &aktualizacja, &sep()?, &zamknij],
+                &[&stan, &sep()?, &zapisz, &film, &pauza, &tryb_gra, &tryb_pulpit, &sep()?, &folder, &biblioteka, &ustawienia, &log, &aktualizacja, &sep()?, &zamknij],
             )?;
-            app.manage(PozycjeMenu { stan, aktualizacja, zapisz, pauza, tryb_gra, tryb_pulpit });
+            app.manage(PozycjeMenu { stan, aktualizacja, zapisz, pauza, film, tryb_gra, tryb_pulpit });
             app.manage(crate::aktualizacje::Stan::default());
 
             TrayIconBuilder::with_id(ID_ZASOBNIKA)
@@ -661,6 +760,10 @@ pub fn uruchom() {
                     match e.id().as_ref() {
                         "zapisz" => rdzen.zapisz_klip(),
                         "pauza" => rdzen.przelacz_pauze(),
+                        "film" => {
+                            let r = rdzen.inner().clone();
+                            std::thread::spawn(move || r.przelacz_film());
+                        }
                         "tryb_gra" | "tryb_pulpit" => {
                             let tryb = if e.id().as_ref() == "tryb_pulpit" { "pulpit" } else { "gra" };
                             if let Err(b) = rdzen.ustaw_tryb(Some(tryb.into()), None) {
@@ -698,7 +801,14 @@ pub fn uruchom() {
                                 });
                             }
                         }
-                        "zamknij" => app.exit(0),
+                        // Trwający film najpierw zapisujemy do końca (w tle, żeby menu nie zamarzło)
+                        "zamknij" => {
+                            let (r, app) = (rdzen.inner().clone(), app.clone());
+                            std::thread::spawn(move || {
+                                r.zakoncz();
+                                app.exit(0);
+                            });
+                        }
                         _ => {}
                     }
                 })
@@ -748,6 +858,8 @@ pub fn uruchom() {
             let r = rdzen.clone();
             std::thread::spawn(move || loop {
                 let c = r.config();
+                // Pliki tymczasowe filmów przerwanych awarią (nie trwającego: te są świeże)
+                crate::film::usun_resztki(&c.folder_klipow);
                 crate::sprzatanie::usun_resztki(&c.folder_klipow);
                 crate::sprzatanie::sprzataj(&c.folder_klipow, c.sprzatanie_dni, c.sprzatanie_gb);
                 std::thread::sleep(std::time::Duration::from_secs(3600));

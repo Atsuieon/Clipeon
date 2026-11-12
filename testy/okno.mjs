@@ -31,25 +31,33 @@ function udawanyTauri() {
   const cfg = {
     bufor_sekundy: 30, fps: 60, bitrate_mbps: 20, enkoder: "auto", dzwiek_systemowy: true, mikrofon: false,
     folder_klipow: "C:\\Klipy", skrot: "Alt+F10", ikona_przy_zegarze: true, ikona_ustawiona: true,
-    dzwiek_zapisu: true, powiadomienie_zapisu: true, sprzatanie_dni: 0, sprzatanie_gb: 0, glos_w_edytorze: true,
+    dzwiek_zapisu: true, powiadomienie_zapisu: true, sprzatanie_dni: 0, sprzatanie_gb: 0,
     sprawdzaj_aktualizacje: true, monitor: "", monitor_id: "", tryb: "gra", monitor_pulpitu: "",
     monitor_pulpitu_id: "", fps_pulpitu: 30, bitrate_pulpitu_mbps: 12, metoda_przechwytywania: "auto",
-    mikrofon_urzadzenie: "", gra: "", gra_nazwa: "",
+    mikrofon_urzadzenie: "", gra: "", gra_nazwa: "", skrot_filmu: "Alt+F9", animowane_tlo: true, kolorowy_napis: true,
+    format_filmu: "bez_zmian",
   };
   const stan = {
     nagrywa: true, pauza: false, bledy: [], wznawianie: null, tryb: "gra", ekran: "Ekran 1", monitor: "",
     droga: "dda", gra: "Gra testowa", wybrana_gra: "", gra_proces: "", czeka_na_gre: false, mikrofon: true,
+    ramka: false, film: null, film_zapis: false, skrot_filmu_blad: null, film_zmniejszanie: null,
   };
   const odpowiedzi = {
     stan: () => stan,
-    ustawienia: () => ({ cfg: structuredClone(cfg), autostart: false, enkodery: [["auto", "Automatycznie"]], wersja: "test", repozytorium: "" }),
+    ustawienia: () => ({ cfg: structuredClone(cfg), autostart: false, enkodery: [["auto", "Automatycznie"]], formaty_filmu: [["bez_zmian", "Pełna jakość — bez zmian (największy plik)"], ["hevc", "Mniejszy plik — HEVC, ok. połowa rozmiaru"], ["av1", "Najmniejszy plik — AV1, ok. 1/3 rozmiaru"]], wersja: "test", repozytorium: "" }),
     mikrofony: () => [
       { id: "m1", nazwa: "Mikrofon (USB)", domyslny: true },
       { id: "m2", nazwa: "Mikrofon (Zestaw)", domyslny: false },
     ],
     gry: () => [{ nazwa: "Gra testowa", proces: "gra.exe" }, { nazwa: "Druga gra", proces: "druga.exe" }],
     monitory: () => [{ id: "\\\\.\\DISPLAY1", numer: 1, glowny: true, nazwa: "Monitor", opis: "Ekran 1", szerokosc: 1920, wysokosc: 1080, hz: 144, hdr: false }],
-    klipy: () => [],
+    klipy: () => window.__klipy || [],
+    przelacz_film: () => {
+      window.__filmy = (window.__filmy || 0) + 1;
+    },
+    wstrzymaj_skroty: (a) => {
+      window.__wstrzymania = [...(window.__wstrzymania || []), a.wstrzymaj];
+    },
     zapisz_ustawienia: (a) => {
       window.__zapisane = a;
     },
@@ -82,7 +90,7 @@ function udawanyTauri() {
 }
 
 const przegladarka = await chromium.launch();
-const strona = await przegladarka.newPage({ viewport: { width: 1100, height: 800 } });
+const strona = await przegladarka.newPage({ viewport: { width: 1200, height: 800 } });
 strona.on("pageerror", (e) => bledy.push(`błąd skryptu: ${e.message}`));
 strona.on("console", (m) => m.type() === "error" && bledy.push(`konsola: ${m.text()}`));
 await strona.addInitScript(udawanyTauri);
@@ -101,6 +109,9 @@ for (const zmiana of [
   { czeka_na_gre: true, nagrywa: false, wybrana_gra: "Gra <b>testowa</b>", gra_proces: "gra.exe" },
   { bledy: ["Nie udało się uruchomić nagrywania"], nagrywa: false },
   { wznawianie: "brak nowych klatek" },
+  { film: 75 },
+  { film: null, film_zapis: true },
+  { droga: "potok", ramka: true, skrot_filmu_blad: "Skrót Alt+F9 jest zajęty przez inny program" },
   { tryb: "pulpit", ekran: "Ekran 2" },
 ]) {
   await strona.evaluate((z) => pokazStan({ ...stan, ...z }), zmiana);
@@ -112,7 +123,124 @@ await strona.evaluate(() => pokazStan({ ...stan, mikrofon: false }));
 sprawdz((await strona.isVisible("#status-mik")) && (await strona.locator("#status-mik svg").count()) === 1, "brak ikony przekreślonego mikrofonu przy wyłączonym mikrofonie");
 await zrzut("0-mikrofon-wylaczony");
 await strona.evaluate(() => pokazStan({ ...stan, mikrofon: true }));
-await strona.evaluate(() => pokazStan({ ...stan, tryb: "gra", pauza: false, czeka_na_gre: false, bledy: [], wznawianie: null, nagrywa: true }));
+await strona.evaluate(() => pokazStan({ ...stan, tryb: "gra", pauza: false, czeka_na_gre: false, bledy: [], wznawianie: null, nagrywa: true, film: null, film_zapis: false, droga: "dda", ramka: false, skrot_filmu_blad: null }));
+
+// ---------- Tło ze znaków i smuga za ruchem myszki ----------
+// Jasne znaki (przezroczystość ≥ 0,4) rysuje tylko smuga — liczymy je wokół podanego punktu
+const jasneZnaki = (x, y) =>
+  strona.evaluate(([x, y]) => {
+    const c = document.getElementById("tlo");
+    const s = c.width / window.innerWidth;
+    const d = c.getContext("2d").getImageData((x - 80) * s, (y - 80) * s, 160 * s, 160 * s).data;
+    let n = 0;
+    for (let i = 3; i < d.length; i += 4) if (d[i] >= 95) n++;
+    return n;
+  }, [x, y]);
+sprawdz(await strona.evaluate(() => {
+  const c = document.getElementById("tlo");
+  const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+  for (let i = 3; i < d.length; i += 4) if (d[i]) return true;
+  return false;
+}), "tło ze znaków jest puste");
+// Tło nie zajmuje całego okna: spora część jest czarna (plamy napisu, kropki na brzegach, potem nic).
+// Liczymy kwadraty 12 × 12 px, w których nie ma ani jednego znaku.
+const czarne = await strona.evaluate(() => {
+  const c = document.getElementById("tlo");
+  const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+  const K = 12;
+  let [puste, wszystkie] = [0, 0];
+  for (let by = 0; by + K <= c.height; by += K) {
+    for (let bx = 0; bx + K <= c.width; bx += K) {
+      let jest = false;
+      for (let y = by; y < by + K && !jest; y++) for (let x = bx; x < bx + K; x++) if (d[(y * c.width + x) * 4 + 3]) { jest = true; break; }
+      wszystkie++;
+      if (!jest) puste++;
+    }
+  }
+  return puste / wszystkie;
+});
+sprawdz(czarne > 0.2, `tło jest za gęste: tylko ${(czarne * 100).toFixed(0)}% okna jest czarne`);
+// Szybki ruch nad pustym miejscem zostawia smugę na całej drodze…
+await strona.mouse.move(440, 640);
+await strona.waitForTimeout(100);
+for (let i = 1; i <= 8; i++) {
+  await strona.mouse.move(440 + i * 30, 640 + (i % 3) * 4);
+  await strona.waitForTimeout(12);
+}
+await strona.waitForTimeout(60);
+const [poczatek, koniec] = [await jasneZnaki(500, 640), await jasneZnaki(640, 640)];
+sprawdz(poczatek > 20 && koniec > 20, `szybki ruch myszki nie zostawia smugi: ${poczatek}, ${koniec}`);
+await zrzut("0a-tlo-smuga");
+// …myszka, która stoi, niczego nie podtrzymuje: smuga sama gaśnie
+await strona.waitForTimeout(6000);
+sprawdz((await jasneZnaki(500, 640)) === 0 && (await jasneZnaki(640, 640)) === 0, "smuga nie gaśnie, gdy myszka stoi");
+// Powolny ruch prawie nic nie zostawia
+for (let i = 1; i <= 30; i++) {
+  await strona.mouse.move(440 + i * 2, 660);
+  await strona.waitForTimeout(25);
+}
+sprawdz((await jasneZnaki(470, 660)) === 0, "powolny ruch myszki zostawia jasną smugę");
+// Nad przyciskiem smuga nie powstaje
+const przyciskFolder = await strona.locator("#otworz-folder").boundingBox();
+await strona.mouse.move(przyciskFolder.x + 4, przyciskFolder.y + 10);
+await strona.waitForTimeout(50);
+for (let i = 1; i <= 6; i++) {
+  await strona.mouse.move(przyciskFolder.x + 4 + i * 12, przyciskFolder.y + 10 + (i % 2) * 6);
+  await strona.waitForTimeout(12);
+}
+await strona.waitForTimeout(60);
+sprawdz((await jasneZnaki(przyciskFolder.x + 40, przyciskFolder.y + 10)) === 0, "smuga powstaje, gdy mysz jest nad przyciskiem");
+// Napis „Clipeon” ma zorzę (kolorowe tło przycięte do liter)
+const marka = await strona.evaluate(() => {
+  const s = getComputedStyle(document.querySelector(".marka"));
+  return [s.backgroundClip || s.webkitBackgroundClip, s.animationName, s.backgroundImage.includes("radial-gradient")];
+});
+sprawdz(marka[0].startsWith("text") && marka[1] === "zorza" && marka[2], `napis „Clipeon” nie ma zorzy: ${JSON.stringify(marka)}`);
+// Ustawienie „Kolorowy napis” wyłączone: zwykły biały napis bez animacji
+await strona.evaluate(() => { cfg.kolorowy_napis = false; odswiezPrzyciskZapisu(); });
+const bialy = await strona.evaluate(() => {
+  const s = getComputedStyle(document.querySelector(".marka"));
+  return [s.animationName, s.backgroundImage, s.color];
+});
+sprawdz(bialy[0] === "none" && bialy[1] === "none" && bialy[2] !== "rgba(0, 0, 0, 0)", `wyłączony kolorowy napis dalej ma zorzę: ${JSON.stringify(bialy)}`);
+await strona.evaluate(() => { cfg.kolorowy_napis = true; odswiezPrzyciskZapisu(); });
+
+// ---------- Film (długie nagrywanie) ----------
+sprawdz((await strona.textContent("#film")).trim() === "Nagraj film", `przycisk filmu: „${await strona.textContent("#film")}”`);
+await strona.click("#film");
+sprawdz((await strona.evaluate(() => window.__filmy)) === 1, "„Nagraj film” nie trafia do rdzenia");
+await strona.evaluate(() => pokazStan({ ...stan, film: 3725 }));
+sprawdz((await strona.textContent("#film")).trim() === "1:02:05" && (await strona.locator("#film.trwa").count()) === 1, `trwający film: „${await strona.textContent("#film")}”`);
+await strona.waitForTimeout(1100);
+sprawdz((await strona.textContent("#film")).trim() !== "1:02:05", "czas filmu na przycisku stoi w miejscu");
+await zrzut("0b-film-trwa");
+await strona.evaluate(() => pokazStan({ ...stan, film: null, film_zapis: true }));
+sprawdz(await strona.isDisabled("#film"), "przycisk filmu jest klikalny w trakcie składania pliku");
+await strona.evaluate(() => pokazStan({ ...stan, film_zapis: false }));
+// Zakładka Filmy pokazuje tylko długie nagrania, Klipy — resztę
+await strona.evaluate(() => {
+  const teraz = Date.now();
+  window.__klipy = [
+    { sciezka: "C:\\Klipy\\Clipeon_Film_2026-11-11_20-00-00.mp4", nazwa: "Clipeon_Film_2026-11-11_20-00-00.mp4", rozmiar: 4.2e9, czas_ms: teraz, pulpit: false, film: true },
+    { sciezka: "C:\\Klipy\\Clipeon_2026-11-11_19-00-00.mp4", nazwa: "Clipeon_2026-11-11_19-00-00.mp4", rozmiar: 50e6, czas_ms: teraz, pulpit: false, film: false },
+    { sciezka: "C:\\Klipy\\Clipeon_2026-11-11_18-00-00.mp4", nazwa: "Clipeon_2026-11-11_18-00-00.mp4", rozmiar: 50e6, czas_ms: teraz, pulpit: true, film: false },
+  ];
+});
+await strona.click('[data-zakladka="filmy"]');
+await strona.waitForTimeout(200);
+sprawdz((await strona.textContent("#biblioteka-tytul")) === "Filmy" && (await strona.locator(".klip").count()) === 1, "zakładka Filmy nie pokazuje samych filmów");
+sprawdz((await strona.textContent("#podsumowanie")).startsWith("1 film "), `podsumowanie filmów: „${await strona.textContent("#podsumowanie")}”`);
+await zrzut("0c-filmy");
+await strona.click('[data-zakladka="klipy"]');
+await strona.waitForTimeout(200);
+sprawdz((await strona.textContent("#biblioteka-tytul")) === "Klipy" && (await strona.locator(".klip").count()) === 2, "zakładka Klipy pokazuje filmy albo gubi klipy");
+sprawdz((await strona.textContent("#podsumowanie")).startsWith("2 klipy "), `podsumowanie klipów: „${await strona.textContent("#podsumowanie")}”`);
+await strona.evaluate(() => (window.__klipy = []));
+await strona.click('[data-zakladka="filmy"]');
+await strona.waitForTimeout(200);
+sprawdz((await strona.textContent("#pusto-tytul")) === "Brak filmów" && (await strona.textContent("#pusto-tekst")).includes("Alt+F9"), "pusta zakładka Filmy nie podpowiada skrótu");
+await strona.click('[data-zakladka="klipy"]');
+await strona.waitForTimeout(100);
 
 // Tryb gry: zamiast wyboru ekranu lista działających gier
 await strona.click("#wybor");
@@ -137,16 +265,40 @@ sprawdz(await strona.isChecked("#mikrofon"), "wybranie mikrofonu nie włączyło
 sprawdz((await strona.locator("#gra").count()) === 0, "pole „Gra” zostało w ustawieniach");
 
 // „Mój głos”: dwa przyciski zamiast przełącznika
-const dwojka = strona.locator('[data-pole="glos-w-edytorze"]');
-sprawdz((await dwojka.locator(".wybrany").textContent()) === "Z moim głosem", "„Edytor zaczyna od” nie pokazuje zapisanego wyboru");
-await dwojka.locator('[data-wartosc="nie"]').click();
-sprawdz(!(await strona.isChecked("#glos-w-edytorze")), "przycisk „Bez głosu” nie zmienia ustawienia");
+// „Edytor zaczyna od” zniknęło z ustawień
+sprawdz(!/Edytor zaczyna od|Bez głosu/.test(await strona.textContent("#formularz")), "w ustawieniach zostało „Edytor zaczyna od”");
 
-// „Zaawansowane” to karta jak inne grupy i da się ją rozwinąć
-await strona.click(".zaawansowane > summary");
-sprawdz(await strona.isVisible("#enkoder"), "„Zaawansowane” się nie rozwija");
+// „Zaawansowane” leżą zaraz pod Systemem (ta sama kolumna) i widać je bez rozwijania
+sprawdz(await strona.isVisible("#enkoder"), "„Zaawansowane” nie są widoczne od razu");
 await zrzut("3-zaawansowane");
-sprawdz((await strona.locator(".karta .zaawansowane").count()) === 1, "„Zaawansowane” nie są w karcie");
+sprawdz(await strona.evaluate(() => document.querySelector(".karta.zaawansowane").closest(".grupa") === document.getElementById("autostart").closest(".grupa")), "„Zaawansowane” nie są pod Systemem");
+
+// Lista wyboru leży pod opisem i zajmuje szerokość karty (opis nie jest ściśnięty w wąską kolumnę)
+const [opisR, listaR, kartaR] = await strona.evaluate(() => {
+  const lista = document.getElementById("format-filmu");
+  const r = (e) => { const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height }; };
+  return [r(lista.closest(".ust").querySelector(".opis")), r(lista), r(lista.closest(".karta"))];
+});
+sprawdz(listaR.y >= opisR.y + opisR.h && opisR.w > kartaR.w * 0.8 && listaR.w > kartaR.w * 0.8, `„Rozmiar filmów”: opis ${Math.round(opisR.w)} px, lista ${Math.round(listaR.w)} px, karta ${Math.round(kartaR.w)} px`);
+
+// Suwak sekund przyskakuje do równych wartości przy przeciąganiu myszką (strzałki dalej chodzą co 5 s)
+await strona.locator("#bufor").scrollIntoViewIfNeeded();
+const suwakR = await strona.locator("#bufor").boundingBox();
+const naSuwaku = (s) => suwakR.x + 8 + ((suwakR.width - 16) * (s - 5)) / 595;
+await strona.mouse.move(naSuwaku(30), suwakR.y + suwakR.height / 2);
+await strona.mouse.down();
+await strona.mouse.move(naSuwaku(64), suwakR.y + suwakR.height / 2, { steps: 4 });
+sprawdz((await strona.inputValue("#bufor")) === "60" && (await strona.textContent("#bufor-wartosc")) === "1 min", `suwak nie przyskakuje do 1 min: ${await strona.inputValue("#bufor")} / „${await strona.textContent("#bufor-wartosc")}”`);
+await strona.mouse.move(naSuwaku(75), suwakR.y + suwakR.height / 2, { steps: 4 });
+sprawdz((await strona.inputValue("#bufor")) === "75", `suwak nie pozwala ustawić wartości między równymi: ${await strona.inputValue("#bufor")}`);
+await strona.mouse.move(naSuwaku(31), suwakR.y + suwakR.height / 2, { steps: 4 });
+await strona.mouse.up();
+sprawdz((await strona.inputValue("#bufor")) === "30", `suwak nie wraca na 30 s: ${await strona.inputValue("#bufor")}`);
+await strona.focus("#bufor");
+await strona.keyboard.press("ArrowRight");
+sprawdz((await strona.inputValue("#bufor")) === "35", `strzałka na suwaku: ${await strona.inputValue("#bufor")}`);
+await strona.keyboard.press("ArrowLeft");
+sprawdz((await strona.locator("#bufor-kreski i").count()) === 10, "pod suwakiem nie ma kresek co minutę");
 
 // Zapis ustawień wysyła wszystkie pola z formularza
 await strona.click("#zapisz-ustawienia");
@@ -155,7 +307,7 @@ const zapisane = await strona.evaluate(() => window.__zapisane);
 sprawdz(zapisane, "„Zapisz ustawienia” nic nie wysłał");
 if (zapisane) {
   const c = zapisane.cfg;
-  const oczekiwane = { mikrofon: true, mikrofon_urzadzenie: "m2", glos_w_edytorze: false, bufor_sekundy: 30, fps: 60, skrot: "Alt+F10", sprzatanie_dni: 0 };
+  const oczekiwane = { mikrofon: true, mikrofon_urzadzenie: "m2", bufor_sekundy: 30, fps: 60, skrot: "Alt+F10", skrot_filmu: "Alt+F9", animowane_tlo: true, kolorowy_napis: true, sprzatanie_dni: 0 };
   for (const [k, v] of Object.entries(oczekiwane)) sprawdz(c[k] === v, `zapis ustawień: ${k} = ${JSON.stringify(c[k])}, oczekiwano ${JSON.stringify(v)}`);
 }
 
@@ -178,8 +330,72 @@ for (const szerokosc of [1100, 900, 820]) {
 }
 await strona.setViewportSize({ width: 1100, height: 800 });
 
-// Żółta ramka: podpowiedź przy sposobie przechwytywania
-sprawdz((await strona.textContent(".zaawansowane")).includes("Żółta ramka"), "brak podpowiedzi o żółtej ramce");
+// Sposób przechwytywania: bez napisów o żółtej ramce, za to widać, którym sposobem Clipeon nagrywa teraz
+sprawdz(!/żółt/i.test(await strona.textContent("#formularz")), "w ustawieniach został napis o żółtej ramce");
+sprawdz((await strona.textContent("#metoda-teraz")).includes("Desktop Duplication"), `brak informacji o używanym sposobie przechwytywania: „${await strona.textContent("#metoda-teraz")}”`);
+await strona.evaluate(() => pokazStan({ ...stan, droga: "potok", ramka: true }));
+sprawdz((await strona.textContent("#metoda-teraz")).includes("Tryb zgodności"), "informacja o sposobie przechwytywania nie idzie za stanem");
+await strona.evaluate(() => pokazStan({ ...stan, droga: "dda", ramka: false }));
+
+// ---------- Ustawianie skrótu ----------
+const wstrzymania = () => strona.evaluate(() => window.__wstrzymania || []);
+await strona.click("#skrot");
+sprawdz((await wstrzymania()).at(-1) === true, "kliknięcie pola skrótu nie wyłącza skrótów Clipeona");
+// Wciskane klawisze widać od razu, na szaro
+await strona.keyboard.down("Control");
+await strona.keyboard.down("Shift");
+sprawdz((await strona.textContent("#skrot")) === "Ctrl + Shift + …", `podgląd wciskanych klawiszy: „${await strona.textContent("#skrot")}”`);
+const [szary, zwykly] = await strona.evaluate(() => [getComputedStyle($("skrot")).color, getComputedStyle($("skrot-filmu")).color]);
+sprawdz(szary !== zwykly, "podgląd wciskanych klawiszy nie jest szary");
+await zrzut("3a-skrot-podglad");
+await strona.keyboard.up("Shift");
+sprawdz((await strona.textContent("#skrot")) === "Ctrl + …", "puszczony klawisz zostaje w podglądzie skrótu");
+await strona.keyboard.down("F8");
+await strona.keyboard.up("F8");
+await strona.keyboard.up("Control");
+sprawdz((await strona.textContent("#skrot")) === "Ctrl+F8" && (await strona.evaluate(() => $("skrot").dataset.wartosc)) === "Ctrl+F8", `nowy skrót nie został przyjęty: „${await strona.textContent("#skrot")}”`);
+sprawdz((await wstrzymania()).at(-1) === false, "po ustawieniu skrótu skróty Clipeona nie wracają");
+// Esc anuluje i też przywraca skróty
+await strona.click("#skrot");
+await strona.keyboard.press("Escape");
+sprawdz((await strona.textContent("#skrot")) === "Ctrl+F8" && (await wstrzymania()).at(-1) === false, "Esc nie anuluje ustawiania skrótu");
+// Skrót filmu: nie może być taki sam jak skrót klipu, a Delete go usuwa
+await strona.click("#skrot-filmu");
+await strona.keyboard.press("Control+F8");
+sprawdz((await strona.textContent("#skrot-filmu")).includes("zajęty"), "skrót filmu dał się ustawić taki sam jak skrót klipu");
+await strona.keyboard.press("Delete");
+sprawdz((await strona.textContent("#skrot-filmu")) === "Bez skrótu" && (await strona.evaluate(() => $("skrot-filmu").dataset.wartosc)) === "", "Delete nie usuwa skrótu filmu");
+// Utrata fokusu okna w trakcie ustawiania: skróty wracają
+await strona.click("#skrot-filmu");
+await strona.evaluate(() => window.dispatchEvent(new Event("blur")));
+sprawdz((await wstrzymania()).at(-1) === false && (await strona.locator(".pole-skrotu.nasluch").count()) === 0, "po przejściu do innego okna skróty zostają wyłączone");
+await strona.click("#zapisz-ustawienia");
+await strona.waitForTimeout(100);
+const zeSkrotami = await strona.evaluate(() => window.__zapisane.cfg);
+sprawdz(zeSkrotami.skrot === "Ctrl+F8" && zeSkrotami.skrot_filmu === "", `zapis skrótów: ${JSON.stringify([zeSkrotami.skrot, zeSkrotami.skrot_filmu])}`);
+// Rozmiar filmów: wybór trafia do ustawień, a podpowiedź mówi, ile zajmie godzina nagrania
+sprawdz((await strona.locator("#format-filmu option").count()) === 3, "lista „Rozmiar filmów” nie ma formatów z rdzenia");
+sprawdz((await strona.textContent("#format-filmu-uwaga")).includes("9.2 GB"), `podpowiedź rozmiaru filmu: „${await strona.textContent("#format-filmu-uwaga")}”`);
+await strona.selectOption("#format-filmu", "hevc");
+sprawdz((await strona.textContent("#format-filmu-uwaga")).includes("4.3 GB"), `podpowiedź rozmiaru filmu HEVC: „${await strona.textContent("#format-filmu-uwaga")}”`);
+await strona.click("#zapisz-ustawienia");
+await strona.waitForTimeout(100);
+sprawdz((await strona.evaluate(() => window.__zapisane.cfg.format_filmu)) === "hevc", "wybrany rozmiar filmów nie trafia do ustawień");
+// Zmniejszanie filmu w tle widać w bibliotece
+await strona.evaluate(() => pokazStan({ ...stan, film_zmniejszanie: 42 }));
+sprawdz((await strona.evaluate(() => !$("film-zmniejszanie").hidden && $("film-zmniejszanie").textContent.includes("42%"))), "postęp zmniejszania filmu nie jest pokazany");
+await strona.evaluate(() => pokazStan({ ...stan, film_zmniejszanie: null }));
+sprawdz(await strona.evaluate(() => $("film-zmniejszanie").hidden), "napis o zmniejszaniu filmu nie znika");
+
+// Wyłączone „Animowane tło” chowa tło od razu po zapisie
+await strona.click('label:has(#animowane-tlo)');
+await strona.click("#zapisz-ustawienia");
+await strona.waitForTimeout(100);
+sprawdz(await strona.isHidden("#tlo"), "wyłączenie „Animowane tło” nie chowa tła");
+await strona.click('label:has(#animowane-tlo)');
+await strona.click("#zapisz-ustawienia");
+await strona.waitForTimeout(100);
+sprawdz(await strona.isVisible("#tlo"), "włączenie „Animowane tło” nie przywraca tła");
 
 // ---------- Edytor ----------
 await strona.click('[data-zakladka="klipy"]');
@@ -210,16 +426,21 @@ const narysowane = await v(() => {
 });
 sprawdz(narysowane[0] === 0 && narysowane[1] > 50, `wykres głośności nie pokazuje, gdzie jest dźwięk: ${narysowane}`);
 // Wykres leży dokładnie pod osią czasu
-const [osR, falaR] = [await strona.locator("#os").boundingBox(), await strona.locator(".fala").first().boundingBox()];
+let [osR, falaR] = [await strona.locator("#os").boundingBox(), await strona.locator(".fala").first().boundingBox()];
 sprawdz(Math.abs(osR.x - falaR.x) < 1.5 && Math.abs(osR.width - falaR.width) < 1.5, `ścieżka dźwięku nie leży pod osią czasu: ${JSON.stringify([osR, falaR])}`);
 
-// Ustawienie „Edytor zaczyna od: Bez głosu” (zapisane wyżej w teście ustawień) = mikrofon od razu wyciszony
-sprawdz(await v(() => sciezkiGlosu[1].glosnosc === 0 && sciezkiGlosu[1].el.classList.contains("wyciszona")), "„Bez głosu” w ustawieniach nie wycisza ścieżki mikrofonu na starcie");
+// Edytor zawsze zaczyna z głosem (ustawienia „Edytor zaczyna od” już nie ma); mikrofon wycisza przycisk przy ścieżce
+sprawdz(await v(() => sciezkiGlosu[1].glosnosc === 1 && !sciezkiGlosu[1].el.classList.contains("wyciszona")), "edytor nie zaczyna z włączonym mikrofonem");
+await strona.locator(".sciezka .wycisz").nth(1).click();
+sprawdz(await v(() => sciezkiGlosu[1].glosnosc === 0 && sciezkiGlosu[1].el.classList.contains("wyciszona")), "przycisk przy ścieżce nie wycisza mikrofonu");
 sprawdz((await strona.textContent("#eksportuj")) === "Zapisz bez mojego głosu", "wyciszony mikrofon nie daje „Zapisz bez mojego głosu”");
 await strona.locator(".sciezka .wycisz").nth(1).click();
 sprawdz(await v(() => sciezkiGlosu[1].glosnosc === 1), "przycisk przy ścieżce nie włącza mikrofonu");
 
 // Przeciągnięcie linii głośności w dół = ciszej, i słychać to od razu
+// (odciszenie mikrofonu chowa wiersz zapisu, więc ścieżki mierzymy od nowa, gdy układ się uspokoi)
+await strona.waitForTimeout(200);
+falaR = await strona.locator(".fala").first().boundingBox();
 await strona.mouse.move(falaR.x + falaR.width / 2, falaR.y + falaR.height / 2);
 await strona.mouse.down();
 await strona.mouse.move(falaR.x + falaR.width / 2, falaR.y + falaR.height * 0.75, { steps: 4 });
@@ -287,6 +508,8 @@ let zl = await v(() => window.__zlecenia?.at(-1));
 sprawdz(zl?.zastap === true && zl?.format === "mp4", `domyślny zapis nie zastępuje oryginału: ${JSON.stringify(zl)}`);
 await strona.evaluate((k) => odtworz(k), klip);
 await strona.waitForFunction(() => dlugosc > 19, null, { timeout: 5000 }).catch(() => {});
+// Ten sam klip otwarty drugi raz: długość jest znana od razu, ale wczytanie pliku zeruje zaznaczenie — czekamy na nie
+await strona.waitForTimeout(500);
 await v(() => przesun("koniec", 12));
 await strona.click("#zachowaj-wiersz");
 await strona.click("#eksportuj");

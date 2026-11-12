@@ -1,5 +1,56 @@
 # Zmiany
 
+## 1.4.0
+
+- **Filmy — długie nagrywanie.** Nowy przycisk „Nagraj film” na pasku (i w menu ikony przy zegarze) albo skrót
+  **Alt+F9** zaczyna nagrywanie bez limitu czasu; to samo kończy film. Na przycisku tyka czas nagrania.
+  Filmy mają własną zakładkę **Filmy** obok Klipów, zapisują się do tego samego folderu jako
+  `Clipeon_Film_…mp4`, mają te same ścieżki dźwięku co klipy (razem, Gra, Mikrofon) i otwierają się
+  w edytorze, więc da się z nich wyciąć klip albo GIF.
+  - Film nie obciąża gry dodatkowo: korzysta z tego samego obrazu, który Clipeon i tak nagrywa do bufora.
+    Klipy (Alt+F10) działają w trakcie filmu jak zwykle.
+  - Automatyczne sprzątanie nigdy nie usuwa filmów.
+  - Film kończy się sam, gdy na dysku zostaje mniej niż 500 MB, gdy zmienisz ustawienia nagrywania albo
+    zamkniesz Clipeona — i zawsze zapisuje to, co zdążył nagrać. Skrót filmu zmienisz (albo usuniesz)
+    w Ustawieniach → Zapisywanie klipów.
+- **Mniejsze filmy.** Ustawienia → Zapisywanie klipów → „Rozmiar filmów”: po zakończeniu nagrania Clipeon
+  może zapisać film od nowa jako HEVC (ok. połowa rozmiaru) albo AV1 (ok. jedna trzecia). Robi to karta
+  graficzna, w tle i z niskim priorytetem, więc nagrywanie nie jest przez to cięższe; godzina filmu to
+  zwykle kilka–kilkanaście minut. Postęp widać w bibliotece, a do końca film leży tam w pełnej jakości.
+  Opcje pojawiają się tylko wtedy, gdy karta umie dany format. Domyślnie film zostaje bez zmian.
+- **Żółta ramka przy zmianie pełny ekran ↔ okno.** Gdy gra przełączała tryb ekranu, Desktop Duplication
+  na chwilę gubiło obraz, a Clipeon po trzech takich potknięciach przechodził na stałe na tryb zgodności,
+  który na Windows 10 rysuje żółtą ramkę. Teraz Clipeon po prostu ponawia Desktop Duplication, aż ekran się
+  uspokoi. Jeśli naprawdę nie działa dłużej niż 30 s, przechodzi na inny sposób tylko na chwilę i sam wraca
+  do Desktop Duplication (pierwsza próba po minucie). Zapamiętany „sposób z ramką” nie wygrywa już
+  z działającym Desktop Duplication po ponownym uruchomieniu.
+- W Ustawieniach → Zaawansowane widać, którym sposobem Clipeon przechwytuje obraz **w tej chwili**.
+  Zniknęły napisy o żółtej ramce (także z listy sposobów).
+- **Ustawianie skrótu nie zapisuje już klipów.** Gdy klikniesz pole skrótu, skróty Clipeona są wyłączone,
+  dopóki nie wciśniesz nowej kombinacji, nie anulujesz (Esc) albo nie przejdziesz do innego okna.
+- **Podgląd wciskanych klawiszy.** Przy ustawianiu skrótu pole pokazuje na szaro to, co już trzymasz
+  („Ctrl + Shift + …”), a gotowy skrót robi się biały.
+- **Animowane tło.** Większość okna jest czarna, a tu i tam leżą plamy napisu CLIPEON, które na brzegach
+  rzedną w plusy, dwukropki i rozproszone kropki. Plamy bardzo powoli zmieniają kształt i przy każdym
+  uruchomieniu układają się inaczej. Ruch myszki zostawia smugę gęstych znaków: im szybszy ruch, tym
+  jaśniejsza, a przy powolnym prawie jej nie widać. Smuga nigdzie nie leci — strzępi się i powoli gaśnie tam,
+  gdzie powstała, więc gdy myszka stoi, efekt sam znika. Nad przyciskami, ustawieniami i klipami smuga nie
+  powstaje. Tło działa tylko wtedy, gdy okno Clipeona jest otwarte i aktywne (w grze nie kosztuje nic),
+  a wyłączysz je w Ustawieniach → System → „Animowane tło”.
+- **Napis „Clipeon” z zorzą** — po białych literach wędrują kolorowe plamy (napis nie jest już pogrubiony).
+  Kolory wyłączysz w Ustawieniach → System → „Kolorowy napis Clipeon”.
+- **Ustawienia czytelniej.** Listy wyboru i pola skrótów leżą pod opisem i zajmują szerokość karty (opis nie
+  jest już ściśnięty w wąską kolumnę). „Zaawansowane” są zaraz pod „Systemem” i widać je bez rozwijania.
+  „Ikona zawsze widoczna przy zegarze” nazywa się teraz „Ikona zawsze widoczna na pasku zadań”.
+- **Suwak „Ile ostatnich sekund zapisywać”** jest na całą szerokość karty, ma kreski co minutę i przy
+  przeciąganiu przyskakuje do równych wartości (30 s, 1 min, 1 min 30 s…). Strzałki dalej zmieniają co 5 s.
+- Zniknęło ustawienie „Edytor zaczyna od: Z moim głosem / Bez głosu”. Edytor zawsze zaczyna z głosem,
+  a mikrofon wyciszasz przyciskiem przy jego ścieżce.
+- **Okno bez ramki.** Treść i tło sięgają do brzegów okna, a pasek z zakładkami oddziela tylko cienka linia.
+- Okno otwiera się trochę szersze (1200 px), żeby pasek z nową zakładką i przyciskiem filmu się mieścił.
+- **Poprawka:** ponowne uruchomienie po instalacji aktualizacji nie jest już zapisywane w dzienniku jako
+  „uruchomiony ponownie po awarii”.
+
 ## 1.3.9
 
 - **GIF i WebP z klipu.** W edytorze nowy wybór „Format: MP4 | GIF | WebP”. Animacja jest zapętlona

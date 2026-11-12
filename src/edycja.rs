@@ -129,7 +129,16 @@ fn nazwa_wyniku(zrodlo: &Path, z: &Zlecenie) -> PathBuf {
 
 /// Uruchamia ffmpeg i raportuje postęp (0..1) na podstawie -progress.
 fn ffmpeg_z_postepem(args: &[String], dlugosc: f64, postep: &dyn Fn(f64)) -> Result<(), String> {
-    let mut proces = crate::ffmpeg::komenda()
+    uruchom_z_postepem(crate::ffmpeg::komenda(), args, dlugosc, &|p| {
+        postep(p);
+        true
+    })
+}
+
+/// Jak wyżej, ale dla podanego polecenia (np. z niższym priorytetem), a `postep` może przerwać pracę,
+/// zwracając false — ffmpeg jest wtedy zamykany.
+pub fn uruchom_z_postepem(mut cmd: std::process::Command, args: &[String], dlugosc: f64, postep: &dyn Fn(f64) -> bool) -> Result<(), String> {
+    let mut proces = cmd
         .args(["-hide_banner", "-loglevel", "error", "-nostats", "-progress", "pipe:1", "-y"])
         .args(args)
         .stdout(Stdio::piped())
@@ -144,8 +153,12 @@ fn ffmpeg_z_postepem(args: &[String], dlugosc: f64, postep: &dyn Fn(f64)) -> Res
         s
     });
     for linia in BufReader::new(proces.stdout.take().unwrap()).lines().map_while(Result::ok) {
-        if let Some(us) = linia.strip_prefix("out_time_us=").and_then(|v| v.parse::<f64>().ok()) {
-            postep((us / 1e6 / dlugosc).clamp(0.0, 1.0));
+        if let Some(us) = linia.strip_prefix("out_time_us=").and_then(|v| v.parse::<f64>().ok())
+            && !postep((us / 1e6 / dlugosc).clamp(0.0, 1.0))
+        {
+            let _ = proces.kill();
+            let _ = proces.wait();
+            return Err("Przerwano".into());
         }
     }
     let status = proces.wait().map_err(|e| e.to_string())?;

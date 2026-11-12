@@ -65,6 +65,13 @@ impl Droga {
     pub fn w_ffmpeg(self) -> bool {
         self != Droga::Potok
     }
+
+    /// Czy przy tej drodze Windows rysuje wokół ekranu żółtą ramkę. Desktop Duplication nie rysuje jej
+    /// nigdy; pozostałe drogi korzystają z Windows Graphics Capture, w którym ramkę da się wyłączyć
+    /// dopiero od Windows 11.
+    pub fn z_ramka(self) -> bool {
+        self != Droga::Dda && !mozliwosci_przechwytywania().bez_ramki
+    }
 }
 
 /// Wszystko, od czego zależy kolejność dróg (wydzielone, żeby dało się to przetestować).
@@ -334,6 +341,9 @@ pub struct Wideo {
     pub format: &'static str,
     /// FPS strumienia (do zapisu klipu)
     pub fps: u32,
+    /// Rozmiar zakodowanego obrazu i nazwa enkodera (film skleja tylko segmenty o tych samych)
+    pub rozmiar: (u32, u32),
+    pub enkoder: &'static str,
     pub droga: Droga,
     pub statystyki: Arc<Statystyki>,
     /// Enkoder nie nadąża (gra zabiera całą moc karty albo procesora)
@@ -575,7 +585,7 @@ pub fn uruchom(
 
     let (nazwa, id) = cfg.aktywny_monitor();
     let zastepczy = p.zastepczy.then(|| (nazwa.to_string(), id.to_string()));
-    Ok(Wideo { sterowanie, stop, proces, problem, format, fps, droga, statystyki, przeciazenie, zastepczy, opis })
+    Ok(Wideo { sterowanie, stop, proces, problem, format, fps, rozmiar: (w, h), enkoder, droga, statystyki, przeciazenie, zastepczy, opis })
 }
 
 struct Odczyt {

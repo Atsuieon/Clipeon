@@ -16,6 +16,7 @@
 ## Funkcje
 
 - **Ostatnie sekundy gry jednym skrótem** — wciśnij **Alt+F10**, a ostatnie 30 s (do ustawienia od 5 s do 10 min) zapisze się jako MP4.
+- **Filmy** — „Nagraj film” albo **Alt+F9** nagrywa bez limitu czasu, aż wciśniesz jeszcze raz. Film nie obciąża gry dodatkowo, a klipy działają w jego trakcie jak zwykle. Po nagraniu Clipeon może go sam zmniejszyć (HEVC albo AV1).
 - **Lekki** — obraz przechwytuje i koduje karta graficzna (AMD, NVIDIA, Intel), bez kopiowania klatek przez procesor; nic nie trafia na dysk, dopóki nie zapiszesz.
 - **Tryb pulpitu** — przełącznik „Gra | Pulpit” na pasku: pulpit ma własny ekran i lżejsze ustawienia (domyślnie 30 FPS, 12 Mb/s), a ekran wybierzesz jednym kliknięciem.
 - **Dźwięk gry i mikrofon osobno** — w edytorze dwie ścieżki z wykresem dźwięku: ściszysz albo wyciszysz jedno lub drugie i od razu to słychać.
@@ -54,7 +55,8 @@ Odinstalowanie nigdy nie usuwa klipów.
 <details>
 <summary><b>Jak zmienić skrót?</b></summary>
 
-Ustawienia → Zapisywanie klipów → Skrót do zapisania klipu. Kliknij pole i wciśnij nową kombinację klawiszy.
+Ustawienia → Zapisywanie klipów → Skrót do zapisania klipu (albo Skrót do nagrywania filmu). Kliknij pole i wciśnij nową kombinację klawiszy.
+Na czas ustawiania skróty Clipeona są wyłączone, więc nic się przy tym nie zapisze.
 </details>
 
 <details>
@@ -68,7 +70,7 @@ Klipy z pulpitu mają nazwy `Clipeon_Pulpit_…` i znaczek „Pulpit” w biblio
 <details>
 <summary><b>Coś nie działa — jak zgłosić błąd?</b></summary>
 
-Ustawienia → Zgłaszanie problemów → **Kopiuj diagnostykę** i wklej tekst do [zgłoszenia](https://github.com/Atsuieon/Clipeon/issues/new/choose).
+Ustawienia → Zaawansowane → Zgłaszanie problemów → **Kopiuj diagnostykę** i wklej tekst do [zgłoszenia](https://github.com/Atsuieon/Clipeon/issues/new/choose).
 Diagnostyka opisuje kartę graficzną, monitory, ustawienia i ostatnie zdarzenia. Nic nie jest wysyłane automatycznie.
 </details>
 
@@ -82,7 +84,8 @@ Clipeon to ta sama aplikacja pod nową nazwą. Zainstaluj go: instalator sam usu
 
 ## English
 
-Clipeon keeps the last seconds of your gameplay in memory and saves them as an MP4 when you press **Alt+F10**.
+Clipeon keeps the last seconds of your gameplay in memory and saves them as an MP4 when you press **Alt+F10**;
+**Alt+F9** starts and stops a long recording with no time limit.
 GPU capture and encoding (AMD / NVIDIA / Intel), a desktop recording mode, separate game and mic tracks, trimming, shrink-to-size for Discord,
 drag-and-drop clips into other apps. Windows 10 2004+ / 11. [Download the latest release](https://github.com/Atsuieon/Clipeon/releases/latest)
 — the installer is unsigned, so SmartScreen may warn: *More info → Run anyway*. The interface is in Polish.

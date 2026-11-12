@@ -439,6 +439,11 @@ pub fn do_eksportu() -> &'static str {
     najlepszy(Kodek::H264).unwrap_or("h264_mf")
 }
 
+/// Sprzętowy enkoder danej rodziny (do zmniejszania filmów) albo None, gdy karta takiego nie ma.
+pub fn sprzetowy_dla(kodek: Kodek) -> Option<&'static str> {
+    najlepszy(kodek).filter(|n| sprzetowy(n))
+}
+
 pub fn kodek(nazwa: &str) -> Kodek {
     znajdz(nazwa).map(|e| e.kodek).unwrap_or(Kodek::H264)
 }
