@@ -65,7 +65,6 @@ fn wykryj() -> Vec<Karta> {
             if opis.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32 != 0 || opis.VendorId == 0x1414 {
                 continue;
             }
-            let dl = opis.Description.iter().position(|&c| c == 0).unwrap_or(opis.Description.len());
             let sterownik = adapter
                 .CheckInterfaceSupport(&IDXGIDevice::IID)
                 .map(|v| {
@@ -74,7 +73,7 @@ fn wykryj() -> Vec<Karta> {
                 })
                 .unwrap_or_else(|_| "nieznany".into());
             wynik.push(Karta {
-                nazwa: String::from_utf16_lossy(&opis.Description[..dl]).trim().to_string(),
+                nazwa: crate::tekst_utf16(&opis.Description).trim().to_string(),
                 producent: producent_z_id(opis.VendorId),
                 pamiec: opis.DedicatedVideoMemory as u64,
                 sterownik,
@@ -150,16 +149,13 @@ pub fn wyjscie_monitora(nazwa: &str) -> Option<Wyjscie> {
             let producent = adapter.GetDesc1().map(|o| producent_z_id(o.VendorId)).unwrap_or(Producent::Inny);
             let mut o = 0;
             while let Ok(wyjscie) = adapter.EnumOutputs(o) {
-                if let Ok(opis) = wyjscie.GetDesc() {
-                    let dl = opis.DeviceName.iter().position(|&c| c == 0).unwrap_or(opis.DeviceName.len());
-                    if String::from_utf16_lossy(&opis.DeviceName[..dl]).eq_ignore_ascii_case(nazwa) {
-                        let hdr = wyjscie
-                            .cast::<IDXGIOutput6>()
-                            .ok()
-                            .and_then(|w6| w6.GetDesc1().ok())
-                            .is_some_and(|d| d.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
-                        return Some(Wyjscie { karta: a, wyjscie: o, producent, hdr });
-                    }
+                if wyjscie.GetDesc().is_ok_and(|opis| crate::tekst_utf16(&opis.DeviceName).eq_ignore_ascii_case(nazwa)) {
+                    let hdr = wyjscie
+                        .cast::<IDXGIOutput6>()
+                        .ok()
+                        .and_then(|w6| w6.GetDesc1().ok())
+                        .is_some_and(|d| d.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
+                    return Some(Wyjscie { karta: a, wyjscie: o, producent, hdr });
                 }
                 o += 1;
             }

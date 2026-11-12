@@ -84,8 +84,7 @@ pub fn dziala(proces: &str) -> bool {
         let mut jest = false;
         let mut dalej = Process32FirstW(migawka, &mut wpis).is_ok();
         while dalej {
-            let dl = wpis.szExeFile.iter().position(|&c| c == 0).unwrap_or(wpis.szExeFile.len());
-            if ten_sam(&String::from_utf16_lossy(&wpis.szExeFile[..dl]), proces) {
+            if ten_sam(&crate::tekst_utf16(&wpis.szExeFile), proces) {
                 jest = true;
                 break;
             }
@@ -132,9 +131,7 @@ fn z_okna(okno: HWND) -> Option<Gra> {
         if !mozliwa_gra(&proces) {
             return None;
         }
-        let nazwa = opis_pliku(&sciezka)
-            .filter(|n| !n.trim().is_empty())
-            .unwrap_or_else(|| tytul.trim().to_string());
+        let nazwa = opis_pliku(&sciezka).unwrap_or_else(|| tytul.trim().to_string());
         Some(Gra { nazwa, proces })
     }
 }
@@ -164,8 +161,25 @@ fn sciezka_programu(okno: HWND) -> Option<String> {
 }
 
 /// Ładna nazwa programu z zasobów pliku .exe (pole FileDescription, to samo, co widać
-/// w Menedżerze zadań). None, gdy plik nie ma opisu.
+/// w Menedżerze zadań). None, gdy plik nie ma opisu. Strażnik pyta o grę na wierzchu co sekundę,
+/// więc opis każdego pliku czytamy z dysku tylko raz.
 fn opis_pliku(sciezka: &str) -> Option<String> {
+    use crate::Zablokuj;
+    static ZNANE: std::sync::Mutex<Vec<(String, Option<String>)>> = std::sync::Mutex::new(Vec::new());
+    if let Some((_, opis)) = ZNANE.zablokuj().iter().find(|(s, _)| s == sciezka) {
+        return opis.clone();
+    }
+    let opis = opis_z_zasobow(sciezka).filter(|n| !n.is_empty());
+    let mut znane = ZNANE.zablokuj();
+    // Lista programów w ustawieniach przechodzi przez wszystkie okna — pamięć nie rośnie bez końca
+    if znane.len() >= 64 {
+        znane.clear();
+    }
+    znane.push((sciezka.to_string(), opis.clone()));
+    opis
+}
+
+fn opis_z_zasobow(sciezka: &str) -> Option<String> {
     unsafe {
         let plik = szeroki(sciezka);
         let rozmiar = GetFileVersionInfoSizeW(PCWSTR(plik.as_ptr()), None);
@@ -210,8 +224,7 @@ fn na_monitorze(okno: HWND, monitor: &str) -> bool {
         if monitor.is_empty() {
             return info.monitorInfo.dwFlags & MONITORINFOF_PRIMARY != 0;
         }
-        let nazwa = String::from_utf16_lossy(&info.szDevice);
-        nazwa.trim_end_matches('\0').eq_ignore_ascii_case(monitor)
+        crate::tekst_utf16(&info.szDevice).eq_ignore_ascii_case(monitor)
     }
 }
 

@@ -83,7 +83,7 @@ fn pokaz_okno(app: &AppHandle, zakladka: &str) {
             .build();
         match wynik {
             Ok(okno) => ciemna_obwodka(&okno),
-            Err(e) => eprintln!("Nie udało się otworzyć okna: {e}"),
+            Err(e) => crate::dziennik::blad(&format!("Nie udało się otworzyć okna: {e}")),
         }
     });
 }
@@ -172,7 +172,7 @@ fn obsluz_zdarzenie(app: &AppHandle, z: Zdarzenie) {
             }
             if cfg.powiadomienie_zapisu {
                 let nazwa = plik.file_name().unwrap_or_default().to_string_lossy().into_owned();
-                pokaz_dymek(app, cfg.aktywny_monitor().0, &format!("Zapisano ostatnie {} s", cfg.bufor_sekundy), &nazwa, false, false);
+                pokaz_dymek(app, &format!("Zapisano ostatnie {} s", cfg.bufor_sekundy), &nazwa, false, false);
             }
             let _ = app.emit("klip-zapisany", plik);
             // Po zapisie pilnujemy limitów folderu (jeśli sprzątanie jest włączone)
@@ -183,19 +183,19 @@ fn obsluz_zdarzenie(app: &AppHandle, z: Zdarzenie) {
             if cfg.dzwiek_zapisu {
                 crate::dzwiek::zagraj_blad();
             }
-            pokaz_dymek(app, cfg.aktywny_monitor().0, "Nie udało się zapisać klipu", &e, true, false);
+            pokaz_dymek(app, "Nie udało się zapisać klipu", &e, true, false);
         }
         // Clipeon nie nagrywa: dymek wisi do czasu naprawy albo kliknięcia (kliknięcie otwiera okno)
         Zdarzenie::Alarm(Some(opis)) => {
             if cfg.dzwiek_zapisu {
                 crate::dzwiek::zagraj_blad();
             }
-            pokaz_dymek(app, cfg.aktywny_monitor().0, "Clipeon nie nagrywa", &opis, true, true);
+            pokaz_dymek(app, "Clipeon nie nagrywa", &opis, true, true);
         }
-        Zdarzenie::Uwaga { tytul, opis } => pokaz_dymek(app, cfg.aktywny_monitor().0, &tytul, &opis, true, false),
+        Zdarzenie::Uwaga { tytul, opis } => pokaz_dymek(app, &tytul, &opis, true, false),
         Zdarzenie::Alarm(None) => {
             crate::powiadomienie::ukryj();
-            pokaz_dymek(app, cfg.aktywny_monitor().0, "Nagrywanie znów działa", "Clipeon sam wznowił nagrywanie", false, false);
+            pokaz_dymek(app, "Nagrywanie znów działa", "Clipeon sam wznowił nagrywanie", false, false);
         }
         // Film: czerwona kropka = nagrywa się
         Zdarzenie::FilmStart => {
@@ -207,14 +207,14 @@ fn obsluz_zdarzenie(app: &AppHandle, z: Zdarzenie) {
             } else {
                 format!("{} kończy nagrywanie", cfg.skrot_filmu)
             };
-            pokaz_dymek(app, cfg.aktywny_monitor().0, "Nagrywam film", &opis, true, false);
+            pokaz_dymek(app, "Nagrywam film", &opis, true, false);
         }
         Zdarzenie::FilmKoniec(powod) => {
             let (tytul, opis) = match powod {
                 Some(p) => ("Film zakończony".to_string(), format!("Powód: {p}. Zapisuję plik…")),
                 None => ("Koniec filmu".to_string(), "Zapisuję plik…".to_string()),
             };
-            pokaz_dymek(app, cfg.aktywny_monitor().0, &tytul, &opis, false, false);
+            pokaz_dymek(app, &tytul, &opis, false, false);
         }
         Zdarzenie::FilmZapisany { plik, sekundy, czesci } => {
             if cfg.dzwiek_zapisu {
@@ -222,51 +222,45 @@ fn obsluz_zdarzenie(app: &AppHandle, z: Zdarzenie) {
             }
             let nazwa = plik.file_name().unwrap_or_default().to_string_lossy().into_owned();
             let opis = if czesci > 1 { format!("{nazwa} (i {} kolejne części)", czesci - 1) } else { nazwa };
-            pokaz_dymek(app, cfg.aktywny_monitor().0, &format!("Film zapisany ({})", dlugosc_slowami(sekundy)), &opis, false, false);
+            pokaz_dymek(app, &format!("Film zapisany ({})", dlugosc_slowami(sekundy)), &opis, false, false);
             let _ = app.emit("film-zapisany", plik);
         }
         Zdarzenie::FilmZmniejszony { plik, przed, po } => {
             let gb = |b: u64| format!("{:.1} GB", b as f64 / 1e9).replace('.', ",");
             let nazwa = plik.file_name().unwrap_or_default().to_string_lossy().into_owned();
-            pokaz_dymek(app, cfg.aktywny_monitor().0, &format!("Film zmniejszony: {} → {}", gb(przed), gb(po)), &nazwa, false, false);
+            pokaz_dymek(app, &format!("Film zmniejszony: {} → {}", gb(przed), gb(po)), &nazwa, false, false);
             let _ = app.emit("film-zmniejszony", plik);
         }
         Zdarzenie::FilmNiezmniejszony(e) => {
-            pokaz_dymek(app, cfg.aktywny_monitor().0, "Film został w pełnej jakości", &format!("Nie udało się go zmniejszyć: {e}"), true, false);
+            pokaz_dymek(app, "Film został w pełnej jakości", &format!("Nie udało się go zmniejszyć: {e}"), true, false);
             let _ = app.emit("film-blad", format!("Film został w pełnej jakości: {e}"));
         }
         Zdarzenie::BladFilmu(e) => {
             if cfg.dzwiek_zapisu {
                 crate::dzwiek::zagraj_blad();
             }
-            pokaz_dymek(app, cfg.aktywny_monitor().0, "Nie udało się nagrać filmu", &e, true, false);
+            pokaz_dymek(app, "Nie udało się nagrać filmu", &e, true, false);
             let _ = app.emit("film-blad", e);
         }
     }
 }
 
-/// Dymek w prawym górnym rogu monitora z grą (nagrywanego) — patrz powiadomienie.rs.
+/// Dymek w prawym górnym rogu nagrywanego monitora (w trybie Gra i Pulpit) — patrz powiadomienie.rs.
 /// `trwaly` = wisi do naprawy problemu, a kliknięcie otwiera okno Clipeona.
-fn pokaz_dymek(app: &AppHandle, monitor: &str, tytul: &str, opis: &str, blad: bool, trwaly: bool) {
+fn pokaz_dymek(app: &AppHandle, tytul: &str, opis: &str, blad: bool, trwaly: bool) {
     let klik: Option<Box<dyn FnOnce() + Send>> = if trwaly {
         let app = app.clone();
         Some(Box::new(move || pokaz_okno(&app, "klipy")))
     } else {
         None
     };
-    pokaz_dymek_z_klikiem(app, monitor, tytul, opis, blad, trwaly, klik);
+    pokaz_dymek_z_klikiem(app, tytul, opis, blad, trwaly, klik);
 }
 
 /// Dymek z własną akcją po kliknięciu (`klik` = None: kliknięcia przechodzą do gry).
-fn pokaz_dymek_z_klikiem(
-    app: &AppHandle,
-    monitor: &str,
-    tytul: &str,
-    opis: &str,
-    blad: bool,
-    trwaly: bool,
-    klik: Option<Box<dyn FnOnce() + Send>>,
-) {
+fn pokaz_dymek_z_klikiem(app: &AppHandle, tytul: &str, opis: &str, blad: bool, trwaly: bool, klik: Option<Box<dyn FnOnce() + Send>>) {
+    let cfg = app.try_state::<Rdzen>().map(|r| r.config()).unwrap_or_default();
+    let monitor = cfg.aktywny_monitor().0;
     let m = app
         .available_monitors()
         .ok()
@@ -316,11 +310,9 @@ async fn sprawdz_aktualizacje_teraz(app: &AppHandle, w_tle: bool) -> Result<Opti
             let mut ogloszona = OGLOSZONA.zablokuj();
             if w_tle && *ogloszona != w.wersja {
                 *ogloszona = w.wersja.clone();
-                let monitor = app.state::<Rdzen>().config().monitor;
                 let a = app.clone();
                 pokaz_dymek_z_klikiem(
                     app,
-                    &monitor,
                     &format!("Nowa wersja Clipeona: {}", w.wersja),
                     "Kliknij, żeby otworzyć Clipeona i zaktualizować",
                     false,
@@ -358,8 +350,7 @@ async fn zainstaluj_aktualizacje_teraz(app: &AppHandle) -> Result<(), String> {
             let _ = m.aktualizacja.set_text(tekst);
             let _ = m.aktualizacja.set_enabled(true);
         }
-        let monitor = app.state::<Rdzen>().config().monitor;
-        pokaz_dymek(app, &monitor, "Aktualizacja się nie udała", e, true, false);
+        pokaz_dymek(app, "Aktualizacja się nie udała", e, true, false);
     }
     wynik
 }
@@ -407,8 +398,9 @@ fn zapisz_ustawienia(app: AppHandle, rdzen: State<'_, Rdzen>, mut cfg: Config, a
     }
     pozwol_na_folder(&app, &folder);
     if let Some(m) = app.try_state::<PozycjeMenu>() {
-        let _ = m.zapisz.set_text(tekst_zapisu(&rdzen.config()));
-        let _ = m.film.set_text(tekst_filmu(&rdzen.config(), false));
+        let cfg = rdzen.config();
+        let _ = m.zapisz.set_text(tekst_zapisu(&cfg));
+        let _ = m.film.set_text(tekst_filmu(&cfg, false));
     }
     let a = app.autolaunch();
     let wynik = if autostart { a.enable() } else { a.disable() };
@@ -521,7 +513,7 @@ fn przeciagnij(okno: tauri::WebviewWindow, rdzen: State<'_, Rdzen>, sciezka: Pat
             let _ = app.emit("przeciaganie-koniec", opis);
         }, Default::default());
         if let Err(e) = wynik {
-            eprintln!("Nie udało się rozpocząć przeciągania: {e}");
+            crate::dziennik::blad(&format!("Nie udało się rozpocząć przeciągania: {e}"));
         }
     })
     .map_err(|e| e.to_string())
@@ -571,7 +563,6 @@ fn przenies_autostart_z_clippera(app: &AppHandle) {
     }
 }
 
-/// Monitory do wyboru w ustawieniach i na pasku (z rozdzielczością, odświeżaniem i HDR).
 /// Podłączone mikrofony do wyboru w ustawieniach.
 #[tauri::command]
 async fn mikrofony() -> Vec<crate::audio::Mikrofon> {
@@ -595,6 +586,7 @@ fn gry(rdzen: State<'_, Rdzen>) -> Vec<crate::gra::Gra> {
     lista
 }
 
+/// Monitory do wyboru w ustawieniach i na pasku (z rozdzielczością, odświeżaniem i HDR).
 #[tauri::command]
 fn monitory() -> Vec<crate::wideo::InfoMonitora> {
     crate::wideo::monitory()
@@ -788,7 +780,6 @@ pub fn uruchom() {
                             } else {
                                 // Ręczne sprawdzenie; wynik pokazujemy dymkiem
                                 tauri::async_runtime::spawn(async move {
-                                    let monitor = app.state::<Rdzen>().config().aktywny_monitor().0.to_string();
                                     let (tytul, opis) = match sprawdz_aktualizacje_teraz(&app, false).await {
                                         Ok(Some(w)) => (
                                             format!("Dostępna wersja {}", w.wersja),
@@ -797,7 +788,7 @@ pub fn uruchom() {
                                         Ok(None) => ("Masz najnowszą wersję".to_string(), format!("Clipeon {}", crate::aktualizacje::WERSJA)),
                                         Err(e) => ("Nie udało się sprawdzić".to_string(), e),
                                     };
-                                    pokaz_dymek(&app, &monitor, &tytul, &opis, false, false);
+                                    pokaz_dymek(&app, &tytul, &opis, false, false);
                                 });
                             }
                         }

@@ -66,11 +66,8 @@ fn znajdz_wyjscie(nazwa: &str) -> Result<(IDXGIAdapter1, IDXGIOutput), String> {
         while let Ok(karta) = fabryka.EnumAdapters1(a) {
             let mut o = 0;
             while let Ok(wyjscie) = karta.EnumOutputs(o) {
-                if let Ok(opis) = wyjscie.GetDesc() {
-                    let dl = opis.DeviceName.iter().position(|&c| c == 0).unwrap_or(opis.DeviceName.len());
-                    if String::from_utf16_lossy(&opis.DeviceName[..dl]).eq_ignore_ascii_case(nazwa) {
-                        return Ok((karta, wyjscie));
-                    }
+                if wyjscie.GetDesc().is_ok_and(|opis| crate::tekst_utf16(&opis.DeviceName).eq_ignore_ascii_case(nazwa)) {
+                    return Ok((karta, wyjscie));
                 }
                 o += 1;
             }
@@ -294,6 +291,9 @@ fn petla(
                 // Utrata dostępu (zmiana trybu ekranu, UAC, blokada) albo karty: otwieramy od nowa w tle
                 crate::dziennik::info(&format!("Desktop Duplication: obraz chwilowo niedostępny ({e}) — odzyskuję bez przerywania nagrywania"));
                 zrodlo = None;
+                // Skopiowany, a jeszcze nieodczytany obraz był w teksturze starej duplikacji. Nowa ma pustą
+                // teksturę — bez tego pierwsza klatka po powrocie mogłaby być czarna
+                brudny = false;
                 bez_obrazu.get_or_insert_with(Instant::now);
                 continue;
             }
@@ -308,6 +308,7 @@ fn petla(
             if let Err(e) = odczytaj(z, &mut czysty, rozmiar) {
                 crate::dziennik::info(&format!("Desktop Duplication: nie udało się odczytać obrazu ({e}) — odzyskuję"));
                 zrodlo = None;
+                brudny = false;
                 bez_obrazu.get_or_insert_with(Instant::now);
                 continue;
             }

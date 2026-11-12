@@ -62,17 +62,10 @@ fn znajdz(nazwa: &str) -> Option<&'static Enkoder> {
     KANDYDACI.iter().find(|e| e.nazwa == nazwa)
 }
 
-/// Enkodery wbudowane w ffmpeg (lista z `ffmpeg -encoders`), liczona raz.
-fn wbudowane() -> &'static [&'static Enkoder] {
-    static WYNIK: OnceLock<Vec<&'static Enkoder>> = OnceLock::new();
-    WYNIK.get_or_init(|| {
-        let lista = crate::ffmpeg::komenda()
-            .args(["-hide_banner", "-encoders"])
-            .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-            .unwrap_or_default();
-        KANDYDACI.iter().filter(|e| lista.lines().any(|l| l.split_whitespace().nth(1) == Some(e.ffmpeg))).collect()
-    })
+/// Czy enkoder jest wbudowany w ten ffmpeg (ta sama lista `ffmpeg -encoders` co w ffmpeg.rs — jedno
+/// uruchomienie ffmpeg zamiast dwóch).
+fn wbudowany(e: &Enkoder) -> bool {
+    crate::ffmpeg::ma_enkoder(e.ffmpeg)
 }
 
 /// Jak sprawdzamy enkoder: rozdzielczość i czy klatki przychodzą jako tekstury D3D11 z danej karty
@@ -167,7 +160,7 @@ fn wynik_przy(e: &'static Enkoder, p: Proba) -> Wynik {
                 return if z.ok { Wynik::Dziala } else { Wynik::NieDziala(z.powod) };
             }
     let wczesniej_dzialal = p.tekstura.is_some_and(|k| p.ekran.is_some() && dzialal_z_tekstura(e, k));
-    let wynik = if wbudowane().iter().any(|x| x.nazwa == e.nazwa) {
+    let wynik = if wbudowany(e) {
         proba_z_ponowieniem(e, p)
     } else {
         Err("brak w tym ffmpeg".into())
@@ -234,17 +227,23 @@ fn ostrzez(tekst: String) {
 
 pub fn ostrzezenie() -> Option<String> {
     // Za stary sterownik NVIDIA widać już po wersji (gdy karta jest najmocniejsza w komputerze)
-    static SPRAWDZONO: OnceLock<()> = OnceLock::new();
-    SPRAWDZONO.get_or_init(|| {
+    static SPRAWDZONO: std::sync::Once = std::sync::Once::new();
+    SPRAWDZONO.call_once(|| {
         let glowna = crate::karty::karty().first();
         if let Some(v) = glowna.and_then(|k| k.wersja_nvidia()).filter(|v| *v < MIN_NVIDIA) {
-            ostrzez(format!(
-                "Sterownik karty NVIDIA ({v:.2}) jest za stary do nagrywania przez NVENC (potrzebny {MIN_NVIDIA:.0} lub nowszy). \
-                 Zaktualizuj go w aplikacji NVIDIA albo na nvidia.com — do tego czasu Clipeon nagrywa przez Windows albo procesor."
-            ));
+            ostrzez(stary_sterownik_nvidia(&format!("{v:.2}"), &format!("{MIN_NVIDIA:.0}")));
         }
     });
     OSTRZEZENIE.zablokuj().clone()
+}
+
+/// Ostrzeżenie o zbyt starym sterowniku NVIDIA (`jest` = zainstalowana wersja, gdy ją znamy).
+fn stary_sterownik_nvidia(jest: &str, potrzebny: &str) -> String {
+    let jest = if jest.is_empty() { String::new() } else { format!(" ({jest})") };
+    format!(
+        "Sterownik karty NVIDIA{jest} jest za stary do nagrywania przez NVENC (potrzebny {potrzebny} lub nowszy). \
+         Zaktualizuj go w aplikacji NVIDIA albo na nvidia.com — do tego czasu Clipeon nagrywa przez Windows albo procesor."
+    )
 }
 
 /// Enkoder sprzętowy (karta), a nie procesor.
@@ -270,10 +269,7 @@ fn proba_z_ponowieniem(e: &Enkoder, p: Proba) -> Result<(), String> {
             if p.tekstura.is_some() { ", tekstury z karty" } else { "" }));
     }
     if let Some(wersja) = wymagany_sterownik_nvidia(&powod) {
-        ostrzez(format!(
-            "Sterownik karty NVIDIA jest za stary do nagrywania przez NVENC (potrzebny {wersja} lub nowszy). \
-             Zaktualizuj go w aplikacji NVIDIA albo na nvidia.com — do tego czasu Clipeon nagrywa przez Windows albo procesor."
-        ));
+        ostrzez(stary_sterownik_nvidia("", &wersja));
     }
     Err(powod)
 }
@@ -395,8 +391,8 @@ fn proba(e: &Enkoder, p: Proba) -> Result<(), String> {
 /// Wszystkie działające enkodery (do listy w ustawieniach).
 pub fn dostepne() -> Vec<&'static Enkoder> {
     let lista: Vec<_> = kandydaci_wg_kart().into_iter().filter(|e| dziala(e)).collect();
-    static ZAPISANO: OnceLock<()> = OnceLock::new();
-    ZAPISANO.get_or_init(|| {
+    static ZAPISANO: std::sync::Once = std::sync::Once::new();
+    ZAPISANO.call_once(|| {
         crate::dziennik::info(&format!(
             "Dostępne enkodery: {}",
             lista.iter().map(|e| e.nazwa).collect::<Vec<_>>().join(", ")

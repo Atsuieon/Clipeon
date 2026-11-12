@@ -14,33 +14,33 @@ fn wynik_edycji(nazwa: &str) -> bool {
     let rdzen = rdzen.rsplit_once('_').filter(|(_, n)| n.chars().all(|c| c.is_ascii_digit())).map_or(rdzen, |(r, _)| r);
     rdzen.ends_with("_cut")
         || rdzen.ends_with("_audio")
-        || rdzen.rsplit_once('_').is_some_and(|(_, k)| k.ends_with("MB") && k[..k.len() - 2].chars().all(|c| c.is_ascii_digit()) && k.len() > 2)
+        || rdzen.rsplit_once('_').and_then(|(_, k)| k.strip_suffix("MB")).is_some_and(|n| !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()))
 }
 
-/// Usuwa pliki tymczasowe (*.mp4.tmp) po przerwanych zapisach — np. po awarii albo braku miejsca —
+/// Usuwa pliki tymczasowe (*.mp4.tmp, *.gif.tmp, *.webp.tmp) po przerwanych zapisach — np. po awarii albo braku miejsca —
 /// z folderu klipów i z podfolderów miesięcy; puste podfoldery miesięcy znikają.
 /// Świeże (ostatnie 10 min) zostawiamy, bo zapis może właśnie trwać.
 pub fn usun_resztki(folder: &Path) {
     resztki_w_folderze(folder);
-    let Ok(wpisy) = std::fs::read_dir(folder) else { return };
-    for w in wpisy.flatten() {
-        if !w.file_type().is_ok_and(|t| t.is_dir()) {
-            continue;
-        }
-        let podfolder = w.path();
+    for podfolder in podfoldery(folder) {
         resztki_w_folderze(&podfolder);
-        // Pusty miesiąc (np. po sprzątnięciu starych klipów) nie musi zostawać
-        if std::fs::read_dir(&podfolder).is_ok_and(|mut d| d.next().is_none()) {
-            let _ = std::fs::remove_dir(&podfolder);
-        }
     }
+    // Pusty miesiąc (np. po sprzątnięciu starych klipów) nie musi zostawać
+    usun_puste_miesiace(folder);
+}
+
+fn podfoldery(folder: &Path) -> Vec<std::path::PathBuf> {
+    let Ok(wpisy) = std::fs::read_dir(folder) else { return Vec::new() };
+    wpisy.flatten().filter(|w| w.file_type().is_ok_and(|t| t.is_dir())).map(|w| w.path()).collect()
 }
 
 fn resztki_w_folderze(folder: &Path) {
     let Ok(wpisy) = std::fs::read_dir(folder) else { return };
     for w in wpisy.flatten() {
         let sciezka = w.path();
-        if !sciezka.to_string_lossy().ends_with(".mp4.tmp") {
+        // Klipy i filmy (.mp4.tmp) oraz eksporty GIF / WebP z edytora
+        let nazwa = sciezka.to_string_lossy();
+        if ![".mp4.tmp", ".gif.tmp", ".webp.tmp"].iter().any(|r| nazwa.ends_with(r)) {
             continue;
         }
         let stary = w.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok())
@@ -89,11 +89,11 @@ pub fn sprzataj(folder: &Path, dni: u32, gb: u32) -> usize {
                 suma = suma.saturating_sub(k.rozmiar);
                 usuniete += 1;
             }
-            Err(e) => eprintln!("Sprzątanie: {e}"),
+            Err(e) => crate::dziennik::blad(&format!("Sprzątanie: {e}")),
         }
     }
     if usuniete > 0 {
-        println!("Sprzątanie: {usuniete} klipów przeniesiono do Kosza");
+        crate::dziennik::info(&format!("Sprzątanie: {usuniete} klipów przeniesiono do Kosza"));
         usun_puste_miesiace(folder);
     }
     usuniete
@@ -101,10 +101,8 @@ pub fn sprzataj(folder: &Path, dni: u32, gb: u32) -> usize {
 
 /// Kasuje puste podfoldery miesięcy, żeby po sprzątaniu nie zostawały same nazwy.
 fn usun_puste_miesiace(folder: &Path) {
-    let Ok(wpisy) = std::fs::read_dir(folder) else { return };
-    for w in wpisy.flatten() {
-        let podfolder = w.path();
-        if w.file_type().is_ok_and(|t| t.is_dir()) && std::fs::read_dir(&podfolder).is_ok_and(|mut d| d.next().is_none()) {
+    for podfolder in podfoldery(folder) {
+        if std::fs::read_dir(&podfolder).is_ok_and(|mut d| d.next().is_none()) {
             let _ = std::fs::remove_dir(&podfolder);
         }
     }
@@ -123,5 +121,6 @@ mod testy {
         assert!(wynik_edycji("Clipeon_2026-11-08_18-21-33_audio.mp4"));
         assert!(!wynik_edycji("Clipeon_2026-11-08_18-21-33.mp4"));
         assert!(!wynik_edycji("Clipeon_2026-11-08_18-21-33_2.mp4"));
+        assert!(!wynik_edycji("Clipeon_2026-11-08_18-21-33_MB.mp4"));
     }
 }

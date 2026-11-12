@@ -62,7 +62,7 @@ fn zbierz(folder: &Path, klipy: &mut Vec<Klip>) {
 
 /// Czy plik o tej nazwie to film (długie nagranie albo jego przycięta / skompresowana kopia).
 pub fn jest_filmem(nazwa: &str) -> bool {
-    nazwa.starts_with(&format!("{}_", crate::film::PRZEDROSTEK))
+    nazwa.strip_prefix(crate::film::PRZEDROSTEK).is_some_and(|r| r.starts_with('_'))
 }
 
 /// Folder pamięci podręcznej miniatur: %LOCALAPPDATA%\pl.clipper.app\miniatury (folder danych
@@ -328,7 +328,11 @@ fn szczyty(probki: &[i16], kubelki: usize) -> Vec<u8> {
 pub fn dzwiek_podgladu(klip: &Path, nr: u32) -> Result<Vec<u8>, String> {
     let folder = std::env::temp_dir().join("Clipeon");
     let _ = std::fs::create_dir_all(&folder);
-    let plik = folder.join(format!("podglad-{}-{nr}.m4a", std::process::id()));
+    // Osobny plik na każde wywołanie: okno pyta o kilka ścieżek naraz, a przy szybkiej zmianie klipu
+    // dwa wywołania z tym samym `nr` nadpisywałyby sobie nawzajem plik
+    static NUMER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let kolejny = NUMER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let plik = folder.join(format!("podglad-{}-{kolejny}.m4a", std::process::id()));
     let status = crate::ffmpeg::komenda()
         .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
         .arg(klip)

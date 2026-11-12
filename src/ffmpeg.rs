@@ -52,24 +52,24 @@ pub fn odcisk() -> String {
 
 /// Nowe polecenie ffmpeg z ukrytym oknem konsoli.
 pub fn komenda() -> Command {
-    let mut cmd = Command::new(sciezka());
-    cmd.creation_flags(CREATE_NO_WINDOW);
-    cmd
+    komenda_z_flagami(0)
 }
 
 /// Polecenie ffmpeg do długiej pracy w tle (zmniejszanie filmu): priorytet poniżej normalnego,
 /// żeby nie zabierało procesora grze.
 pub fn komenda_w_tle() -> Command {
-    let mut cmd = Command::new(sciezka());
-    cmd.creation_flags(CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS);
-    cmd
+    komenda_z_flagami(BELOW_NORMAL_PRIORITY_CLASS)
 }
 
 /// Polecenie ffmpeg do nagrywania (obraz albo dźwięk w tle): priorytet powyżej normalnego, żeby gra
 /// obciążająca procesor nie zagłodziła enkodera. Uruchamiać przez `uruchom_nagrywanie`.
 pub fn komenda_nagrywania() -> Command {
+    komenda_z_flagami(ABOVE_NORMAL_PRIORITY_CLASS)
+}
+
+fn komenda_z_flagami(flagi: u32) -> Command {
     let mut cmd = Command::new(sciezka());
-    cmd.creation_flags(CREATE_NO_WINDOW | ABOVE_NORMAL_PRIORITY_CLASS);
+    cmd.creation_flags(CREATE_NO_WINDOW | flagi);
     cmd
 }
 
@@ -118,29 +118,29 @@ pub fn bez_dlawienia(proces: windows::Win32::Foundation::HANDLE) {
     }
 }
 
-/// Filtry dostępne w tym ffmpeg (lista z `ffmpeg -filters`), liczona raz.
+/// Filtry dostępne w tym ffmpeg (lista z `ffmpeg -filters`, sprawdzana raz).
 pub fn ma_filtr(nazwa: &str) -> bool {
     static LISTA: OnceLock<String> = OnceLock::new();
-    let lista = LISTA.get_or_init(|| {
-        komenda()
-            .args(["-hide_banner", "-filters"])
-            .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-            .unwrap_or_default()
-    });
-    lista.lines().any(|l| l.split_whitespace().nth(1) == Some(nazwa))
+    na_liscie(LISTA.get_or_init(|| wypisz("-filters")), nazwa)
 }
 
-/// Enkodery dostępne w tym ffmpeg (lista z `ffmpeg -encoders`), liczona raz.
+/// Enkodery dostępne w tym ffmpeg (lista z `ffmpeg -encoders`, sprawdzana raz).
 pub fn ma_enkoder(nazwa: &str) -> bool {
     static LISTA: OnceLock<String> = OnceLock::new();
-    let lista = LISTA.get_or_init(|| {
-        komenda()
-            .args(["-hide_banner", "-encoders"])
-            .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-            .unwrap_or_default()
-    });
+    na_liscie(LISTA.get_or_init(|| wypisz("-encoders")), nazwa)
+}
+
+/// Wynik `ffmpeg -filters` / `-encoders` (pusty, gdy ffmpeg się nie uruchomił).
+fn wypisz(co: &str) -> String {
+    komenda()
+        .args(["-hide_banner", co])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default()
+}
+
+/// Czy nazwa jest na liście ffmpeg (druga kolumna wiersza, np. „ V....D h264_amf  AMD AMF H.264 Encoder”).
+fn na_liscie(lista: &str, nazwa: &str) -> bool {
     lista.lines().any(|l| l.split_whitespace().nth(1) == Some(nazwa))
 }
 
