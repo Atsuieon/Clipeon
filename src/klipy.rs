@@ -328,7 +328,11 @@ fn szczyty(probki: &[i16], kubelki: usize) -> Vec<u8> {
 pub fn dzwiek_podgladu(klip: &Path, nr: u32) -> Result<Vec<u8>, String> {
     let folder = std::env::temp_dir().join("Clipeon");
     let _ = std::fs::create_dir_all(&folder);
-    let plik = folder.join(format!("podglad-{}-{nr}.m4a", std::process::id()));
+    // Osobny plik na każde wywołanie: okno pyta o kilka ścieżek naraz, a przy szybkiej zmianie klipu
+    // dwa wywołania z tym samym `nr` nadpisywałyby sobie nawzajem plik
+    static NUMER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let kolejny = NUMER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let plik = folder.join(format!("podglad-{}-{kolejny}.m4a", std::process::id()));
     let status = crate::ffmpeg::komenda()
         .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
         .arg(klip)

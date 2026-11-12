@@ -284,7 +284,7 @@ fn eksportuj_plik(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dy
                     if rozmiar <= limit {
                         return Ok(());
                     }
-                    eprintln!("Kompresja: próba {} dała {:.1} MB > {mb} MB, ponawiam", proba + 1, rozmiar as f64 / 1e6);
+                    crate::dziennik::info(&format!("Kompresja: próba {} dała {:.1} MB > {mb} MB, ponawiam", proba + 1, rozmiar as f64 / 1e6));
                     zapas *= 0.92 * limit as f64 / rozmiar as f64;
                 }
                 Err(format!("Nie udało się zmieścić klipu w {mb} MB — przytnij go"))
@@ -330,7 +330,7 @@ fn animacja(zrodlo: &Path, z: &Zlecenie, start: f64, dlugosc: f64, kadr: Option<
         ostatni = std::fs::metadata(wyjscie).map(|m| m.len()).unwrap_or(u64::MAX);
         match limit {
             Some(l) if ostatni > l => {
-                eprintln!("{}: {fps} FPS, {szer} px dało {:.1} MB — zmniejszam", z.format, ostatni as f64 / 1e6);
+                crate::dziennik::info(&format!("{}: {fps} FPS, {szer} px dało {:.1} MB — zmniejszam", z.format, ostatni as f64 / 1e6));
             }
             _ => return Ok(()),
         }

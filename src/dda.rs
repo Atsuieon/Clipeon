@@ -294,6 +294,9 @@ fn petla(
                 // Utrata dostępu (zmiana trybu ekranu, UAC, blokada) albo karty: otwieramy od nowa w tle
                 crate::dziennik::info(&format!("Desktop Duplication: obraz chwilowo niedostępny ({e}) — odzyskuję bez przerywania nagrywania"));
                 zrodlo = None;
+                // Skopiowany, a jeszcze nieodczytany obraz był w teksturze starej duplikacji. Nowa ma pustą
+                // teksturę — bez tego pierwsza klatka po powrocie mogłaby być czarna
+                brudny = false;
                 bez_obrazu.get_or_insert_with(Instant::now);
                 continue;
             }
@@ -308,6 +311,7 @@ fn petla(
             if let Err(e) = odczytaj(z, &mut czysty, rozmiar) {
                 crate::dziennik::info(&format!("Desktop Duplication: nie udało się odczytać obrazu ({e}) — odzyskuję"));
                 zrodlo = None;
+                brudny = false;
                 bez_obrazu.get_or_insert_with(Instant::now);
                 continue;
             }

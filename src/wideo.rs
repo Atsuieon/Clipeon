@@ -616,28 +616,27 @@ pub fn uruchom(
     // Wątek czytający: dzieli strumień na klatki i wrzuca je do bufora. Bufor wybiera wołający po opisie
     // strumienia: przy takim samym obrazie (restart po chwilowej utracie ekranu) dostajemy stary bufor
     let bufor = bufor(&opis);
-    {
-        let (stop, problem, statystyki, przeciazenie) = (stop.clone(), problem.clone(), statystyki.clone(), przeciazenie.clone());
-        let kodek_strumienia = enkodery::kodek(enkoder);
-        let proces_czytania = proces.clone();
-        std::thread::Builder::new().name("wideo-odczyt".into()).spawn(move || {
-            czytaj_strumien(Odczyt {
-                wyjscie,
-                kodek: kodek_strumienia,
-                fps,
-                t0,
-                droga,
-                bufor,
-                statystyki,
-                przeciazenie,
-                problem,
-                stop,
-                proces: proces_czytania,
-                ostatni_blad,
-                enkoder,
-                zglos: Box::new(zglos),
-            })
-        })?;
+    let odczyt = Odczyt {
+        wyjscie,
+        kodek: enkodery::kodek(enkoder),
+        fps,
+        t0,
+        droga,
+        bufor,
+        statystyki: statystyki.clone(),
+        przeciazenie: przeciazenie.clone(),
+        problem: problem.clone(),
+        stop: stop.clone(),
+        proces: proces.clone(),
+        ostatni_blad,
+        enkoder,
+        zglos: Box::new(zglos),
+    };
+    if let Err(e) = std::thread::Builder::new().name("wideo-odczyt".into()).spawn(move || czytaj_strumien(odczyt)) {
+        // Bez wątku czytającego nikt nie zatrzymałby ffmpeg ani wątku taktującego (Wideo jeszcze nie istnieje)
+        stop.store(true, Ordering::SeqCst);
+        let _ = proces.zablokuj().kill();
+        return Err(e.into());
     }
 
     let (nazwa, id) = cfg.aktywny_monitor();

@@ -11,6 +11,11 @@ Porządki w kodzie — bez zmian w działaniu programu.
 - Dziennik: zapisane klipy, sprzątanie starych klipów i błędy otwierania okna, dymka i przeciągania trafiają
   teraz do `clipeon.log` (dawniej szły na niewidoczną konsolę).
 - Krótszy i czytelniejszy kod (wspólne funkcje zamiast powtórzeń, poprawione mylące nazwy i komentarze).
+- Poprawka: po chwilowej utracie obrazu w nagrywaniu „Desktop Duplication przez RAM” pierwsza klatka po
+  powrocie mogła być czarna.
+- Poprawka: przy szybkiej zmianie klipu w edytorze podgląd dźwięku mógł wczytać ścieżkę z poprzedniego klipu.
+- Poprawka: gdy nie udało się uruchomić wątku odczytu obrazu, ffmpeg zostawał w tle aż do zamknięcia Clipeona.
+- Nazwa gry na wierzchu jest czytana z pliku programu raz, a nie co sekundę.
 
 ## 1.4.2
 
