@@ -87,32 +87,6 @@ const formatCzas = (s) => {
 const formatData = (ms) =>
   new Date(ms).toLocaleString("pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
-// Dwa przyciski „tak | nie” zamiast przełącznika (np. „Z moim głosem | Bez głosu”).
-// Stan trzyma ukryte pole wyboru z data-pole, więc reszta kodu czyta je jak zwykły przełącznik;
-// kto ustawia je z kodu, wysyła potem zdarzenie input.
-function odswiezDwojke(kont) {
-  const pole = $(kont.dataset.pole);
-  for (const b of kont.querySelectorAll("button")) {
-    const wybrany = (b.dataset.wartosc === "tak") === pole.checked;
-    b.classList.toggle("wybrany", wybrany);
-    b.setAttribute("aria-checked", String(wybrany));
-    b.disabled = pole.disabled;
-  }
-}
-
-for (const kont of document.querySelectorAll(".dwojka")) {
-  const pole = $(kont.dataset.pole);
-  for (const b of kont.querySelectorAll("button")) {
-    b.setAttribute("role", "radio");
-    b.addEventListener("click", () => {
-      pole.checked = b.dataset.wartosc === "tak";
-      pole.dispatchEvent(new Event("input"));
-    });
-  }
-  pole.addEventListener("input", () => odswiezDwojke(kont));
-  odswiezDwojke(kont);
-}
-
 // ---------- Pigułka: podświetlenie przesuwające się między przyciskami grupy ----------
 // Jeden element na grupę, przesuwany transformacją (karta graficzna, bez przeliczania układu).
 // Każde kliknięcie ustawia tylko cel, a przejście CSS rusza z miejsca, w którym pigułka akurat jest,
@@ -1039,10 +1013,8 @@ async function przygotujGlosnosc(klip) {
   maMikrofon = info.sciezki_audio >= 3;
   const opisy = maMikrofon ? [["Gra", "glosnik"], ["Mikrofon", "mikrofon"]] : info.sciezki_audio >= 1 ? [["Dźwięk", "glosnik"]] : [];
   const numery = maMikrofon ? [1, 2] : [0];
-  const moje = opisy.map(([nazwa, ikonaNazwa], i) => {
-    // Ustawienie „Edytor zaczyna od: Bez głosu” = ścieżka mikrofonu od razu wyciszona
-    const bezGlosu = maMikrofon && i === 1 && cfg && !cfg.glos_w_edytorze;
-    const s = { nazwa, ikonaNazwa, glosnosc: bezGlosu ? 0 : 1, przed: 1, fala: null };
+  const moje = opisy.map(([nazwa, ikonaNazwa]) => {
+    const s = { nazwa, ikonaNazwa, glosnosc: 1, przed: 1, fala: null };
     s.el = document.createElement("div");
     s.el.className = "sciezka";
     s.el.innerHTML =
@@ -1751,12 +1723,12 @@ const POLA = [
   ["bitrate-pulpitu", "bitrate_pulpitu_mbps", "liczba"],
   ["dzwiek", "dzwiek_systemowy", "tak"],
   ["mikrofon", "mikrofon", "tak"],
-  ["glos-w-edytorze", "glos_w_edytorze", "tak"],
   ["dzwiek-zapisu", "dzwiek_zapisu", "tak"],
   ["powiadomienie-zapisu", "powiadomienie_zapisu", "tak"],
   ["ikona-zegar", "ikona_przy_zegarze", "tak"],
   ["aktualizacje", "sprawdzaj_aktualizacje", "tak"],
   ["animowane-tlo", "animowane_tlo", "tak"],
+  ["kolorowy-napis", "kolorowy_napis", "tak"],
   ["format-filmu", "format_filmu", "tekst"],
   ["enkoder", "enkoder", "tekst"],
   ["metoda", "metoda_przechwytywania", "tekst"],
@@ -1865,6 +1837,32 @@ function odswiezFormularz() {
 
 // Każda zmiana w formularzu (zdarzenia wpisywania wędrują w górę do formularza)
 $("formularz").addEventListener("input", odswiezFormularz);
+
+// Suwak „Ile ostatnich sekund”: przy przeciąganiu myszką zaczepia się na równych wartościach
+// (30 s, 1 min, 1 min 30 s…), a pod suwakiem są kreski co minutę. Strzałki na klawiaturze chodzą co 5 s.
+{
+  const ZACZEP_CO = 30;
+  const ZACZEP_ZASIEG = 7; // tyle sekund od równej wartości suwak jeszcze do niej „przyskakuje”
+  const suwak = $("bufor");
+  const [min, max] = [Number(suwak.min), Number(suwak.max)];
+  let ciagnie = false;
+  suwak.addEventListener("pointerdown", () => (ciagnie = true));
+  for (const z of ["pointerup", "pointercancel", "blur"]) suwak.addEventListener(z, () => (ciagnie = false));
+  // Ten nasłuch działa przed formularzem (zdarzenie najpierw trafia do suwaka), więc opis dostaje już równą wartość
+  suwak.addEventListener("input", () => {
+    if (!ciagnie) return;
+    const s = Number(suwak.value);
+    const rowna = Math.round(s / ZACZEP_CO) * ZACZEP_CO;
+    if (rowna >= min && rowna <= max && Math.abs(s - rowna) <= ZACZEP_ZASIEG) suwak.value = rowna;
+  });
+  // Kreski: środek gałki (16 px) jedzie od 8 px do „szerokość − 8 px”
+  for (let s = 60; s <= max; s += 60) {
+    const kreska = document.createElement("i");
+    kreska.style.left = `calc(8px + (100% - 16px) * ${(s - min) / (max - min)})`;
+    if (s % 300 === 0) kreska.className = "duza";
+    $("bufor-kreski").append(kreska);
+  }
+}
 
 // Wybrany mikrofon ma być słychać, więc wybór urządzenia włącza „Mój mikrofon”
 $("mikrofon-urzadzenie").addEventListener("change", () => {
@@ -1988,6 +1986,7 @@ function odswiezPrzyciskZapisu() {
   $("zapisz-klip").innerHTML = zIkona("zapisz", `Zapisz ${cfg ? cfg.bufor_sekundy : 30} s`);
   $("zapisz-klip").title = cfg ? `Skrót: ${cfg.skrot}` : "";
   window.Tlo?.wlacz(!cfg || cfg.animowane_tlo !== false);
+  document.documentElement.classList.toggle("bez-zorzy", !!cfg && cfg.kolorowy_napis === false);
 }
 
 // ---------- Ikony i zakładka startowa ----------

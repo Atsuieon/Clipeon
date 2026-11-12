@@ -70,7 +70,7 @@ Klipy z pulpitu mają nazwy `Clipeon_Pulpit_…` i znaczek „Pulpit” w biblio
 <details>
 <summary><b>Coś nie działa — jak zgłosić błąd?</b></summary>
 
-Ustawienia → Zgłaszanie problemów → **Kopiuj diagnostykę** i wklej tekst do [zgłoszenia](https://github.com/Atsuieon/Clipeon/issues/new/choose).
+Ustawienia → Zaawansowane → Zgłaszanie problemów → **Kopiuj diagnostykę** i wklej tekst do [zgłoszenia](https://github.com/Atsuieon/Clipeon/issues/new/choose).
 Diagnostyka opisuje kartę graficzną, monitory, ustawienia i ostatnie zdarzenia. Nic nie jest wysyłane automatycznie.
 </details>
 

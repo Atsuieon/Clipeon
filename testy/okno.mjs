@@ -31,10 +31,10 @@ function udawanyTauri() {
   const cfg = {
     bufor_sekundy: 30, fps: 60, bitrate_mbps: 20, enkoder: "auto", dzwiek_systemowy: true, mikrofon: false,
     folder_klipow: "C:\\Klipy", skrot: "Alt+F10", ikona_przy_zegarze: true, ikona_ustawiona: true,
-    dzwiek_zapisu: true, powiadomienie_zapisu: true, sprzatanie_dni: 0, sprzatanie_gb: 0, glos_w_edytorze: true,
+    dzwiek_zapisu: true, powiadomienie_zapisu: true, sprzatanie_dni: 0, sprzatanie_gb: 0,
     sprawdzaj_aktualizacje: true, monitor: "", monitor_id: "", tryb: "gra", monitor_pulpitu: "",
     monitor_pulpitu_id: "", fps_pulpitu: 30, bitrate_pulpitu_mbps: 12, metoda_przechwytywania: "auto",
-    mikrofon_urzadzenie: "", gra: "", gra_nazwa: "", skrot_filmu: "Alt+F9", animowane_tlo: true,
+    mikrofon_urzadzenie: "", gra: "", gra_nazwa: "", skrot_filmu: "Alt+F9", animowane_tlo: true, kolorowy_napis: true,
     format_filmu: "bez_zmian",
   };
   const stan = {
@@ -125,8 +125,8 @@ await zrzut("0-mikrofon-wylaczony");
 await strona.evaluate(() => pokazStan({ ...stan, mikrofon: true }));
 await strona.evaluate(() => pokazStan({ ...stan, tryb: "gra", pauza: false, czeka_na_gre: false, bledy: [], wznawianie: null, nagrywa: true, film: null, film_zapis: false, droga: "dda", ramka: false, skrot_filmu_blad: null }));
 
-// ---------- Tło ze znaków i poświata wokół myszki ----------
-// Jasne znaki (przezroczystość ≥ 0,4) rysuje tylko poświata — liczymy je wokół podanego punktu
+// ---------- Tło ze znaków i smuga za ruchem myszki ----------
+// Jasne znaki (przezroczystość ≥ 0,4) rysuje tylko smuga — liczymy je wokół podanego punktu
 const jasneZnaki = (x, y) =>
   strona.evaluate(([x, y]) => {
     const c = document.getElementById("tlo");
@@ -142,25 +142,68 @@ sprawdz(await strona.evaluate(() => {
   for (let i = 3; i < d.length; i += 4) if (d[i]) return true;
   return false;
 }), "tło ze znaków jest puste");
-// Nad pustym miejscem poświata idzie za myszką…
-for (let i = 0; i < 12; i++) {
-  await strona.mouse.move(500 + i * 6, 640 + (i % 3) * 4);
-  await strona.waitForTimeout(40);
+// Tło nie zajmuje całego okna: spora część jest czarna (plamy napisu, kropki na brzegach, potem nic).
+// Liczymy kwadraty 12 × 12 px, w których nie ma ani jednego znaku.
+const czarne = await strona.evaluate(() => {
+  const c = document.getElementById("tlo");
+  const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+  const K = 12;
+  let [puste, wszystkie] = [0, 0];
+  for (let by = 0; by + K <= c.height; by += K) {
+    for (let bx = 0; bx + K <= c.width; bx += K) {
+      let jest = false;
+      for (let y = by; y < by + K && !jest; y++) for (let x = bx; x < bx + K; x++) if (d[(y * c.width + x) * 4 + 3]) { jest = true; break; }
+      wszystkie++;
+      if (!jest) puste++;
+    }
+  }
+  return puste / wszystkie;
+});
+sprawdz(czarne > 0.2, `tło jest za gęste: tylko ${(czarne * 100).toFixed(0)}% okna jest czarne`);
+// Szybki ruch nad pustym miejscem zostawia smugę na całej drodze…
+await strona.mouse.move(440, 640);
+await strona.waitForTimeout(100);
+for (let i = 1; i <= 8; i++) {
+  await strona.mouse.move(440 + i * 30, 640 + (i % 3) * 4);
+  await strona.waitForTimeout(12);
 }
-await strona.waitForTimeout(400); // poświata rozjaśnia się powoli
-sprawdz((await jasneZnaki(560, 640)) > 20, "poświata nie idzie za myszką nad pustym tłem");
-await zrzut("0a-tlo-poswiata");
-// …a nad przyciskiem gaśnie
+await strona.waitForTimeout(60);
+const [poczatek, koniec] = [await jasneZnaki(500, 640), await jasneZnaki(640, 640)];
+sprawdz(poczatek > 20 && koniec > 20, `szybki ruch myszki nie zostawia smugi: ${poczatek}, ${koniec}`);
+await zrzut("0a-tlo-smuga");
+// …myszka, która stoi, niczego nie podtrzymuje: smuga sama gaśnie
+await strona.waitForTimeout(6000);
+sprawdz((await jasneZnaki(500, 640)) === 0 && (await jasneZnaki(640, 640)) === 0, "smuga nie gaśnie, gdy myszka stoi");
+// Powolny ruch prawie nic nie zostawia
+for (let i = 1; i <= 30; i++) {
+  await strona.mouse.move(440 + i * 2, 660);
+  await strona.waitForTimeout(25);
+}
+sprawdz((await jasneZnaki(470, 660)) === 0, "powolny ruch myszki zostawia jasną smugę");
+// Nad przyciskiem smuga nie powstaje
 const przyciskFolder = await strona.locator("#otworz-folder").boundingBox();
-await strona.mouse.move(przyciskFolder.x + 10, przyciskFolder.y + 10);
-await strona.waitForTimeout(4000);
-sprawdz((await jasneZnaki(560, 640)) === 0 && (await jasneZnaki(przyciskFolder.x + 10, przyciskFolder.y + 10)) === 0, "poświata nie gaśnie, gdy mysz jest nad przyciskiem");
+await strona.mouse.move(przyciskFolder.x + 4, przyciskFolder.y + 10);
+await strona.waitForTimeout(50);
+for (let i = 1; i <= 6; i++) {
+  await strona.mouse.move(przyciskFolder.x + 4 + i * 12, przyciskFolder.y + 10 + (i % 2) * 6);
+  await strona.waitForTimeout(12);
+}
+await strona.waitForTimeout(60);
+sprawdz((await jasneZnaki(przyciskFolder.x + 40, przyciskFolder.y + 10)) === 0, "smuga powstaje, gdy mysz jest nad przyciskiem");
 // Napis „Clipeon” ma zorzę (kolorowe tło przycięte do liter)
 const marka = await strona.evaluate(() => {
   const s = getComputedStyle(document.querySelector(".marka"));
   return [s.backgroundClip || s.webkitBackgroundClip, s.animationName, s.backgroundImage.includes("radial-gradient")];
 });
 sprawdz(marka[0].startsWith("text") && marka[1] === "zorza" && marka[2], `napis „Clipeon” nie ma zorzy: ${JSON.stringify(marka)}`);
+// Ustawienie „Kolorowy napis” wyłączone: zwykły biały napis bez animacji
+await strona.evaluate(() => { cfg.kolorowy_napis = false; odswiezPrzyciskZapisu(); });
+const bialy = await strona.evaluate(() => {
+  const s = getComputedStyle(document.querySelector(".marka"));
+  return [s.animationName, s.backgroundImage, s.color];
+});
+sprawdz(bialy[0] === "none" && bialy[1] === "none" && bialy[2] !== "rgba(0, 0, 0, 0)", `wyłączony kolorowy napis dalej ma zorzę: ${JSON.stringify(bialy)}`);
+await strona.evaluate(() => { cfg.kolorowy_napis = true; odswiezPrzyciskZapisu(); });
 
 // ---------- Film (długie nagrywanie) ----------
 sprawdz((await strona.textContent("#film")).trim() === "Nagraj film", `przycisk filmu: „${await strona.textContent("#film")}”`);
@@ -222,16 +265,40 @@ sprawdz(await strona.isChecked("#mikrofon"), "wybranie mikrofonu nie włączyło
 sprawdz((await strona.locator("#gra").count()) === 0, "pole „Gra” zostało w ustawieniach");
 
 // „Mój głos”: dwa przyciski zamiast przełącznika
-const dwojka = strona.locator('[data-pole="glos-w-edytorze"]');
-sprawdz((await dwojka.locator(".wybrany").textContent()) === "Z moim głosem", "„Edytor zaczyna od” nie pokazuje zapisanego wyboru");
-await dwojka.locator('[data-wartosc="nie"]').click();
-sprawdz(!(await strona.isChecked("#glos-w-edytorze")), "przycisk „Bez głosu” nie zmienia ustawienia");
+// „Edytor zaczyna od” zniknęło z ustawień
+sprawdz(!/Edytor zaczyna od|Bez głosu/.test(await strona.textContent("#formularz")), "w ustawieniach zostało „Edytor zaczyna od”");
 
-// „Zaawansowane” to karta jak inne grupy i da się ją rozwinąć
-await strona.click(".zaawansowane > summary");
-sprawdz(await strona.isVisible("#enkoder"), "„Zaawansowane” się nie rozwija");
+// „Zaawansowane” leżą zaraz pod Systemem (ta sama kolumna) i widać je bez rozwijania
+sprawdz(await strona.isVisible("#enkoder"), "„Zaawansowane” nie są widoczne od razu");
 await zrzut("3-zaawansowane");
-sprawdz((await strona.locator(".karta .zaawansowane").count()) === 1, "„Zaawansowane” nie są w karcie");
+sprawdz(await strona.evaluate(() => document.querySelector(".karta.zaawansowane").closest(".grupa") === document.getElementById("autostart").closest(".grupa")), "„Zaawansowane” nie są pod Systemem");
+
+// Lista wyboru leży pod opisem i zajmuje szerokość karty (opis nie jest ściśnięty w wąską kolumnę)
+const [opisR, listaR, kartaR] = await strona.evaluate(() => {
+  const lista = document.getElementById("format-filmu");
+  const r = (e) => { const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height }; };
+  return [r(lista.closest(".ust").querySelector(".opis")), r(lista), r(lista.closest(".karta"))];
+});
+sprawdz(listaR.y >= opisR.y + opisR.h && opisR.w > kartaR.w * 0.8 && listaR.w > kartaR.w * 0.8, `„Rozmiar filmów”: opis ${Math.round(opisR.w)} px, lista ${Math.round(listaR.w)} px, karta ${Math.round(kartaR.w)} px`);
+
+// Suwak sekund przyskakuje do równych wartości przy przeciąganiu myszką (strzałki dalej chodzą co 5 s)
+await strona.locator("#bufor").scrollIntoViewIfNeeded();
+const suwakR = await strona.locator("#bufor").boundingBox();
+const naSuwaku = (s) => suwakR.x + 8 + ((suwakR.width - 16) * (s - 5)) / 595;
+await strona.mouse.move(naSuwaku(30), suwakR.y + suwakR.height / 2);
+await strona.mouse.down();
+await strona.mouse.move(naSuwaku(64), suwakR.y + suwakR.height / 2, { steps: 4 });
+sprawdz((await strona.inputValue("#bufor")) === "60" && (await strona.textContent("#bufor-wartosc")) === "1 min", `suwak nie przyskakuje do 1 min: ${await strona.inputValue("#bufor")} / „${await strona.textContent("#bufor-wartosc")}”`);
+await strona.mouse.move(naSuwaku(75), suwakR.y + suwakR.height / 2, { steps: 4 });
+sprawdz((await strona.inputValue("#bufor")) === "75", `suwak nie pozwala ustawić wartości między równymi: ${await strona.inputValue("#bufor")}`);
+await strona.mouse.move(naSuwaku(31), suwakR.y + suwakR.height / 2, { steps: 4 });
+await strona.mouse.up();
+sprawdz((await strona.inputValue("#bufor")) === "30", `suwak nie wraca na 30 s: ${await strona.inputValue("#bufor")}`);
+await strona.focus("#bufor");
+await strona.keyboard.press("ArrowRight");
+sprawdz((await strona.inputValue("#bufor")) === "35", `strzałka na suwaku: ${await strona.inputValue("#bufor")}`);
+await strona.keyboard.press("ArrowLeft");
+sprawdz((await strona.locator("#bufor-kreski i").count()) === 10, "pod suwakiem nie ma kresek co minutę");
 
 // Zapis ustawień wysyła wszystkie pola z formularza
 await strona.click("#zapisz-ustawienia");
@@ -240,7 +307,7 @@ const zapisane = await strona.evaluate(() => window.__zapisane);
 sprawdz(zapisane, "„Zapisz ustawienia” nic nie wysłał");
 if (zapisane) {
   const c = zapisane.cfg;
-  const oczekiwane = { mikrofon: true, mikrofon_urzadzenie: "m2", glos_w_edytorze: false, bufor_sekundy: 30, fps: 60, skrot: "Alt+F10", skrot_filmu: "Alt+F9", animowane_tlo: true, sprzatanie_dni: 0 };
+  const oczekiwane = { mikrofon: true, mikrofon_urzadzenie: "m2", bufor_sekundy: 30, fps: 60, skrot: "Alt+F10", skrot_filmu: "Alt+F9", animowane_tlo: true, kolorowy_napis: true, sprzatanie_dni: 0 };
   for (const [k, v] of Object.entries(oczekiwane)) sprawdz(c[k] === v, `zapis ustawień: ${k} = ${JSON.stringify(c[k])}, oczekiwano ${JSON.stringify(v)}`);
 }
 
@@ -264,7 +331,7 @@ for (const szerokosc of [1100, 900, 820]) {
 await strona.setViewportSize({ width: 1100, height: 800 });
 
 // Sposób przechwytywania: bez napisów o żółtej ramce, za to widać, którym sposobem Clipeon nagrywa teraz
-sprawdz(!/żółt/i.test(await strona.textContent(".zaawansowane")), "w ustawieniach został napis o żółtej ramce");
+sprawdz(!/żółt/i.test(await strona.textContent("#formularz")), "w ustawieniach został napis o żółtej ramce");
 sprawdz((await strona.textContent("#metoda-teraz")).includes("Desktop Duplication"), `brak informacji o używanym sposobie przechwytywania: „${await strona.textContent("#metoda-teraz")}”`);
 await strona.evaluate(() => pokazStan({ ...stan, droga: "potok", ramka: true }));
 sprawdz((await strona.textContent("#metoda-teraz")).includes("Tryb zgodności"), "informacja o sposobie przechwytywania nie idzie za stanem");
@@ -362,8 +429,10 @@ sprawdz(narysowane[0] === 0 && narysowane[1] > 50, `wykres głośności nie poka
 let [osR, falaR] = [await strona.locator("#os").boundingBox(), await strona.locator(".fala").first().boundingBox()];
 sprawdz(Math.abs(osR.x - falaR.x) < 1.5 && Math.abs(osR.width - falaR.width) < 1.5, `ścieżka dźwięku nie leży pod osią czasu: ${JSON.stringify([osR, falaR])}`);
 
-// Ustawienie „Edytor zaczyna od: Bez głosu” (zapisane wyżej w teście ustawień) = mikrofon od razu wyciszony
-sprawdz(await v(() => sciezkiGlosu[1].glosnosc === 0 && sciezkiGlosu[1].el.classList.contains("wyciszona")), "„Bez głosu” w ustawieniach nie wycisza ścieżki mikrofonu na starcie");
+// Edytor zawsze zaczyna z głosem (ustawienia „Edytor zaczyna od” już nie ma); mikrofon wycisza przycisk przy ścieżce
+sprawdz(await v(() => sciezkiGlosu[1].glosnosc === 1 && !sciezkiGlosu[1].el.classList.contains("wyciszona")), "edytor nie zaczyna z włączonym mikrofonem");
+await strona.locator(".sciezka .wycisz").nth(1).click();
+sprawdz(await v(() => sciezkiGlosu[1].glosnosc === 0 && sciezkiGlosu[1].el.classList.contains("wyciszona")), "przycisk przy ścieżce nie wycisza mikrofonu");
 sprawdz((await strona.textContent("#eksportuj")) === "Zapisz bez mojego głosu", "wyciszony mikrofon nie daje „Zapisz bez mojego głosu”");
 await strona.locator(".sciezka .wycisz").nth(1).click();
 sprawdz(await v(() => sciezkiGlosu[1].glosnosc === 1), "przycisk przy ścieżce nie włącza mikrofonu");
@@ -439,6 +508,8 @@ let zl = await v(() => window.__zlecenia?.at(-1));
 sprawdz(zl?.zastap === true && zl?.format === "mp4", `domyślny zapis nie zastępuje oryginału: ${JSON.stringify(zl)}`);
 await strona.evaluate((k) => odtworz(k), klip);
 await strona.waitForFunction(() => dlugosc > 19, null, { timeout: 5000 }).catch(() => {});
+// Ten sam klip otwarty drugi raz: długość jest znana od razu, ale wczytanie pliku zeruje zaznaczenie — czekamy na nie
+await strona.waitForTimeout(500);
 await v(() => przesun("koniec", 12));
 await strona.click("#zachowaj-wiersz");
 await strona.click("#eksportuj");

@@ -26,8 +26,10 @@ pub struct Config {
     pub skrot_filmu: String,
     /// W jakim formacie film zostaje na dysku: "bez_zmian" albo mniejszy plik ("hevc", "av1")
     pub format_filmu: String,
-    /// Animowane tło okna (znaki ASCII i poświata wokół myszki)
+    /// Animowane tło okna (znaki ASCII i smuga za ruchem myszki)
     pub animowane_tlo: bool,
+    /// Kolory wędrujące po napisie „Clipeon” w oknie (wyłączone = zwykły biały napis)
+    pub kolorowy_napis: bool,
     /// Ikona w zasobniku zawsze widoczna przy zegarze (a nie w ukrytych ikonach pod ^)
     pub ikona_przy_zegarze: bool,
     /// Czy Clipeon już raz ustawił widoczność ikony (później decyduje użytkownik w Windows)
@@ -40,8 +42,6 @@ pub struct Config {
     pub sprzatanie_dni: u32,
     /// Sprzątanie: folder klipów nie większy niż tyle GB (0 = wyłączone)
     pub sprzatanie_gb: u32,
-    /// Czy zapisywane wersje (przycięte, zmniejszone) mają domyślnie zawierać głos z mikrofonu
-    pub glos_w_edytorze: bool,
     /// Sprawdzanie przy starcie i raz na dobę, czy na GitHubie jest nowsza wersja
     pub sprawdzaj_aktualizacje: bool,
     /// Nagrywany monitor w trybie gry (nazwa urządzenia, np. \\.\DISPLAY2); pusty = główny
@@ -89,6 +89,7 @@ impl Default for Config {
             skrot_filmu: "Alt+F9".into(),
             format_filmu: crate::film::BEZ_ZMIAN.into(),
             animowane_tlo: true,
+            kolorowy_napis: true,
             ikona_przy_zegarze: true,
             ikona_ustawiona: false,
             dzwiek_zapisu: true,
@@ -106,7 +107,6 @@ impl Default for Config {
             mikrofon_urzadzenie: String::new(),
             gra: String::new(),
             gra_nazwa: String::new(),
-            glos_w_edytorze: true,
             sprawdzaj_aktualizacje: true,
         }
     }

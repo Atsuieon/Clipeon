@@ -218,6 +218,7 @@ h2.sekcja { font-size: 26px; margin: 34px 0 16px; }
   font-size: 12.5px; font-weight: 500; letter-spacing: 0.09em; text-transform: uppercase;
   color: var(--pomoc); margin: 0 0 10px 4px;
 }
+.grupa > .karta + h2 { margin-top: 22px; }
 .ustawienia-lista { display: flex; flex-direction: column; overflow: hidden; }
 
 .ust {
@@ -227,9 +228,12 @@ h2.sekcja { font-size: 26px; margin: 34px 0 16px; }
 .ustawienia-lista > .ust:first-child, .ust-rozwijane .ust:first-of-type { border-top-width: 0; }
 .ust-rozwijane .ust { border-top: 1px solid var(--ramka-karty); }
 .ust .opis { min-width: 0; }
-/* Wiersz z kilkoma przyciskami do wyboru: przyciski pod opisem, nie obok */
+/* Wiersz z listą wyboru, skrótem albo kilkoma przyciskami: pole pod opisem, nie obok.
+   Obok siebie opis dostawał wąską kolumnę i łamał się co dwa słowa, a lista zajmowała pół karty. */
 .ust.ust-pod { grid-template-columns: minmax(0, 1fr); gap: 10px; }
-.ust.ust-pod .pole { justify-content: flex-start; }
+.ust.ust-pod .pole { justify-content: flex-start; flex-wrap: wrap; }
+.ust.ust-pod .pole select { max-width: none; }
+.ust.ust-pod .pole .pole-skrotu { width: auto; min-width: 220px; max-width: none; }
 .ust .opis > label, .ust .opis > span { display: block; color: var(--tytul); cursor: default; }
 .ust .opis > label { cursor: pointer; }
 .ust .pomoc { font-size: 12.5px; line-height: 1.35; margin-top: 3px; }
@@ -237,13 +241,17 @@ h2.sekcja { font-size: 26px; margin: 34px 0 16px; }
 .ust .pole { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-width: 0; }
 .ust .pole select, .ust .pole .pole-skrotu { min-width: 190px; max-width: 260px; }
 .ust .pole input[type="range"] { width: 150px; }
-/* Suwak z wartością obok: stała szerokość wartości i pole przyklejone do góry wiersza — inaczej
-   „5 s” → „2 min 15 s” zmienia szerokość kolumny, opis łamie się inaczej i suwak skacze pod kursorem */
-.ust.ust-suwak { align-items: start; }
-.ust.ust-suwak .pole { min-height: 40px; }
-/* Szacunek RAM na całą szerokość wiersza: „340 MB” → „1,2 GB” nie zmienia już łamania linii */
-.ust.ust-suwak > .pomoc { grid-column: 1 / -1; margin-top: -12px; }
-.ust.ust-suwak .wartosc { min-width: 10ch; white-space: nowrap; }
+/* Suwak na całą szerokość karty: nazwa i wartość w jednej linii nad nim, kreski co minutę pod nim.
+   Nic tu nie zależy od długości wartości („5 s” → „2 min 15 s”), więc suwak nie skacze pod kursorem. */
+.ust.ust-suwak { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.ust.ust-suwak .opis { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.ust.ust-suwak .opis .wartosc { min-width: 0; white-space: nowrap; font-size: 16px; }
+.ust.ust-suwak .pole { position: relative; display: block; height: 30px; }
+.ust.ust-suwak .pole input[type="range"] { width: 100%; display: block; margin: 0; }
+.ust.ust-suwak .kreski { position: absolute; inset: 21px 0 auto; height: 7px; pointer-events: none; }
+.ust.ust-suwak .kreski i { position: absolute; top: 0; width: 1px; height: 4px; background: var(--ramka-pola); }
+.ust.ust-suwak .kreski i.duza { height: 7px; background: var(--pomoc); }
+.ust.ust-suwak > .pomoc { margin-top: 0; }
 .ust .pole input[type="number"] { width: 86px; }
 .ust .pole.pola { display: grid; grid-template-columns: auto auto; gap: 10px; }
 .ust .pole.pola label { display: flex; flex-direction: row; align-items: center; gap: 8px; color: var(--pomoc); font-size: 12.5px; }
@@ -265,6 +273,8 @@ h2.sekcja { font-size: 26px; margin: 34px 0 16px; }
   transform: rotate(-45deg); transition: transform var(--czas);
 }
 .ust-rozwijane[open] > summary::before { transform: rotate(45deg); }
+/* Dopisek w nagłówku rozwijanego wiersza schodzi pod nazwę, gdy się obok niej nie mieści */
+.ust-rozwijane > summary { flex-wrap: wrap; row-gap: 2px; }
 .ust-rozwijane > summary .pomoc { font-size: 12.5px; }
 
 .wiersz { display: flex; align-items: center; gap: 16px; }
@@ -750,8 +760,10 @@ input[type="number"]:focus-visible, select:focus-visible { outline: none; border
 /* Pasek z zakładkami i przyciskami ma własne tło, żeby znaki nie wchodziły pod napisy */
 .gora { background: rgba(0, 0, 0, 0.9); }
 /* Napisy leżące wprost na tle (nagłówki, pusta lista) dostają ciemną poświatę, żeby znaki ich nie zagłuszały */
-.naglowek h1, .naglowek .pomoc, h2.sekcja, .o-programie, .pusto h2, .pusto .pomoc { text-shadow: 0 0 3px #000, 0 0 10px #000, 0 0 18px #000; }
+.naglowek h1, .naglowek .pomoc, h2.sekcja, .grupa > h2, .o-programie, .pusto h2, .pusto .pomoc { text-shadow: 0 0 3px #000, 0 0 10px #000, 0 0 18px #000; }
 .pusto { background: radial-gradient(ellipse closest-side, rgba(0, 0, 0, 0.92) 65%, transparent); }
+/* Przyciski obok nagłówka (Odśwież, Folder) są przezroczyste — bez tła znaki przechodziłyby przez ich napisy */
+.naglowek .przycisk:not(:hover) { background: rgba(0, 0, 0, 0.88); }
 
 /* ---------- Napis „Clipeon”: zorza ---------- */
 /* Biały napis, po którym wędrują cztery kolorowe plamy. Wszystko to jedno tło przycięte do liter:
@@ -782,6 +794,9 @@ input[type="number"]:focus-visible, select:focus-visible { outline: none; border
 @media (prefers-reduced-motion: reduce) {
   .marka { animation: zorza 14s ease-in-out infinite !important; }
 }
+
+/* Ustawienie „Kolorowy napis Clipeon” wyłączone: zwykły biały napis */
+.bez-zorzy .marka { background: none; color: var(--naglowek); animation: none !important; }
 
 /* ---------- Przycisk filmu (długie nagrywanie) ---------- */
 .przycisk.film { font-variant-numeric: tabular-nums; }

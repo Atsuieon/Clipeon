@@ -30,11 +30,22 @@
   dopóki nie wciśniesz nowej kombinacji, nie anulujesz (Esc) albo nie przejdziesz do innego okna.
 - **Podgląd wciskanych klawiszy.** Przy ustawianiu skrótu pole pokazuje na szaro to, co już trzymasz
   („Ctrl + Shift + …”), a gotowy skrót robi się biały.
-- **Animowane tło.** W tle okna płyną fale znaków z napisem CLIPEON, a wokół myszki znaki gęstnieją
-  w miękką poświatę, która zostawia za kursorem gasnący ślad. Nad przyciskami, ustawieniami i klipami
-  poświata nie idzie za myszką. Tło działa tylko wtedy, gdy okno Clipeona jest otwarte i aktywne
-  (w grze nie kosztuje nic), a wyłączysz je w Ustawieniach → System → „Animowane tło”.
+- **Animowane tło.** Większość okna jest czarna, a tu i tam leżą plamy napisu CLIPEON, które na brzegach
+  rzedną w plusy, dwukropki i rozproszone kropki. Plamy bardzo powoli zmieniają kształt i przy każdym
+  uruchomieniu układają się inaczej. Ruch myszki zostawia smugę gęstych znaków: im szybszy ruch, tym
+  jaśniejsza, a przy powolnym prawie jej nie widać. Smuga nigdzie nie leci — strzępi się i powoli gaśnie tam,
+  gdzie powstała, więc gdy myszka stoi, efekt sam znika. Nad przyciskami, ustawieniami i klipami smuga nie
+  powstaje. Tło działa tylko wtedy, gdy okno Clipeona jest otwarte i aktywne (w grze nie kosztuje nic),
+  a wyłączysz je w Ustawieniach → System → „Animowane tło”.
 - **Napis „Clipeon” z zorzą** — po białych literach wędrują kolorowe plamy (napis nie jest już pogrubiony).
+  Kolory wyłączysz w Ustawieniach → System → „Kolorowy napis Clipeon”.
+- **Ustawienia czytelniej.** Listy wyboru i pola skrótów leżą pod opisem i zajmują szerokość karty (opis nie
+  jest już ściśnięty w wąską kolumnę). „Zaawansowane” są zaraz pod „Systemem” i widać je bez rozwijania.
+  „Ikona zawsze widoczna przy zegarze” nazywa się teraz „Ikona zawsze widoczna na pasku zadań”.
+- **Suwak „Ile ostatnich sekund zapisywać”** jest na całą szerokość karty, ma kreski co minutę i przy
+  przeciąganiu przyskakuje do równych wartości (30 s, 1 min, 1 min 30 s…). Strzałki dalej zmieniają co 5 s.
+- Zniknęło ustawienie „Edytor zaczyna od: Z moim głosem / Bez głosu”. Edytor zawsze zaczyna z głosem,
+  a mikrofon wyciszasz przyciskiem przy jego ścieżce.
 - Okno otwiera się trochę szersze (1200 px), żeby pasek z nową zakładką i przyciskiem filmu się mieścił.
 - **Poprawka:** ponowne uruchomienie po instalacji aktualizacji nie jest już zapisywane w dzienniku jako
   „uruchomiony ponownie po awarii”.
