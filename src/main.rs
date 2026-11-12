@@ -7,6 +7,7 @@ mod aplikacja;
 mod audio;
 mod bufor;
 mod config;
+mod dda;
 mod dziennik;
 mod dzwiek;
 mod edycja;

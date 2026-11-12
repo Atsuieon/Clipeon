@@ -99,8 +99,8 @@ impl Proba {
     }
 }
 
-/// Wyniki prób w tym uruchomieniu: (działa, przyczyna, kiedy). Porażkę „do naprawienia” pamiętamy
-/// tylko kilka minut: przy autostarcie karta bywa jeszcze zajęta, a sterownik mógł się zmienić.
+/// Wyniki prób w tym uruchomieniu: (działa, przyczyna, do kiedy ważna porażka). Porażkę „do naprawienia”
+/// pamiętamy tylko kilka minut: przy autostarcie karta bywa jeszcze zajęta, a sterownik mógł się zmienić.
 type Wyniki = std::collections::HashMap<String, (bool, String, std::time::Instant)>;
 static WYNIKI: OnceLock<std::sync::Mutex<Wyniki>> = OnceLock::new();
 
@@ -108,24 +108,65 @@ fn wyniki() -> std::sync::MutexGuard<'static, Wyniki> {
     WYNIKI.get_or_init(Default::default).zablokuj()
 }
 
+/// Tyle pamiętamy zwykłą porażkę próby
+const PORAZKA_WAZNA: std::time::Duration = std::time::Duration::from_secs(300);
+/// …a tyle porażkę, za którą odpowiada ekran (zmiana trybu ekranu w trakcie próby), a nie enkoder
+const PORAZKA_EKRANU_WAZNA: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Enkodery, które w tym uruchomieniu (albo kiedyś, według pamięci na dysku) przyjęły obraz prosto
+/// z danej karty: (nazwa, karta). `zapomnij` tego nie czyści — to dowód, że enkoder z tą kartą umie,
+/// a późniejsza nieudana próba na obrazie z ekranu to wina ekranu (gra przełącza tryb), nie enkodera.
+static DZIALALY_Z_TEKSTURA: std::sync::Mutex<Vec<(&'static str, u32)>> = std::sync::Mutex::new(Vec::new());
+
+fn dzialal_z_tekstura(e: &'static Enkoder, karta: u32) -> bool {
+    if DZIALALY_Z_TEKSTURA.zablokuj().contains(&(e.nazwa, karta)) {
+        return true;
+    }
+    let znacznik = format!("/d3d11:{karta}");
+    let przedrostek = format!("{}@", e.nazwa);
+    crate::pamiec::pamiec().proby.iter().any(|(k, z)| z.ok && k.starts_with(&przedrostek) && (k.ends_with(&znacznik) || k.contains(&format!("{znacznik}/"))))
+}
+
+/// Wynik próby: działa, nie działa (enkoder), albo nie wiadomo, bo ekran chwilowo nie dał obrazu.
+#[derive(Clone, Debug, PartialEq)]
+enum Wynik {
+    Dziala,
+    NieDziala(String),
+    EkranNiedostepny(String),
+}
+
+/// Czy porażka próby na obrazie z ekranu to wina ekranu: enkoder już kiedyś przyjął obraz z tej karty,
+/// a błąd nie jest ani znanym odrzuceniem tekstur, ani brakiem sprzętu.
+fn wina_ekranu(powod: &str, wczesniej_dzialal: bool) -> bool {
+    wczesniej_dzialal && !blad_tekstur(powod) && !blad_sprzetu(powod)
+}
+
 /// Czy enkoder działa tutaj przy danej próbie. Kolejność: wynik z tego uruchomienia, wynik z dysku
 /// (sukces albo „nie ma takiej karty”), a dopiero potem prawdziwa próba. Próby idą po kolei —
 /// równoległe sesje na jednej karcie potrafiły ciągnąć się kilkanaście sekund.
 fn dziala_przy(e: &'static Enkoder, p: Proba) -> bool {
-    use std::time::{Duration, Instant};
+    wynik_przy(e, p) == Wynik::Dziala
+}
+
+fn wynik_przy(e: &'static Enkoder, p: Proba) -> Wynik {
+    use std::time::Instant;
     let klucz = p.klucz(e);
     // Blokada trzymana przez całą próbę = próby nigdy nie idą równolegle
     let mut w = wyniki();
-    if let Some((ok, _, kiedy)) = w.get(&klucz)
-        && (*ok || kiedy.elapsed() < Duration::from_secs(300)) {
-            return *ok;
+    if let Some((ok, powod, wazny_do)) = w.get(&klucz)
+        && (*ok || Instant::now() < *wazny_do) {
+            return if *ok { Wynik::Dziala } else { Wynik::NieDziala(powod.clone()) };
         }
     if !w.contains_key(&klucz)
         && let Some(z) = crate::pamiec::pamiec().proby.get(&klucz).cloned()
             && (z.ok || blad_sprzetu(&z.powod) || (p.tekstura.is_some() && blad_tekstur(&z.powod))) {
-                w.insert(klucz, (z.ok, z.powod, Instant::now()));
-                return z.ok;
+                if z.ok && let Some(k) = p.tekstura {
+                    DZIALALY_Z_TEKSTURA.zablokuj().push((e.nazwa, k));
+                }
+                w.insert(klucz, (z.ok, z.powod.clone(), Instant::now() + PORAZKA_WAZNA));
+                return if z.ok { Wynik::Dziala } else { Wynik::NieDziala(z.powod) };
             }
+    let wczesniej_dzialal = p.tekstura.is_some_and(|k| p.ekran.is_some() && dzialal_z_tekstura(e, k));
     let wynik = if wbudowane().iter().any(|x| x.nazwa == e.nazwa) {
         proba_z_ponowieniem(e, p)
     } else {
@@ -135,12 +176,27 @@ fn dziala_przy(e: &'static Enkoder, p: Proba) -> bool {
         Ok(()) => (true, String::new()),
         Err(p) => (false, p),
     };
-    w.insert(klucz.clone(), (ok, powod.clone(), Instant::now()));
+    if !ok && wina_ekranu(&powod, wczesniej_dzialal) {
+        // Nie zapisujemy na dysk i pamiętamy krótko: za chwilę ekran znów da obraz
+        crate::dziennik::info(&format!(
+            "{} już przyjmował obraz z tej karty — nieudaną próbę uznaję za chwilową utratę obrazu z ekranu",
+            e.nazwa
+        ));
+        w.insert(klucz, (false, powod.clone(), Instant::now() + PORAZKA_EKRANU_WAZNA));
+        return Wynik::EkranNiedostepny(powod);
+    }
+    if ok && let Some(k) = p.tekstura {
+        let mut d = DZIALALY_Z_TEKSTURA.zablokuj();
+        if !d.contains(&(e.nazwa, k)) {
+            d.push((e.nazwa, k));
+        }
+    }
+    w.insert(klucz.clone(), (ok, powod.clone(), Instant::now() + PORAZKA_WAZNA));
     drop(w);
     let mut pam = crate::pamiec::pamiec();
-    pam.proby.insert(klucz, crate::pamiec::WynikProby { ok, powod });
+    pam.proby.insert(klucz, crate::pamiec::WynikProby { ok, powod: powod.clone() });
     crate::pamiec::zapisz(&pam);
-    ok
+    if ok { Wynik::Dziala } else { Wynik::NieDziala(powod) }
 }
 
 fn dziala(e: &'static Enkoder) -> bool {
@@ -150,8 +206,16 @@ fn dziala(e: &'static Enkoder) -> bool {
 /// Czy enkoder przyjmie tekstury D3D11 z karty `karta` w rozdzielczości w×h (warunek przechwytywania
 /// przez ffmpeg bez kopiowania obrazu do pamięci RAM).
 /// `ekran` = wyjście tej karty z monitorem (próba na prawdziwym obrazie z ekranu), gdy jest znane.
-pub fn dziala_z_tekstura(nazwa: &str, w: u32, h: u32, karta: u32, ekran: Option<u32>) -> bool {
-    znajdz(nazwa).is_some_and(|e| przyjmuje_tekstury(nazwa) && dziala_przy(e, Proba { w, h, tekstura: Some(karta), ekran }))
+/// Błąd: „nie przyjmuje obrazu prosto z karty” (enkoder) albo „chwilowa utrata obrazu” (ekran zmienia
+/// właśnie tryb, a enkoder już wcześniej przyjmował obraz z tej karty) — ten drugi strażnik ponawia.
+pub fn dziala_z_tekstura(nazwa: &str, w: u32, h: u32, karta: u32, ekran: Option<u32>) -> Result<(), String> {
+    let nie = || format!("{nazwa} nie przyjmuje obrazu prosto z karty {karta}");
+    let Some(e) = znajdz(nazwa).filter(|_| przyjmuje_tekstury(nazwa)) else { return Err(nie()) };
+    match wynik_przy(e, Proba { w, h, tekstura: Some(karta), ekran }) {
+        Wynik::Dziala => Ok(()),
+        Wynik::NieDziala(_) => Err(nie()),
+        Wynik::EkranNiedostepny(_) => Err(format!("chwilowa utrata obrazu z ekranu (próba {nazwa} z karty {karta} się nie udała)")),
+    }
 }
 
 /// Najstarszy sterownik NVIDIA obsługiwany przez NVENC w dołączonym FFmpeg 8.1 (SDK 13).
@@ -582,6 +646,17 @@ mod testy {
         assert!(((w as f64 / h as f64) - 5120.0 / 1440.0).abs() < 0.01);
         let (w, h) = zmniejszony(7680, 4320).unwrap();
         assert!(w <= 4096 && h <= 2304 && w % 2 == 0 && h % 2 == 0);
+    }
+
+    #[test]
+    fn nieudana_proba_na_ekranie_po_wczesniejszym_sukcesie_to_wina_ekranu() {
+        // Kolega z RTX 3060 Ti: po zmianie trybu ekranu próba h264_nvenc na ddagrab dała -22
+        let powod = "[vost#0:0/h264_nvenc @ 0x1] Task finished with error code: -22 (Invalid argument)";
+        assert!(wina_ekranu(powod, true));
+        assert!(!wina_ekranu(powod, false));
+        // Znane odrzucanie tekstur i brak sprzętu zostają porażką enkodera
+        assert!(!wina_ekranu("[h264_amf @ 0x1] SubmitInput() failed with error 18", true));
+        assert!(!wina_ekranu("Cannot load nvcuda.dll", true));
     }
 
     #[test]

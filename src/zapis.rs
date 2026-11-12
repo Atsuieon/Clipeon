@@ -25,14 +25,25 @@ pub fn zapisz(
     // Klip zaczyna się od klatki kluczowej
     let pierwsza = wideo.iter().position(|p| p.klucz).ok_or("Nie ma jeszcze czego zapisać — poczekaj kilka sekund")?;
     let wideo = &wideo[pierwsza..];
-    let (poczatek, koniec) = (wideo[0].czas, wideo[wideo.len() - 1].czas);
+    let poczatek = wideo[0].czas;
 
-    // Dźwięk z tego samego przedziału czasu (pierwsza ramka nie wcześniej niż obraz)
-    let sciezki: Vec<(&str, Vec<&Pakiet>)> = audio
+    // Dźwięk z tego samego przedziału czasu (pierwsza ramka nie wcześniej niż obraz). Gdy w obrazie są
+    // przerwy (nagrywanie wznawiało się po chwilowej utracie ekranu), obraz w pliku idzie klatka po klatce
+    // bez nich — dźwięk z przerw wycinamy, żeby dalej zgadzał się z obrazem.
+    let okres = 10_000_000 / fps.max(1) as i64;
+    let czasy: Vec<i64> = wideo.iter().map(|p| p.czas).collect();
+    let sciezki: Vec<(&str, i64, Vec<&Pakiet>)> = audio
         .iter()
-        .map(|(n, a)| (*n, a.iter().filter(|p| p.czas >= poczatek && p.czas <= koniec).collect::<Vec<_>>()))
-        .filter(|(_, a)| !a.is_empty())
+        .filter_map(|(n, a)| {
+            let ramka = dlugosc_ramki_aac(a.first()?);
+            let (przesuniecie, ramki) = dzwiek_do_obrazu(&czasy, okres, a.iter().collect(), ramka);
+            (!ramki.is_empty()).then_some((*n, przesuniecie, ramki))
+        })
         .collect();
+    let przerwy = przerwy_w_obrazie(&czasy, okres);
+    if przerwy > 0 {
+        crate::dziennik::info(&format!("Klip ma {przerwy} przerw(y) w obrazie (nagrywanie się wznawiało) — dźwięk dopasowany"));
+    }
 
     // Klipy lądują w podfolderze miesiąca (2026-11), żeby folder nie puchł bez końca
     let znacznik = znacznik_czasu();
@@ -41,7 +52,7 @@ pub fn zapisz(
         .map_err(|e| format!("Nie mogę utworzyć {}: {e}", folder_miesiaca.display()))?;
     // Miejsce na dysku: faststart przepisuje plik drugi raz, więc potrzeba ok. 2× rozmiaru klipu
     let rozmiar_danych: u64 = wideo.iter().map(|p| p.dane.len() as u64).sum::<u64>()
-        + sciezki.iter().flat_map(|(_, a)| a.iter()).map(|p| p.dane.len() as u64).sum::<u64>();
+        + sciezki.iter().flat_map(|(_, _, a)| a.iter()).map(|p| p.dane.len() as u64).sum::<u64>();
     sprawdz_miejsce(folder, rozmiar_danych * 2 + 64 * 1024 * 1024)?;
     let plik = nowa_nazwa(&folder_miesiaca, przedrostek, &znacznik);
     // Najpierw do pliku tymczasowego (bez .mp4, więc nie pojawi się w bibliotece); nazwa docelowa
@@ -54,17 +65,17 @@ pub fn zapisz(
         .args(["-fflags", "+genpts", "-f", format_wideo, "-framerate", &fps.to_string(), "-i", "-"]);
     let mut tymczasowe = Vec::new();
     let wynik = (|| {
-        for (i, (_, sciezka)) in sciezki.iter().enumerate() {
+        for (i, (_, przesuniecie, sciezka)) in sciezki.iter().enumerate() {
             let tmp = std::env::temp_dir().join(format!("clipeon-{}-{poczatek}-{i}.aac", std::process::id()));
             let dane: Vec<u8> = sciezka.iter().flat_map(|p| p.dane.iter().copied()).collect();
             std::fs::write(&tmp, dane).map_err(|e| format!("Nie mogę zapisać pliku tymczasowego: {e}"))?;
             // Przesunięcie dźwięku względem pierwszej klatki obrazu (synchronizacja po QPC)
-            let przesuniecie = (sciezka[0].czas - poczatek) as f64 / 1e7;
+            let przesuniecie = *przesuniecie as f64 / 1e7;
             cmd.args(["-itsoffset", &format!("{przesuniecie:.6}"), "-f", "aac", "-i"]).arg(&tmp);
             tymczasowe.push(tmp);
         }
         cmd.args(["-map", "0:v", "-c:v", "copy"]);
-        let nazwy: Vec<&str> = sciezki.iter().map(|(n, _)| *n).collect();
+        let nazwy: Vec<&str> = sciezki.iter().map(|(n, _, _)| *n).collect();
         mapuj_dzwiek(&mut cmd, &nazwy);
         // Nazwa gry zostaje w metadanych pliku (biblioteka pokazuje ją przy klipie)
         if let Some(g) = gra.as_deref().filter(|g| !g.is_empty()) {
@@ -100,12 +111,66 @@ pub fn zapisz(
     println!(
         "Zapisano klip: {} ({:.1} s, {:.1} MB, ścieżek dźwięku: {}) w {:.2} s",
         plik.display(),
-        (koniec - poczatek) as f64 / 1e7 + 1.0 / fps as f64,
+        wideo.len() as f64 / fps as f64,
         rozmiar as f64 / 1e6,
         sciezki.len(),
         start.elapsed().as_secs_f64()
     );
     Ok(plik)
+}
+
+/// Odcinki obrazu bez przerw: (czas pierwszej klatki, czas tuż po ostatniej, numer pierwszej klatki w pliku).
+/// Przerwa = odstęp między kolejnymi klatkami większy niż półtorej klatki.
+fn odcinki(czasy: &[i64], okres: i64) -> Vec<(i64, i64, i64)> {
+    let mut wynik: Vec<(i64, i64, i64)> = Vec::new();
+    for (i, &t) in czasy.iter().enumerate() {
+        match wynik.last_mut() {
+            Some(o) if t - (o.1 - okres) <= okres * 3 / 2 => o.1 = t + okres,
+            _ => wynik.push((t, t + okres, i as i64)),
+        }
+    }
+    wynik
+}
+
+fn przerwy_w_obrazie(czasy: &[i64], okres: i64) -> usize {
+    odcinki(czasy, okres).len().saturating_sub(1)
+}
+
+/// Długość ramki AAC (1024 próbki) w 100 ns, z częstotliwości zapisanej w nagłówku ADTS.
+fn dlugosc_ramki_aac(p: &Pakiet) -> i64 {
+    const CZESTOTLIWOSCI: [i64; 13] = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
+    let indeks = p.dane.get(2).map(|b| ((b >> 2) & 0x0F) as usize).unwrap_or(3);
+    1024 * 10_000_000 / CZESTOTLIWOSCI.get(indeks).copied().unwrap_or(48000)
+}
+
+/// Ramki dźwięku pasujące do obrazu zapisanego bez przerw i przesunięcie pierwszej z nich względem
+/// pierwszej klatki (100 ns). Ramka z czasem t trafia w pliku na pozycję obrazu z tej samej chwili;
+/// ramki z przerw w obrazie odpadają, a gdy dźwięk po przerwie wyprzedzałby obraz o ponad pół ramki,
+/// pomijamy nadmiarowe ramki (dźwięk w pliku leci ramka po ramce, bez własnych znaczników czasu).
+fn dzwiek_do_obrazu<'a>(czasy: &[i64], okres: i64, audio: Vec<&'a Pakiet>, ramka: i64) -> (i64, Vec<&'a Pakiet>) {
+    let odc = odcinki(czasy, okres);
+    let mut wynik = Vec::new();
+    let (mut przesuniecie, mut pozycja) = (0, 0);
+    let mut o = 0;
+    for p in audio {
+        while o < odc.len() && p.czas >= odc[o].1 {
+            o += 1;
+        }
+        let Some(&(od, _, nr)) = odc.get(o) else { break };
+        if p.czas < od {
+            continue;
+        }
+        let cel = nr * okres + (p.czas - od);
+        if wynik.is_empty() {
+            przesuniecie = cel;
+            pozycja = cel;
+        } else if cel < pozycja - ramka / 2 {
+            continue;
+        }
+        wynik.push(p);
+        pozycja += ramka;
+    }
+    (przesuniecie, wynik)
 }
 
 /// Ścieżki dźwięku pliku wynikowego. Wejścia ffmpeg nr 1.. to kolejne ścieżki z `nazwy` (0 = obraz).
@@ -190,7 +255,52 @@ pub fn nowa_nazwa(folder: &Path, przedrostek: &str, znacznik: &str) -> PathBuf {
 
 #[cfg(test)]
 mod testy {
-    use super::miesiac;
+    use super::{Pakiet, dlugosc_ramki_aac, dzwiek_do_obrazu, miesiac, przerwy_w_obrazie};
+
+    fn pakiet(czas: i64) -> Pakiet {
+        Pakiet { czas, klucz: true, dane: std::sync::Arc::from(vec![0xFFu8, 0xF1, 0x4C, 0x80]) }
+    }
+
+    #[test]
+    fn ramka_aac_48_khz() {
+        // Indeks częstotliwości 3 (48 kHz) w trzecim bajcie nagłówka ADTS
+        assert_eq!(dlugosc_ramki_aac(&pakiet(0)), 1024 * 10_000_000 / 48000);
+    }
+
+    #[test]
+    fn dzwiek_bez_przerw_w_obrazie_zostaje_caly() {
+        let okres = 333_333;
+        let czasy: Vec<i64> = (0..90).map(|i| 1_000_000 + i * okres).collect();
+        let ramka = 213_333;
+        let audio: Vec<Pakiet> = (0..140).map(|i| pakiet(1_050_000 + i * ramka)).collect();
+        let (przes, ramki) = dzwiek_do_obrazu(&czasy, okres, audio.iter().collect(), ramka);
+        assert_eq!(przes, 50_000);
+        // Ramki od pierwszej klatki do końca ostatniej (90 klatek = 3 s ≈ 140 ramek)
+        assert_eq!(ramki.len(), audio.iter().filter(|p| p.czas < 1_000_000 + 90 * okres).count());
+        assert_eq!(przerwy_w_obrazie(&czasy, okres), 0);
+    }
+
+    #[test]
+    fn dzwiek_z_przerwy_w_obrazie_odpada() {
+        let okres = 333_333;
+        // 30 klatek, 2 s przerwy (restart nagrywania), znów 30 klatek
+        let mut czasy: Vec<i64> = (0..30).map(|i| i * okres).collect();
+        let po = 30 * okres + 20_000_000;
+        czasy.extend((0..30).map(|i| po + i * okres));
+        assert_eq!(przerwy_w_obrazie(&czasy, okres), 1);
+        let ramka = 213_333;
+        let audio: Vec<Pakiet> = (0..((po + 30 * okres) / ramka)).map(|i| pakiet(i * ramka)).collect();
+        let (przes, ramki) = dzwiek_do_obrazu(&czasy, okres, audio.iter().collect(), ramka);
+        assert_eq!(przes, 0);
+        // Żadna ramka z przerwy
+        assert!(ramki.iter().all(|p| p.czas < 30 * okres || p.czas >= po));
+        // Dźwięk trwa tyle, co obraz w pliku (60 klatek = 2 s), z dokładnością do ramki
+        let dlugosc = ramki.len() as i64 * ramka;
+        assert!((dlugosc - 60 * okres).abs() <= 2 * ramka, "{dlugosc}");
+        // Pierwsza ramka po przerwie ląduje w pliku przy 30. klatce
+        let k = ramki.iter().position(|p| p.czas >= po).unwrap() as i64;
+        assert!((k * ramka - 30 * okres).abs() <= ramka);
+    }
 
     #[test]
     fn podfolder_miesiaca_ze_znacznika() {

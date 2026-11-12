@@ -105,6 +105,8 @@ struct Sesja {
     _audio: Vec<audio::Audio>,
     bufor_wideo: WspolnyBufor,
     bufory_audio: Vec<(&'static str, WspolnyBufor)>,
+    /// Urządzenia ścieżek dźwięku (w kolejności `bufory_audio`) — do ponownego użycia buforów
+    urzadzenia_audio: Vec<String>,
     /// Format surowego strumienia wideo dla ffmpeg (h264 / hevc / obu)
     format_wideo: &'static str,
     /// Klucz monitora (do pamięci dróg): nazwa urządzenia, pusta = główny
@@ -161,6 +163,21 @@ struct Wnetrze {
     przerwa_powrotu: Duration,
     /// Od kiedy wybranej gry nie ma na liście procesów (zatrzymujemy nagrywanie dopiero po chwili)
     gra_znikla_od: Option<Instant>,
+    /// Bufory zatrzymanej sesji: następna sesja z takim samym obrazem nagrywa dalej do nich, więc restart
+    /// (np. Fightcade przełącza tryb ekranu co kilka sekund) nie kasuje powtórki
+    zachowane: Option<Zachowane>,
+}
+
+/// Bufory poprzedniej sesji i to, czym była nagrywana.
+struct Zachowane {
+    /// Opis strumienia obrazu (monitor, rozmiar, FPS, enkoder, droga) — musi się zgadzać co do znaku
+    opis: String,
+    bufor_wideo: WspolnyBufor,
+    /// (nazwa ścieżki, urządzenie, bufor)
+    bufory_audio: Vec<(&'static str, String, WspolnyBufor)>,
+    format_wideo: &'static str,
+    fps: u32,
+    pulpit: bool,
 }
 
 #[derive(Clone)]
@@ -194,6 +211,7 @@ impl Rdzen {
             odrzucone_chwilowo: HashMap::new(),
             przerwa_powrotu: POWROT_NA_DROGE_PO,
             gra_znikla_od: None,
+            zachowane: None,
         };
         Rdzen { w: Arc::new(Mutex::new(w)), powiadom: Arc::new(powiadom) }
     }
@@ -289,11 +307,27 @@ impl Rdzen {
                 w.odrzucone_chwilowo.iter().filter(|((m, _), kiedy)| *m == monitor && **kiedy > teraz).map(|((_, d), _)| *d).collect();
             // W serii chwilowych awarii ponawiamy tylko drogę, która je miała
             let tylko = w.seria_awarii.map(|(_, d)| d);
-            let wynik = self.nowa_sesja(&cfg, pokolenie, &mut odrzucone, &chwilowo, tylko, lekki);
+            let mut odlozone = Vec::new();
+            // Film zaczyna nowy segment od świeżych buforów (inaczej dostałby powtórzone pakiety)
+            let zachowane = if w.film.is_some() { None } else { w.zachowane.take() };
+            let wynik = self.nowa_sesja(&cfg, pokolenie, &mut odrzucone, &chwilowo, tylko, lekki, &mut odlozone, zachowane.as_ref());
+            // Nowa sesja nagrywa do zachowanych buforów albo do własnych — wtedy stare przepadają.
+            // Gdy sesja nie ruszyła, bufory czekają na następną próbę (i na Alt+F10 w międzyczasie).
+            if wynik.is_err() {
+                w.zachowane = zachowane;
+            }
             for (m, d) in &odrzucone {
                 w.odrzucone_chwilowo.remove(&(m.clone(), *d));
             }
             w.odrzucone = odrzucone;
+            if !odlozone.is_empty() {
+                let przerwa = w.przerwa_powrotu;
+                for d in odlozone {
+                    crate::dziennik::info(&format!("Droga przechwytywania „{}”: spróbuję znów za {} s", d.nazwa(), przerwa.as_secs()));
+                    w.odrzucone_chwilowo.insert((monitor.clone(), d), teraz + przerwa);
+                }
+                w.przerwa_powrotu = (przerwa * 2).min(POWROT_NAJPOZNIEJ_PO);
+            }
             match wynik {
                 Ok(s) => {
                     // Trwający film nagrywa się dalej z nowej sesji (nowy segment)
@@ -427,7 +461,24 @@ impl Rdzen {
             let mut w = self.zamek();
             w.pokolenie += 1;
             w.bledy.retain(|k, _| zostaw.contains(k));
-            ((w._skrot.take(), w._skrot_filmu.take()), w.sesja.take())
+            let sesja = w.sesja.take();
+            // Bufory zostają na następną sesję — chyba że trwa film (ten dostaje nowy segment)
+            if let Some(s) = sesja.as_ref().filter(|_| w.film.is_none()) {
+                w.zachowane = Some(Zachowane {
+                    opis: s._wideo.opis.clone(),
+                    bufor_wideo: s.bufor_wideo.clone(),
+                    bufory_audio: s
+                        .bufory_audio
+                        .iter()
+                        .zip(&s.urzadzenia_audio)
+                        .map(|((n, b), u)| (*n, u.clone(), b.clone()))
+                        .collect(),
+                    format_wideo: s.format_wideo,
+                    fps: s._wideo.fps,
+                    pulpit: s.pulpit,
+                });
+            }
+            ((w._skrot.take(), w._skrot_filmu.take()), sesja)
         };
         drop(skroty);
         drop(sesja);
@@ -437,6 +488,7 @@ impl Rdzen {
     /// potem dźwięk. Drogi, które nie wystartowały, trafiają do `odrzucone`.
     /// `chwilowo` = drogi pomijane tylko na jakiś czas, `tylko` = jedyna droga, którą wolno teraz
     /// spróbować (trwa seria chwilowych awarii tej drogi).
+    #[allow(clippy::too_many_arguments)]
     fn nowa_sesja(
         &self,
         cfg: &Config,
@@ -445,6 +497,8 @@ impl Rdzen {
         chwilowo: &HashSet<Droga>,
         tylko: Option<Droga>,
         lekki: bool,
+        odlozone: &mut Vec<Droga>,
+        zachowane: Option<&Zachowane>,
     ) -> Result<Sesja, String> {
         let monitor = cfg.aktywny_monitor().0.to_string();
         let zapamietana = crate::pamiec::pamiec().drogi.get(&monitor).and_then(|d| Droga::z_nazwy(d));
@@ -459,20 +513,39 @@ impl Rdzen {
         let zapamietaj_droge = !wszystkie.iter().any(|d| chwilowo.contains(d));
         let mut ostatni_blad = String::new();
         let mut wideo_ = None;
+        let mut ciag_dalszy = false;
         for droga in kolejnosc {
-            let bufor = Bufor::nowy(cfg.bufor_sekundy);
+            let wybrany = std::cell::RefCell::new(None);
+            let wybierz_bufor = |opis: &str| {
+                // Ten sam obraz co w poprzedniej sesji: nagrywamy dalej do jej bufora (powtórka nie przepada)
+                let b = match zachowane.filter(|z| z.opis == opis) {
+                    Some(z) => z.bufor_wideo.clone(),
+                    None => Bufor::nowy(cfg.bufor_sekundy),
+                };
+                *wybrany.borrow_mut() = Some((b.clone(), zachowane.is_some_and(|z| z.opis == opis)));
+                b
+            };
             let zglos_wideo = self.zglaszacz(pokolenie, "wideo");
-            match wideo::uruchom(cfg, droga, lekki, bufor.clone(), move |e| zglos_wideo(Some(e))) {
+            match wideo::uruchom(cfg, droga, lekki, wybierz_bufor, move |e| zglos_wideo(Some(e))) {
                 Ok(w) => {
+                    let (bufor, dalej) = wybrany.into_inner().expect("wideo::uruchom wybiera bufor");
+                    ciag_dalszy = dalej;
                     wideo_ = Some((w, bufor));
                     break;
                 }
                 Err(e) => {
                     ostatni_blad = e.to_string();
                     crate::dziennik::info(&format!("Droga przechwytywania „{}” nie wystartowała: {e}", droga.nazwa()));
-                    // W serii chwilowych awarii (gra zmienia tryb ekranu) nieudany start o niczym nie przesądza
+                    // W serii chwilowych awarii (gra zmienia tryb ekranu) nieudany start o niczym nie przesądza.
+                    // Chwilowa utrata obrazu przy starcie (np. powrót z trybu zgodności w trakcie zmiany trybu
+                    // ekranu) odkłada drogę tylko na jakiś czas — dawniej odrzucała ją do końca uruchomienia
+                    // i żółta ramka zostawała do restartu Clipeona.
                     if droga != Droga::Potok && tylko.is_none() {
-                        odrzucone.insert((monitor.clone(), droga));
+                        if wideo::chwilowy(&ostatni_blad) {
+                            odlozone.push(droga);
+                        } else {
+                            odrzucone.insert((monitor.clone(), droga));
+                        }
                     }
                 }
             }
@@ -480,19 +553,38 @@ impl Rdzen {
         let Some((wideo, bufor_wideo)) = wideo_ else { return Err(ostatni_blad) };
 
         // Dźwięk: AAC 160 kb/s; bufor dłuższy o 2 s, żeby na pewno pokrył początek obrazu
-        let (mut audio_, mut bufory_audio) = (Vec::new(), Vec::new());
+        // Gdy obraz nagrywa się dalej do starego bufora, dźwięk też (to samo urządzenie = ta sama ścieżka)
+        let (mut audio_, mut bufory_audio, mut urzadzenia_audio) = (Vec::new(), Vec::new(), Vec::new());
         for (wlaczone, zrodlo, urzadzenie, klucz, nazwa) in [
             (cfg.dzwiek_systemowy, Zrodlo::System, String::new(), "system", "Gra"),
             (cfg.mikrofon, Zrodlo::Mikrofon, cfg.mikrofon_urzadzenie.clone(), "mikrofon", "Mikrofon"),
         ] {
             if wlaczone {
-                let b = Bufor::nowy(cfg.bufor_sekundy + 2);
-                audio_.push(audio::uruchom(zrodlo, urzadzenie, 160, b.clone(), self.zglaszacz(pokolenie, klucz)));
+                let stary = zachowane
+                    .filter(|_| ciag_dalszy)
+                    .and_then(|z| z.bufory_audio.iter().find(|(n, u, _)| *n == nazwa && *u == urzadzenie))
+                    .map(|(_, _, b)| b.clone());
+                let b = stary.unwrap_or_else(|| Bufor::nowy(cfg.bufor_sekundy + 2));
+                audio_.push(audio::uruchom(zrodlo, urzadzenie.clone(), 160, b.clone(), self.zglaszacz(pokolenie, klucz)));
                 bufory_audio.push((nazwa, b));
+                urzadzenia_audio.push(urzadzenie);
             }
         }
+        if ciag_dalszy {
+            crate::dziennik::info("Nagrywanie wznowione — powtórka sprzed przerwy zostaje w buforze");
+        }
         let format_wideo = wideo.format;
-        Ok(Sesja { _wideo: wideo, _audio: audio_, bufor_wideo, bufory_audio, format_wideo, monitor, pulpit: cfg.pulpit(), zapamietaj_droge })
+        Ok(Sesja {
+            _wideo: wideo,
+            _audio: audio_,
+            bufor_wideo,
+            bufory_audio,
+            urzadzenia_audio,
+            format_wideo,
+            monitor,
+            pulpit: cfg.pulpit(),
+            zapamietaj_droge,
+        })
     }
 
     /// Nowy config: zapis na dysk i restart nagrywania. Zawartość bufora przepada.
@@ -517,6 +609,8 @@ impl Rdzen {
                 w.lekki = false;
             }
             w.seria_awarii = None;
+            // Nowe ustawienia (długość bufora, dźwięk, jakość) = nowe bufory
+            w.zachowane = None;
             w.cfg = cfg;
             w.bledy.remove("config");
         }
@@ -580,6 +674,7 @@ impl Rdzen {
         let pauza = {
             let mut w = self.zamek();
             w.pauza = !w.pauza;
+            w.zachowane = None;
             w.pauza
         };
         if pauza {
@@ -612,6 +707,14 @@ impl Rdzen {
                 let audio: Vec<_> =
                     s.bufory_audio.iter().map(|(n, b)| (*n, b.zablokuj().migawka())).collect();
                 (wideo, audio, s.format_wideo, s._wideo.fps, s.pulpit)
+            });
+            // Alt+F10 akurat w chwili wznawiania nagrywania: zapisujemy to, co zostało w buforze
+            let migawka = migawka.or_else(|| {
+                w.zachowane.as_ref().filter(|_| !w.pauza && !w.czeka_na_gre).map(|z| {
+                    let wideo = z.bufor_wideo.zablokuj().migawka();
+                    let audio: Vec<_> = z.bufory_audio.iter().map(|(n, _, b)| (*n, b.zablokuj().migawka())).collect();
+                    (wideo, audio, z.format_wideo, z.fps, z.pulpit)
+                })
             });
             (migawka, w.cfg.folder_klipow.clone(), brak_sesji(&w, "zapisywać klipy"), w.gra.as_ref().map(|g| g.nazwa.clone()))
         };
@@ -804,6 +907,7 @@ impl Rdzen {
             let sesja = {
                 let mut w = self.zamek();
                 w.czeka_na_gre = true;
+                w.zachowane = None;
                 w.wznawianie = None;
                 // Błędy zatrzymanej sesji nie dotyczą czekania na grę (inaczej wisi czerwony baner)
                 w.bledy.remove("nagrywanie");
@@ -974,7 +1078,38 @@ impl Rdzen {
         let monitor = w.cfg.aktywny_monitor().0.to_string();
         let w_sesji = w.sesja.as_ref().map(|s| s._wideo.droga);
         let mlody = w.start_sesji.is_some_and(|t| t.elapsed() < ROZRUCH_DROGI);
-        let decyzja = co_z_droga(w_sesji, w.seria_awarii, chwilowy, mlody, Instant::now());
+        let mut decyzja = co_z_droga(w_sesji, w.seria_awarii, chwilowy, mlody, Instant::now());
+        // Seria trwa długo, ale sesje na tej drodze startują (padają dopiero po chwili), a każda inna droga
+        // rysowałaby żółtą ramkę (Windows 10): zostajemy bez ramki. Bufor przetrwa restart, więc kosztem są
+        // tylko krótkie przeskoki obrazu w klipie (Fightcade u kolegi gubił obraz co 2–10 s).
+        if let (Decyzja::OdrzucChwilowo(d), Some(teraz), Some(seria)) = (decyzja, w_sesji, w.seria_awarii)
+            && teraz == d
+            && !d.z_ramka()
+            && wideo::drogi(&w.cfg).iter().filter(|x| **x != d).all(|x| x.z_ramka())
+        {
+            decyzja = Decyzja::Ponow(seria);
+        }
+        // Desktop Duplication w ffmpeg straciło obraz, a jest DDA w Clipeonie, które przeczeka taką chwilę bez
+        // restartu (jak OBS): przechodzimy na nie od razu, zamiast restartować ffmpeg w kółko
+        if let Decyzja::Ponow((_, Droga::Dda)) = decyzja
+            && w.seria_awarii.is_none()
+            && !w.odrzucone.contains(&(monitor.clone(), Droga::DdaRam))
+            && wideo::drogi(&w.cfg).contains(&Droga::DdaRam)
+        {
+            crate::dziennik::info(&format!(
+                "Droga przechwytywania „dda” chwilowo straciła obraz ({powod}) — przechodzę na „dda-ram”, która przeczekuje takie chwile bez restartu"
+            ));
+            w.seria_awarii = None;
+            let wroc = Instant::now() + w.przerwa_powrotu;
+            w.odrzucone_chwilowo.insert((monitor.clone(), Droga::Dda), wroc);
+            drop(w);
+            // Zapamiętujemy na stałe: po restarcie komputera nagrywanie od razu ruszy spokojną drogą,
+            // zamiast znów czekać na pierwszą utratę obrazu
+            let mut p = crate::pamiec::pamiec();
+            p.drogi.insert(monitor, Droga::DdaRam.nazwa().to_string());
+            crate::pamiec::zapisz(&p);
+            return;
+        }
         match decyzja {
             Decyzja::Nic => return,
             Decyzja::Ponow(seria) => {
@@ -1385,5 +1520,10 @@ mod testy {
         assert_eq!(kolejnosc_prob(wszystkie(), None, |d| d == Droga::Dda, None), vec![Droga::Gfx, Droga::Potok]);
         // Zapamiętana droga bez ramki idzie na początek
         assert_eq!(kolejnosc_prob(vec![Droga::Gfx, Droga::Dda, Droga::Potok], Some(Droga::Dda), nic, None), wszystkie());
+        // Zapamiętane DDA przez RAM (po utracie obrazu w ffmpeg) rusza od razu po restarcie komputera
+        assert_eq!(
+            kolejnosc_prob(vec![Droga::Dda, Droga::DdaRam, Droga::Gfx, Droga::Potok], Some(Droga::DdaRam), nic, None),
+            vec![Droga::DdaRam, Droga::Dda, Droga::Gfx, Droga::Potok]
+        );
     }
 }
