@@ -124,6 +124,8 @@ fn pokaz_stan(app: &AppHandle, stan: &Stan) {
         (ikona::CZERWONY, b.clone())
     } else if let Some(p) = &stan.wznawianie {
         (ikona::ZOLTY, format!("Wznawiam nagrywanie ({p})…"))
+    } else if let Some(p) = &stan.przelaczanie {
+        (ikona::ZOLTY, format!("Przełączam {p} na nowe urządzenie…"))
     } else if stan.pauza {
         (ikona::SZARY, "Nagrywanie wstrzymane".to_string())
     } else if stan.czeka_na_gre {

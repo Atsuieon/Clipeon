@@ -164,7 +164,8 @@ for (const b of document.querySelectorAll(".zakladka")) {
 function pokazStan(s) {
   stan = s;
   const kropka = $("kropka");
-  const klasa = s.bledy.length ? "blad" : s.wznawianie ? "wznawianie" : s.nagrywa ? "nagrywa" : "";
+  // Żółta kropka: strażnik wznawia nagrywanie albo dźwięk przełącza się na nowe urządzenie
+  const klasa = s.bledy.length ? "blad" : s.wznawianie || s.przelaczanie ? "wznawianie" : s.nagrywa ? "nagrywa" : "";
   kropka.className = "kropka " + klasa;
   $("status").className = "status " + klasa;
   const pulpit = s.tryb === "pulpit";
@@ -172,15 +173,17 @@ function pokazStan(s) {
     ? "Nie nagrywa"
     : s.wznawianie
       ? "Wznawiam…"
-      : s.pauza
-        ? "Wstrzymane"
-        : s.czeka_na_gre
-          ? `Czekam na ${s.wybrana_gra}`
-          : pulpit
-            ? "Nagrywa pulpit"
-            : s.gra
-              ? `Nagrywa: ${s.gra}`
-              : "Nagrywa";
+      : s.przelaczanie
+        ? `Przełączam ${s.przelaczanie}…`
+        : s.pauza
+          ? "Wstrzymane"
+          : s.czeka_na_gre
+            ? `Czekam na ${s.wybrana_gra}`
+            : pulpit
+              ? "Nagrywa pulpit"
+              : s.gra
+                ? `Nagrywa: ${s.gra}`
+                : "Nagrywa";
   // Pasek z wyjaśnieniem i przyciskami, gdy coś nie działa
   const problem = s.bledy[0] || (s.wznawianie && `Wznawiam nagrywanie: ${s.wznawianie}`);
   $("baner").hidden = !problem;
@@ -193,7 +196,11 @@ function pokazStan(s) {
   // Przekreślony mikrofon, gdy Clipeon nagrywa bez mikrofonu
   $("status-mik").innerHTML = ikona("mikrofonWyl");
   $("status-mik").hidden = s.mikrofon !== false;
-  $("status").title = s.bledy.join("\n");
+  $("status").title = s.bledy.length
+    ? s.bledy.join("\n")
+    : s.przelaczanie && !s.wznawianie
+      ? "Windows zmienił urządzenie dźwięku (np. po zamknięciu gry). Clipeon przełącza nagrywanie na nowe — obraz nagrywa się dalej."
+      : "";
   $("pauza").innerHTML = s.pauza ? zIkona("graj", "Wznów") : zIkona("pauza", "Wstrzymaj");
   $("zapisz-klip").disabled = !s.nagrywa;
   $("status").classList.toggle("czeka", !!s.czeka_na_gre);

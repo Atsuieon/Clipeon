@@ -38,7 +38,7 @@ function udawanyTauri() {
     format_filmu: "bez_zmian",
   };
   const stan = {
-    nagrywa: true, pauza: false, bledy: [], wznawianie: null, tryb: "gra", ekran: "Ekran 1", monitor: "",
+    nagrywa: true, pauza: false, bledy: [], wznawianie: null, przelaczanie: null, tryb: "gra", ekran: "Ekran 1", monitor: "",
     droga: "dda", gra: "Gra testowa", wybrana_gra: "", gra_proces: "", czeka_na_gre: false, mikrofon: true,
     ramka: false, film: null, film_zapis: false, skrot_filmu_blad: null, film_zmniejszanie: null,
   };
@@ -124,6 +124,15 @@ sprawdz((await strona.isVisible("#status-mik")) && (await strona.locator("#statu
 await zrzut("0-mikrofon-wylaczony");
 await strona.evaluate(() => pokazStan({ ...stan, mikrofon: true }));
 await strona.evaluate(() => pokazStan({ ...stan, tryb: "gra", pauza: false, czeka_na_gre: false, bledy: [], wznawianie: null, nagrywa: true, film: null, film_zapis: false, droga: "dda", ramka: false, skrot_filmu_blad: null }));
+
+// Windows zmienił urządzenie dźwięku (np. po zamknięciu gry): żółta kropka z napisem, bez paska z błędem
+await strona.evaluate(() => pokazStan({ ...stan, przelaczanie: "dźwięk" }));
+sprawdz((await strona.textContent("#status-tekst")) === "Przełączam dźwięk…", "przełączanie dźwięku nie zmienia napisu przy kropce");
+sprawdz((await strona.locator("#kropka.wznawianie").count()) === 1, "przełączanie dźwięku nie daje żółtej kropki");
+sprawdz(await strona.isHidden("#baner"), "przełączanie dźwięku pokazuje pasek z problemem");
+await zrzut("0-przelaczanie-dzwieku");
+await strona.evaluate(() => pokazStan({ ...stan, przelaczanie: null }));
+sprawdz((await strona.textContent("#status-tekst")) === "Nagrywa: Gra testowa", "po przełączeniu dźwięku status nie wraca do „Nagrywa”");
 
 // ---------- Tło ze znaków i płyn pod myszką ----------
 // Jasne znaki (przezroczystość ≥ 0,4) rysuje tylko smuga — liczymy je wokół podanego punktu

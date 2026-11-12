@@ -24,6 +24,9 @@ pub struct Stan {
     pub bledy: Vec<String>,
     /// Strażnik właśnie wznawia nagrywanie (powód)
     pub wznawianie: Option<String>,
+    /// Windows zmienił urządzenie dźwięku i Clipeon przełącza na nie nagrywanie: „dźwięk”, „mikrofon”
+    /// albo „dźwięk i mikrofon” (żółta kropka, nie błąd — obraz nagrywa się dalej)
+    pub przelaczanie: Option<String>,
     /// "gra" albo "pulpit"
     pub tryb: String,
     /// Krótka nazwa nagrywanego ekranu, np. „Ekran 2”
@@ -94,6 +97,9 @@ const SESJA_STABILNA_PO: Duration = Duration::from_secs(10);
 /// Po tylu sekundach wracamy na drogę odrzuconą chwilowo (każdy kolejny nieudany powrót dwa razy później)
 const POWROT_NA_DROGE_PO: Duration = Duration::from_secs(60);
 const POWROT_NAJPOZNIEJ_PO: Duration = Duration::from_secs(1800);
+/// Przełączenie dźwięku na nowe urządzenie trwa ułamek sekundy — żółtą kropkę trzymamy co najmniej tyle,
+/// żeby dało się ją zauważyć
+const PRZELACZANIE_WIDAC: Duration = Duration::from_secs(2);
 /// Po tylu sekundach bez problemów zapamiętujemy drogę jako działającą
 const DROGA_DZIALA_PO: Duration = Duration::from_secs(30);
 
@@ -147,6 +153,9 @@ struct Wnetrze {
     start_sesji: Option<Instant>,
     /// Powód trwającego wznawiania (żółta kropka)
     wznawianie: Option<String>,
+    /// Ścieżki dźwięku ("system", "mikrofon"), które przełączają się na nowe urządzenie: od kiedy
+    /// i czy jeszcze trwa (skończone zostaje do PRZELACZANIE_WIDAC, potem zdejmuje je strażnik)
+    przelaczanie: BTreeMap<&'static str, (Instant, bool)>,
     /// Drogi przechwytywania, które zawiodły w tym uruchomieniu: (monitor, droga)
     odrzucone: HashSet<(String, Droga)>,
     /// Lżejsze ustawienia enkodera (po wykryciu, że nie nadąża)
@@ -204,6 +213,7 @@ impl Rdzen {
             pokolenie: 0,
             start_sesji: None,
             wznawianie: None,
+            przelaczanie: BTreeMap::new(),
             odrzucone: HashSet::new(),
             lekki: false,
             gra: None,
@@ -234,6 +244,12 @@ impl Rdzen {
             pauza: w.pauza,
             bledy: w.bledy.values().cloned().collect(),
             wznawianie: w.wznawianie.clone(),
+            przelaczanie: match (w.przelaczanie.contains_key("system"), w.przelaczanie.contains_key("mikrofon")) {
+                (true, true) => Some("dźwięk i mikrofon".into()),
+                (true, false) => Some("dźwięk".into()),
+                (false, true) => Some("mikrofon".into()),
+                (false, false) => None,
+            },
             tryb: w.cfg.tryb.clone(),
             ekran: wideo::etykieta_ekranu(monitor),
             monitor: monitor.to_string(),
@@ -282,6 +298,52 @@ impl Rdzen {
     fn zglaszacz(&self, pokolenie: u64, klucz: &'static str) -> impl Fn(Option<String>) + Send + 'static {
         let r = self.clone();
         move |b| r.zglos(pokolenie, klucz, b)
+    }
+
+    /// Zgłoszenia ścieżki dźwięku: błąd i „działa” jak u reszty, a przełączanie na nowe urządzenie
+    /// (zamknięta gra, inne słuchawki) to tylko żółta kropka — bez błędu i bez alarmu.
+    fn zglaszacz_dzwieku(&self, pokolenie: u64, klucz: &'static str) -> impl Fn(audio::Zgloszenie) + Send + 'static {
+        let r = self.clone();
+        move |z| {
+            let zmiana = {
+                let mut w = r.zamek();
+                if w.pokolenie != pokolenie {
+                    return;
+                }
+                match &z {
+                    audio::Zgloszenie::Przelaczanie => w.przelaczanie.insert(klucz, (Instant::now(), true)).is_none(),
+                    // Przełączone: kropka zostaje żółta jeszcze chwilę (zdejmie ją strażnik)
+                    audio::Zgloszenie::Dziala => {
+                        if let Some(p) = w.przelaczanie.get_mut(klucz) {
+                            p.1 = false;
+                        }
+                        false
+                    }
+                    audio::Zgloszenie::Blad(_) => w.przelaczanie.remove(klucz).is_some(),
+                }
+            };
+            if zmiana {
+                r.wyslij_stan();
+            }
+            match z {
+                audio::Zgloszenie::Przelaczanie => {}
+                audio::Zgloszenie::Dziala => r.zglos(pokolenie, klucz, None),
+                audio::Zgloszenie::Blad(b) => r.zglos(pokolenie, klucz, Some(b)),
+            }
+        }
+    }
+
+    /// Zdejmuje żółtą kropkę po zakończonym przełączeniu dźwięku (woła strażnik co sekundę).
+    fn pilnuj_przelaczania(&self) {
+        let zmiana = {
+            let mut w = self.zamek();
+            let ile = w.przelaczanie.len();
+            w.przelaczanie.retain(|_, (od, trwa)| *trwa || od.elapsed() < PRZELACZANIE_WIDAC);
+            w.przelaczanie.len() != ile
+        };
+        if zmiana {
+            self.wyslij_stan();
+        }
     }
 
     /// Startuje (albo restartuje) skrót i nagrywanie według bieżącego configu.
@@ -462,6 +524,7 @@ impl Rdzen {
             let mut w = self.zamek();
             w.pokolenie += 1;
             w.bledy.retain(|k, _| zostaw.contains(k));
+            w.przelaczanie.clear();
             let sesja = w.sesja.take();
             // Bufory zostają na następną sesję — chyba że trwa film (ten dostaje nowy segment)
             if let Some(s) = sesja.as_ref().filter(|_| w.film.is_none()) {
@@ -566,7 +629,7 @@ impl Rdzen {
                     .and_then(|z| z.bufory_audio.iter().find(|(n, u, _)| *n == nazwa && *u == urzadzenie))
                     .map(|(_, _, b)| b.clone());
                 let b = stary.unwrap_or_else(|| Bufor::nowy(cfg.bufor_sekundy + 2));
-                audio_.push(audio::uruchom(zrodlo, urzadzenie.clone(), 160, b.clone(), self.zglaszacz(pokolenie, klucz)));
+                audio_.push(audio::uruchom(zrodlo, urzadzenie.clone(), 160, b.clone(), self.zglaszacz_dzwieku(pokolenie, klucz)));
                 bufory_audio.push((nazwa, b));
                 urzadzenia_audio.push(urzadzenie);
             }
@@ -989,6 +1052,7 @@ impl Rdzen {
 
                 // Jaka gra jest na wierzchu; przy wybranej grze: start, gdy rusza, stop, gdy znika
                 r.pilnuj_gry();
+                r.pilnuj_przelaczania();
 
                 let problem = r.problem_nagrywania(po_uspieniu);
                 // Inne błędy (skrót zajęty, brak dźwięku) też zasługują na alarm, ale nie na restart

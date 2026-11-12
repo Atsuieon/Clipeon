@@ -1,5 +1,19 @@
 # Zmiany
 
+## 1.4.4
+
+- **Zamknięcie albo uruchomienie gry nie pokazuje już błędu dźwięku.** Gdy Windows zmienia albo przebudowuje
+  urządzenie dźwięku (gra się zamyka lub startuje, podłączasz inne słuchawki, usługa dźwięku się restartuje),
+  nagrywanie dźwięku musi otworzyć urządzenie od nowa. Dawniej Clipeon pokazywał wtedy czerwony błąd
+  „Nie można nagrywać (dźwięk systemowy): 0x88890004” i wpisywał `[BŁĄD]` do dziennika, choć po sekundzie
+  nagrywał dalej. Teraz kropka robi się na chwilę żółta z napisem „Przełączam dźwięk…” (albo „Przełączam
+  mikrofon…”), a w dzienniku zostaje zwykła informacja. Obraz nagrywa się przez cały czas. Błąd pojawia się
+  dopiero wtedy, gdy urządzenia nie da się otworzyć przez 10 sekund.
+- **Dźwięk po przełączeniu dalej zgadza się z obrazem.** Dawniej sekundowa dziura w dźwięku znikała z klipu,
+  więc wszystko po niej było słychać o sekundę za wcześnie (w klipie zapisanym tuż po zamknięciu lub starcie
+  gry). Teraz przełączenie trwa ułamek sekundy, a przerwa jest wypełniana ciszą.
+- Przełączenie na inne domyślne urządzenie (np. słuchawki) też jest natychmiastowe i bez dziury w klipie.
+
 ## 1.4.3
 
 Porządki w kodzie — bez zmian w działaniu programu.
