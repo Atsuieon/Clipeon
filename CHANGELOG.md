@@ -1,5 +1,11 @@
 # Zmiany
 
+## Następna wersja
+
+- Długość filmów w bibliotece pokazuje godziny („1:06:52” zamiast „66:52”).
+- „Klatki i jakość” w Ustawieniach: pola leżą pod nazwą, więc nazwa nie łamie się już w wąskiej kolumnie.
+- Nowe zrzuty ekranu w README.
+
 ## 1.4.0
 
 - **Filmy — długie nagrywanie.** Nowy przycisk „Nagraj film” na pasku (i w menu ikony przy zegarze) albo skrót

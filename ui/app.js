@@ -80,9 +80,12 @@ function dymek(tekst) {
 }
 
 const formatMB = (b) => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.round(b / 1e6)} MB`);
+// Długość klipu: „0:30”, „12:05”; od godziny „1:06:52” (filmy)
 const formatCzas = (s) => {
   s = Math.round(s);
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  const g = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return `${g ? `${g}:${String(m).padStart(2, "0")}` : m}:${String(s % 60).padStart(2, "0")}`;
 };
 const formatData = (ms) =>
   new Date(ms).toLocaleString("pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
