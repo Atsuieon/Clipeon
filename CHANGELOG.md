@@ -8,6 +8,8 @@ Odświeżony wygląd i pasek górny, który mieści się przy każdej szerokośc
 - Pasek górny nie rozjeżdża się, gdy pojawia się przycisk „Aktualizuj do X”: napisy na przyciskach chowają się wtedy odpowiednio wcześniej, a długi numer wersji jest ucinany wielokropkiem.
 - Przy bardzo wąskim oknie (np. kafelek w menedżerze okien) pasek łamie się na dwa rzędy zamiast ucinać przyciski, a tytuły stron zmniejszają się razem z oknem.
 - W przeglądarce bez rozmywania tła powierzchnie wracają do prawie pełnej czerni, więc wszystko zostaje czytelne.
+- **Proste ustawienia.** Jakość gry i pulpitu to trzy przyciski (Lekka, Standard, Najwyższa / Płynna), a rozmiar filmów to Oryginał, Mniejszy albo Najmniejszy — bez liczb i opisów. Wybór ekranu widać tylko przy więcej niż jednym monitorze.
+- **„Dla nerdów”**: przełącznik w prawym górnym rogu Ustawień. Po włączeniu wracają wszystkie opisy, klatki/s i Mb/s do wpisania, szacunek RAM i sekcja Zaawansowane. Działa od razu, bez zapisywania. Gdy klatki/s albo Mb/s nie pasują do żadnego przycisku, w prostym widoku podświetla się „Własne”.
 
 ## 1.4.5
 

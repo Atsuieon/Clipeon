@@ -1872,6 +1872,53 @@ for (const [id, lista] of Object.entries(PRESETY)) {
     b.dataset.bitrate = p.bitrate;
     kontener.append(b);
   }
+  // Wartości spoza presetów (wpisane w trybie „Dla nerdów”): zamiast żadnego podświetlenia widać „Własne”
+  const wlasne = document.createElement("button");
+  wlasne.type = "button";
+  wlasne.className = "segment wlasne wybrany";
+  wlasne.tabIndex = -1;
+  wlasne.hidden = true;
+  wlasne.innerHTML = "<span>Własne</span><small></small>";
+  wlasne.title = "Własne klatki/s i Mb/s — zmienisz je po włączeniu „Dla nerdów”";
+  kontener.append(wlasne);
+}
+
+// Rozmiar filmów: przyciski zamiast listy. Lista #format-filmu zostaje polem formularza (ukrytym),
+// a przyciski powstają z jej pozycji, bo mniejsze formaty zależą od karty graficznej.
+const ROZMIARY_FILMU = { bez_zmian: ["Oryginał", "bez zmian"], hevc: ["Mniejszy", "HEVC · ok. ½"], av1: ["Najmniejszy", "AV1 · ok. ⅓"] };
+function zbudujRozmiaryFilmu() {
+  const lista = $("format-filmu");
+  $("presety-filmu").replaceChildren(
+    ...[...lista.options].filter((o) => ROZMIARY_FILMU[o.value]).map((o) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "segment";
+      b.innerHTML = "<span></span><small></small>";
+      b.querySelector("span").textContent = ROZMIARY_FILMU[o.value][0];
+      b.querySelector("small").textContent = ROZMIARY_FILMU[o.value][1];
+      b.title = o.textContent;
+      b.dataset.format = o.value;
+      b.addEventListener("click", () => {
+        lista.value = o.value;
+        lista.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      return b;
+    }),
+  );
+}
+
+// „Dla nerdów”: widok, nie ustawienie nagrywania — działa od razu i jest pamiętany w tym oknie
+{
+  const KLUCZ = "clipeon.dlaNerdow";
+  const pokaz = (wl) => $("widok-ustawienia").classList.toggle("nerd", wl);
+  let zapamietane = false;
+  try { zapamietane = localStorage.getItem(KLUCZ) === "1"; } catch {}
+  $("dla-nerdow").checked = zapamietane;
+  pokaz(zapamietane);
+  $("dla-nerdow").addEventListener("change", () => {
+    pokaz($("dla-nerdow").checked);
+    try { localStorage.setItem(KLUCZ, $("dla-nerdow").checked ? "1" : "0"); } catch {}
+  });
 }
 for (const el of document.querySelectorAll("[data-ikona]")) el.innerHTML = ikona(el.dataset.ikona);
 
@@ -1951,6 +1998,8 @@ async function wczytajUstawienia() {
   $("monitor").dataset.hdr = JSON.stringify(monitory.filter((m) => m.hdr).map((m) => m.id));
   wypelnijListe($("enkoder"), u.enkodery, cfg.enkoder);
   wypelnijListe($("format-filmu"), u.formaty_filmu, cfg.format_filmu, "Wybrany format (ta karta go nie zapisuje)");
+  zbudujRozmiaryFilmu();
+  $("widok-ustawienia").classList.toggle("jeden-ekran", monitory.length < 2);
   wpiszPola(cfg);
 
   $("sprz-dni-wl").checked = cfg.sprzatanie_dni > 0;
@@ -2015,10 +2064,18 @@ function odswiezFormularz() {
   $("bufor-wartosc").textContent = s >= 60 ? `${Math.floor(s / 60)} min${s % 60 ? ` ${s % 60} s` : ""}` : `${s} s`;
   for (const id of Object.keys(PRESETY)) {
     const k = $(id);
-    for (const b of k.querySelectorAll(".segment")) {
-      b.classList.toggle("wybrany", b.dataset.fps === $(k.dataset.fps).value && b.dataset.bitrate === $(k.dataset.bitrate).value);
+    const [fps, mbps] = [$(k.dataset.fps).value, $(k.dataset.bitrate).value];
+    let pasuje = false;
+    for (const b of k.querySelectorAll(".segment:not(.wlasne)")) {
+      const ten = b.dataset.fps === fps && b.dataset.bitrate === mbps;
+      b.classList.toggle("wybrany", ten);
+      pasuje ||= ten;
     }
+    const wlasne = k.querySelector(".wlasne");
+    wlasne.hidden = pasuje;
+    wlasne.querySelector("small").textContent = `${fps} kl./s · ${mbps} Mb/s`;
   }
+  for (const b of $("presety-filmu").querySelectorAll(".segment")) b.classList.toggle("wybrany", b.dataset.format === $("format-filmu").value);
   odswiezPasekZapisu();
 }
 

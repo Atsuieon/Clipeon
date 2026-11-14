@@ -954,3 +954,21 @@ h1 { font-size: clamp(30px, 4.2vw, 44px); }
 @media (max-width: 900px) {
   .gora { flex-wrap: wrap; row-gap: 10px; }
 }
+
+/* ---------- Proste ustawienia i „Dla nerdów” (1.4.6) ----------
+   Domyślnie Ustawienia pokazują same nazwy i przełączniki. Opisy, liczby klatek i Mb/s, pola liczbowe
+   i Zaawansowane widać dopiero po włączeniu „Dla nerdów” (klasa .nerd na widoku). Uwagi o problemach
+   (.uwaga, np. zajęty skrót), ścieżka folderu i wynik sprawdzania aktualizacji zostają zawsze. */
+#widok-ustawienia:not(.nerd) .tylko-nerd,
+#widok-ustawienia:not(.nerd) .ust .opis .pomoc:not(.uwaga):not(.sciezka):not([role="status"]),
+#widok-ustawienia:not(.nerd) .presety small { display: none !important; }
+/* Jeden monitor: wybór ekranu nic nie zmienia, więc w prostym widoku go nie ma */
+#widok-ustawienia.jeden-ekran:not(.nerd) .wybor-ekranu { display: none; }
+#widok-ustawienia:not(.nerd) .presety .segment { padding: 10px 6px; }
+.dla-nerdow { display: flex; align-items: center; gap: 12px; flex: none; color: var(--pomoc); font-size: 14px; padding-bottom: 4px; }
+.dla-nerdow label[for] { cursor: pointer; }
+.nerd .dla-nerdow { color: var(--tytul); }
+/* Przyciski presetów: tyle kolumn, ile przycisków (Filmy mają 1–3, a gra i pulpit czasem „Własne”) */
+.presety { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+.presety .segment.wlasne { pointer-events: none; }
+.etykieta-presetow { font-size: 13px; color: var(--pomoc); margin: 2px 0 -4px 2px; }

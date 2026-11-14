@@ -301,14 +301,55 @@ sprawdz((await strona.locator("#gra").count()) === 0, "pole „Gra” zostało w
 // „Edytor zaczyna od” zniknęło z ustawień
 sprawdz(!/Edytor zaczyna od|Bez głosu/.test(await strona.textContent("#formularz")), "w ustawieniach zostało „Edytor zaczyna od”");
 
-// „Zaawansowane” leżą zaraz pod Systemem (ta sama kolumna) i widać je bez rozwijania
-sprawdz(await strona.isVisible("#enkoder"), "„Zaawansowane” nie są widoczne od razu");
+// Prosty widok (domyślny): same nazwy presetów, bez opisów, liczb i Zaawansowanych
+sprawdz(!(await strona.isChecked("#dla-nerdow")), "„Dla nerdów” jest domyślnie włączone");
+{
+  const proste = await strona.evaluate(() => {
+    const widac = (el) => el && el.offsetParent !== null && getComputedStyle(el).display !== "none";
+    return {
+      opisy: [...document.querySelectorAll("#formularz .ust .opis .pomoc:not(.uwaga):not(.sciezka)")].filter(widac).map((el) => el.id || el.textContent.slice(0, 30)),
+      pola: ["fps", "bitrate", "fps-pulpitu", "bitrate-pulpitu", "enkoder", "metoda", "ram", "jakosc-filmu"].filter((id) => widac($(id))),
+      liczby: [...document.querySelectorAll(".presety small")].filter(widac).length,
+      ekran: widac($("monitor")),
+      nazwy: [...document.querySelectorAll("#presety .segment:not([hidden]) span")].map((el) => el.textContent),
+      filmy: [...document.querySelectorAll("#presety-filmu .segment span")].map((el) => el.textContent),
+      folder: widac($("folder")),
+    };
+  });
+  sprawdz(proste.opisy.length === 0, `w prostym widoku widać opisy: ${proste.opisy.join(" | ")}`);
+  sprawdz(proste.pola.length === 0, `w prostym widoku widać pola dla nerdów: ${proste.pola.join(", ")}`);
+  sprawdz(proste.liczby === 0, "w prostym widoku przyciski jakości pokazują klatki i Mb/s");
+  sprawdz(!proste.ekran, "przy jednym monitorze widać wybór ekranu");
+  sprawdz(proste.nazwy.join(",") === "Lekka,Standard,Najwyższa", `przyciski jakości gry: ${proste.nazwy}`);
+  sprawdz(proste.filmy.join(",") === "Oryginał,Mniejszy,Najmniejszy", `przyciski rozmiaru filmów: ${proste.filmy}`);
+  sprawdz(proste.folder, "w prostym widoku nie widać folderu klipów");
+}
+await zrzut("2b-ustawienia-proste");
+// Rozmiar filmów przyciskiem: zmienia ukryte pole i daje niezapisaną zmianę
+await strona.click('#presety-filmu .segment[data-format="av1"]');
+sprawdz((await strona.inputValue("#format-filmu")) === "av1" && (await strona.locator('#presety-filmu .segment.wybrany[data-format="av1"]').count()) === 1, "przycisk rozmiaru filmów nie zmienia wyboru");
+sprawdz((await strona.evaluate(() => zmienioneUstawienia())).includes("format_filmu"), "zmiana rozmiaru filmów nie jest niezapisaną zmianą");
+await strona.click('#presety-filmu .segment[data-format="bez_zmian"]');
+// Wartości spoza presetów: widać „Własne” zamiast pustego wyboru
+await strona.evaluate(() => { $("fps").value = 45; $("fps").dispatchEvent(new Event("input", { bubbles: true })); });
+sprawdz(await strona.isVisible("#presety .segment.wlasne"), "własne klatki/s nie pokazują „Własne”");
+await strona.evaluate(() => { $("fps").value = 60; $("fps").dispatchEvent(new Event("input", { bubbles: true })); });
+sprawdz(await strona.isHidden("#presety .segment.wlasne"), "„Własne” nie znika po powrocie do presetu");
+// „Dla nerdów” działa od razu, bez paska zapisu, i jest pamiętane
+const zmianyPrzed = await strona.evaluate(() => zmienioneUstawienia().join());
+await strona.click('label[for="dla-nerdow"]');
+sprawdz(await strona.isVisible("#fps") && await strona.isVisible("#enkoder") && await strona.isVisible("#ram"), "„Dla nerdów” nie pokazuje pól i Zaawansowanych");
+sprawdz((await strona.evaluate(() => zmienioneUstawienia().join())) === zmianyPrzed, "„Dla nerdów” udaje niezapisaną zmianę ustawień");
+sprawdz((await strona.evaluate(() => localStorage.getItem("clipeon.dlaNerdow"))) === "1", "„Dla nerdów” nie jest zapamiętane");
+
+// „Zaawansowane” leżą zaraz pod Systemem (ta sama kolumna) i widać je w trybie „Dla nerdów”
+sprawdz(await strona.isVisible("#enkoder"), "„Zaawansowane” nie są widoczne w trybie „Dla nerdów”");
 await zrzut("3-zaawansowane");
 sprawdz(await strona.evaluate(() => document.querySelector(".karta.zaawansowane").closest(".grupa") === document.getElementById("autostart").closest(".grupa")), "„Zaawansowane” nie są pod Systemem");
 
 // ---------- Jakość nagrywania: karty Gra / Pulpit / Filmy ----------
 // Klatki pulpitu widać od razu (w 1.4.3 były w zwiniętym wierszu i tester zmieniał klatki gry)
-for (const id of ["fps", "bitrate", "fps-pulpitu", "bitrate-pulpitu", "monitor", "monitor-pulpitu", "format-filmu"]) {
+for (const id of ["fps", "bitrate", "fps-pulpitu", "bitrate-pulpitu", "monitor", "monitor-pulpitu", "presety-filmu"]) {
   sprawdz(await strona.isVisible(`#${id}`), `pole #${id} nie jest widoczne bez rozwijania`);
 }
 sprawdz((await strona.locator("details").count()) === 0, "w ustawieniach zostały zwijane wiersze");
@@ -472,9 +513,9 @@ await strona.waitForTimeout(100);
 const zeSkrotami = await strona.evaluate(() => window.__zapisane.cfg);
 sprawdz(zeSkrotami.skrot === "Ctrl+F8" && zeSkrotami.skrot_filmu === "", `zapis skrótów: ${JSON.stringify([zeSkrotami.skrot, zeSkrotami.skrot_filmu])}`);
 // Rozmiar filmów: wybór trafia do ustawień, a podpowiedź mówi, ile zajmie godzina nagrania
-sprawdz((await strona.locator("#format-filmu option").count()) === 3, "lista „Rozmiar filmów” nie ma formatów z rdzenia");
+sprawdz((await strona.locator("#format-filmu option").count()) === 3 && (await strona.locator("#presety-filmu .segment").count()) === 3, "„Rozmiar filmów” nie ma formatów z rdzenia");
 sprawdz((await strona.textContent("#format-filmu-uwaga")).includes("9.2 GB"), `podpowiedź rozmiaru filmu: „${await strona.textContent("#format-filmu-uwaga")}”`);
-await strona.selectOption("#format-filmu", "hevc");
+await strona.click('#presety-filmu .segment[data-format="hevc"]');
 sprawdz((await strona.textContent("#format-filmu-uwaga")).includes("4.3 GB"), `podpowiedź rozmiaru filmu HEVC: „${await strona.textContent("#format-filmu-uwaga")}”`);
 await strona.click("#zapisz-ustawienia");
 await strona.waitForTimeout(100);
