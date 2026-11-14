@@ -741,13 +741,14 @@ input[type="number"]:focus-visible, select:focus-visible { outline: none; border
 /* ---------- Animowane tło ze znaków (rysuje tlo.js) ---------- */
 #tlo { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
 .panel { z-index: 1; }
-/* Pasek z zakładkami i przyciskami ma własne tło, żeby znaki nie wchodziły pod napisy */
-.gora { background: rgba(0, 0, 0, 0.9); }
+/* Pasek z zakładkami i przyciskami: mleczne szkło — znaki przepływają pod nim rozmyte */
+.gora { background: rgba(0, 0, 0, 0.55); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
 /* Napisy leżące wprost na tle (nagłówki, pusta lista) dostają ciemną poświatę, żeby znaki ich nie zagłuszały */
 .naglowek h1, .naglowek .pomoc, h2.sekcja, .grupa > h2, .o-programie, .pusto h2, .pusto .pomoc { text-shadow: 0 0 3px #000, 0 0 10px #000, 0 0 18px #000; }
 .pusto { background: radial-gradient(ellipse closest-side, rgba(0, 0, 0, 0.92) 65%, transparent); }
-/* Przyciski obok nagłówka (Odśwież, Folder) są przezroczyste — bez tła znaki przechodziłyby przez ich napisy */
-.naglowek .przycisk:not(:hover) { background: rgba(0, 0, 0, 0.88); }
+/* Przyciski obok nagłówka (Odśwież, Folder): szkło, żeby znaki nie przechodziły przez napisy */
+.naglowek .przycisk { -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+.naglowek .przycisk:not(:hover) { background: rgba(0, 0, 0, 0.5); }
 
 /* ---------- Napis „Clipeon”: zorza ---------- */
 /* Biały napis, po którym wędrują cztery kolorowe plamy. Wszystko to jedno tło przycięte do liter:
@@ -863,8 +864,93 @@ input[type="number"]:focus-visible, select:focus-visible { outline: none; border
 
 /* ---------- Pytanie o niezapisane zmiany ---------- */
 .nakladka.pytanie { z-index: 40; background: rgba(0, 0, 0, 0.7); padding: 24px 16px; }
-.okienko { width: min(480px, 100%); padding: 26px 26px 22px; background: #070707; }
+.okienko { width: min(480px, 100%); padding: 26px 26px 22px; background: rgba(10, 10, 10, 0.72); }
 .okienko h2 { margin: 0 0 8px; }
 .pytanie-lista { margin: 14px 0 0; padding-left: 18px; color: var(--tytul); line-height: 1.6; }
 .pytanie-lista:empty { display: none; }
 .pytanie-przyciski { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 22px; }
+
+/* ---------- Mleczne szkło nad znakami (1.4.6) ----------
+   Karty są półprzezroczyste i rozmywają to, co pod nimi, a animowane tło ze znaków jest jaśniejsze
+   i przebija przez nie. Kolory i czarny motyw bez zmian. */
+/* Jaśniejsze znaki: filtr działa tylko na wyświetlanie — piksele płótna (i testy, które je czytają) zostają te same */
+#tlo { filter: brightness(1.75); }
+.karta {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0) 90px), rgba(9, 9, 9, 0.55);
+  -webkit-backdrop-filter: blur(16px) saturate(1.05);
+  backdrop-filter: blur(16px) saturate(1.05);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+/* Kafelki klipów zostają pełne: rozmywanie pod dziesiątkami miniatur kosztowałoby kartę graficzną,
+   a obraz i tak zakrywa prawie całą kartę */
+.karta.klip {
+  border-color: var(--ramka-karty);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0) 90px), rgba(3, 3, 3, 0.92);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+/* Przyciski i pola lekko przepuszczają tło */
+.przycisk { background: rgba(255, 255, 255, 0.035); border-color: rgba(255, 255, 255, 0.1); }
+.przycisk.glowny { background: #fff; border-color: #fff; }
+.przycisk.aktualizacja { background: rgba(34, 197, 94, 0.07); border-color: rgba(34, 197, 94, 0.4); }
+.przycisk.aktualizacja:hover { background: rgba(34, 197, 94, 0.14); }
+.przycisk.film.trwa { background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.55); }
+.przycisk.film.trwa:hover { background: rgba(239, 68, 68, 0.18); border-color: var(--czerwony); }
+input[type="number"], select, .pole-skrotu { background: rgba(255, 255, 255, 0.03); border-color: rgba(255, 255, 255, 0.1); }
+.pole-skrotu.nasluch { border-color: #fff; }
+.segment { border-color: rgba(255, 255, 255, 0.1); }
+.tryb .segment { border-color: transparent; }
+/* Pływające powierzchnie: menu, dymek, pasek zapisu, pytanie, pasek z problemem */
+.menu, .dymek, .pasek-zapisu, .baner {
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+.menu { background: rgba(10, 10, 10, 0.7); }
+.dymek { background: rgba(10, 10, 10, 0.7); }
+.pasek-zapisu { background: rgba(11, 11, 11, 0.72); }
+.okienko { -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
+/* Przeglądarka bez rozmywania tła (stary WebView2): wracamy do prawie pełnych powierzchni */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .karta, .menu, .dymek, .pasek-zapisu, .okienko { background-color: rgba(5, 5, 5, 0.94); }
+  .gora { background: rgba(0, 0, 0, 0.9); }
+  .naglowek .przycisk:not(:hover) { background: rgba(0, 0, 0, 0.88); }
+}
+
+/* ---------- Skalowanie paska górnego i nagłówków (1.4.6) ---------- */
+/* Nagłówek strony: tytuł zmniejsza się z oknem, a przyciski (Odśwież, Folder) mogą zejść pod spód */
+h1 { font-size: clamp(30px, 4.2vw, 44px); }
+.naglowek { flex-wrap: wrap; }
+/* „Aktualizuj do X”: długa nazwa wersji nie rozpycha paska */
+.przycisk.aktualizacja { min-width: 0; }
+.przycisk.aktualizacja span { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Gdy przycisk aktualizacji jest widoczny, napisy na pasku chowają się wcześniej —
+   te same kroki co w zwykłych progach szerokości, tylko ok. 180 px szybciej */
+@media (max-width: 1660px) {
+  .gora:has(.przycisk.aktualizacja:not([hidden])) .przycisk.film:not(.trwa) span { display: none; }
+  .gora:has(.przycisk.aktualizacja:not([hidden])) .przycisk.film:not(.trwa) { padding: 9px; }
+}
+@media (max-width: 1500px) {
+  .gora:has(.przycisk.aktualizacja:not([hidden])) #pauza span { display: none; }
+  .gora:has(.przycisk.aktualizacja:not([hidden])) #pauza { padding: 9px; }
+}
+@media (max-width: 1160px) {
+  .gora:has(.przycisk.aktualizacja:not([hidden])) { gap: 14px; }
+  .gora:has(.przycisk.aktualizacja:not([hidden])) #wybor span.etykieta-wyboru { display: none; }
+  .gora:has(.przycisk.aktualizacja:not([hidden])) #wybor { padding: 7px 10px; }
+  .gora:has(.przycisk.aktualizacja:not([hidden])) .status { max-width: 160px; }
+}
+@media (max-width: 1040px) {
+  .gora:has(.przycisk.aktualizacja:not([hidden])) #zapisz-klip span { display: none; }
+  .gora:has(.przycisk.aktualizacja:not([hidden])) #zapisz-klip { padding: 9px; }
+  .gora:has(.przycisk.aktualizacja:not([hidden])) .status #status-tekst { display: none; }
+}
+@media (max-width: 760px) {
+  .przycisk.aktualizacja span { display: none; }
+  .przycisk.aktualizacja { padding: 9px; }
+}
+/* Bardzo wąskie okno (np. kafelek w GlazeWM): pasek łamie się na dwa rzędy zamiast ucinać przyciski */
+@media (max-width: 900px) {
+  .gora { flex-wrap: wrap; row-gap: 10px; }
+}

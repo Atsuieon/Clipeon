@@ -142,6 +142,7 @@ await zrzut("0-przelaczanie-dzwieku");
 await strona.evaluate(() => pokazStan({ ...stan, przelaczanie: null }));
 sprawdz((await strona.textContent("#status-tekst")) === "Nagrywa: Gra testowa · 60 kl./s", "po przełączeniu dźwięku status nie wraca do „Nagrywa”");
 
+
 // ---------- Tło ze znaków i płyn pod myszką ----------
 // Jasne znaki (przezroczystość ≥ 0,4) rysuje tylko smuga — liczymy je wokół podanego punktu
 const jasneZnaki = (x, y) =>
@@ -256,6 +257,17 @@ await strona.click('[data-zakladka="klipy"]');
 await strona.waitForTimeout(200);
 sprawdz((await strona.textContent("#biblioteka-tytul")) === "Klipy" && (await strona.locator(".klip").count()) === 2, "zakładka Klipy pokazuje filmy albo gubi klipy");
 sprawdz((await strona.textContent("#podsumowanie")).startsWith("2 klipy "), `podsumowanie klipów: „${await strona.textContent("#podsumowanie")}”`);
+
+// Mleczne szkło: karty rozmywają tło, ale kafelki klipów zostają pełne (koszt karty graficznej)
+{
+  const szklo = await strona.evaluate(() => {
+    const filtr = (sel) => { const el = document.querySelector(sel); return el ? getComputedStyle(el).backdropFilter : "brak elementu " + sel; };
+    return { karta: filtr(".karta:not(.klip)"), klip: filtr(".karta.klip"), gora: filtr(".gora") };
+  });
+  sprawdz(szklo.karta.includes("blur"), `karta nie rozmywa tła: ${szklo.karta}`);
+  sprawdz(szklo.klip === "none", `kafelek klipu rozmywa tło (koszt GPU): ${szklo.klip}`);
+  sprawdz(szklo.gora.includes("blur"), `pasek górny nie rozmywa tła: ${szklo.gora}`);
+}
 await strona.evaluate(() => (window.__klipy = []));
 await strona.click('[data-zakladka="filmy"]');
 await strona.waitForTimeout(200);
@@ -798,6 +810,30 @@ await strona.waitForTimeout(300);
 sprawdz((await strona.locator("#os .os-znacznik").count()) === 0, "kreski znaczników zostały po poprzednim filmie");
 await v(() => zamknijOdtwarzacz());
 sprawdz((await v(() => $("skrot-znacznika").dataset.wartosc)) === "Alt+F8", "w ustawieniach nie ma domyślnego skrótu znacznika Alt+F8");
+
+
+// Pasek górny mieści się przy każdej szerokości, także z widocznym przyciskiem „Aktualizuj do X”
+for (const aktualizacja of [true, false]) {
+  await strona.evaluate((a) => pokazAktualizacje(a ? { wersja: "10.11.12" } : null), aktualizacja);
+  for (const szerokosc of [1680, 1600, 1366, 1200, 1100, 1024, 980, 900, 860, 780, 640]) {
+    await strona.setViewportSize({ width: szerokosc, height: 800 });
+    await strona.waitForTimeout(30);
+    const wynik = await strona.evaluate(() => {
+      const g = document.querySelector(".gora");
+      const poza = [...g.querySelectorAll("button, .status, .tryb, .marka")].filter((el) => {
+        if (el.hidden || el.offsetParent === null) return false;
+        const r = el.getBoundingClientRect();
+        return r.right > window.innerWidth + 1 || r.left < -1;
+      });
+      return { przelew: g.scrollWidth - g.clientWidth, poza: poza.map((el) => el.id || el.className) };
+    });
+    const opis = aktualizacja ? "z przyciskiem aktualizacji" : "bez przycisku aktualizacji";
+    sprawdz(wynik.przelew <= 1, `pasek górny nie mieści się (${opis}, ${szerokosc} px): wystaje ${wynik.przelew} px`);
+    sprawdz(wynik.poza.length === 0, `elementy paska poza oknem (${opis}, ${szerokosc} px): ${wynik.poza.join(", ")}`);
+  }
+}
+await strona.evaluate(() => pokazAktualizacje(null));
+await strona.setViewportSize({ width: 1100, height: 800 });
 
 await przegladarka.close();
 if (bledy.length) {
