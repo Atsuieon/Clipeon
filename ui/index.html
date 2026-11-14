@@ -99,6 +99,67 @@
           </div>
         </div>
         <form id="formularz" autocomplete="off">
+          <!-- Jakość: trzy karty obok siebie. Każda mówi, kiedy działa, a karta trybu, który teraz nagrywa,
+               jest podświetlona. Wcześniej jakość pulpitu była schowana w zwijanym wierszu i testerzy zmieniali
+               klatki gry, myśląc, że zmieniają pulpit. -->
+          <section class="grupa jakosc-grupa">
+            <h2>Jakość nagrywania</h2>
+            <p class="pomoc wstep-jakosci">„Gra” i „Pulpit” to przełącznik u góry okna. Każdy tryb ma własne klatki i jakość — zmieniasz tylko kartę, w której klikasz.</p>
+            <div class="jakosci">
+              <div class="karta jakosc" id="jakosc-gra" data-tryb-karty="gra">
+                <div class="jakosc-naglowek">
+                  <span class="jakosc-ikona" data-ikona="gra"></span>
+                  <div class="jakosc-tytul">
+                    <h3>Gra</h3>
+                    <p class="pomoc">Klipy, gdy u góry wybrane jest „Gra”</p>
+                  </div>
+                  <span class="plakietka">Nagrywa teraz</span>
+                </div>
+                <div class="segmenty presety" id="presety" data-fps="fps" data-bitrate="bitrate" aria-label="Gotowe ustawienia gry"></div>
+                <div class="pola">
+                  <label>Klatki/s gry<input type="number" id="fps" min="10" max="240" step="1"></label>
+                  <label>Mb/s gry<input type="number" id="bitrate" min="1" max="200" step="1"></label>
+                </div>
+                <p class="pomoc uwaga" id="hz-gry"></p>
+                <label class="pole-ekranu">Ekran gry<select id="monitor" aria-label="Ekran gry"></select></label>
+                <p class="pomoc" id="monitor-uwaga"></p>
+                <p class="pomoc">Dotyczy ekranu 1080p — przy 1440p i 4K Clipeon sam podnosi Mb/s.</p>
+              </div>
+
+              <div class="karta jakosc" id="jakosc-pulpit" data-tryb-karty="pulpit">
+                <div class="jakosc-naglowek">
+                  <span class="jakosc-ikona" data-ikona="monitor"></span>
+                  <div class="jakosc-tytul">
+                    <h3>Pulpit</h3>
+                    <p class="pomoc">Klipy, gdy u góry wybrany jest „Pulpit”</p>
+                  </div>
+                  <span class="plakietka">Nagrywa teraz</span>
+                </div>
+                <div class="segmenty presety" id="presety-pulpitu" data-fps="fps-pulpitu" data-bitrate="bitrate-pulpitu" aria-label="Gotowe ustawienia pulpitu"></div>
+                <div class="pola">
+                  <label>Klatki/s pulpitu<input type="number" id="fps-pulpitu" min="10" max="240" step="1"></label>
+                  <label>Mb/s pulpitu<input type="number" id="bitrate-pulpitu" min="1" max="200" step="1"></label>
+                </div>
+                <p class="pomoc uwaga" id="hz-pulpitu"></p>
+                <label class="pole-ekranu">Ekran pulpitu<select id="monitor-pulpitu" aria-label="Ekran pulpitu"></select></label>
+              </div>
+
+              <div class="karta jakosc" id="jakosc-filmy">
+                <div class="jakosc-naglowek">
+                  <span class="jakosc-ikona" data-ikona="film"></span>
+                  <div class="jakosc-tytul">
+                    <h3>Filmy</h3>
+                    <p class="pomoc">Długie nagrania przyciskiem „Nagraj film”</p>
+                  </div>
+                </div>
+                <p class="jakosc-filmu" id="jakosc-filmu"></p>
+                <label class="pole-ekranu">Rozmiar filmów<select id="format-filmu" aria-label="Rozmiar filmów"></select></label>
+                <p class="pomoc" id="format-filmu-uwaga"></p>
+                <p class="pomoc">Po nagraniu Clipeon w tle zapisuje film od nowa w mniejszym formacie. Do tego czasu film jest w bibliotece w pełnej jakości.</p>
+              </div>
+            </div>
+          </section>
+
           <div class="grupy">
             <!-- Nagrywanie -->
             <section class="grupa">
@@ -115,48 +176,6 @@
                   </div>
                   <p class="pomoc" id="ram"></p>
                 </div>
-
-                <div class="ust ust-pod">
-                  <div class="opis">
-                    <span>Jakość obrazu w grze</span>
-                    <p class="pomoc">Dotyczy ekranu 1080p — przy 1440p i 4K Clipeon sam ją podnosi.</p>
-                  </div>
-                  <div class="pole"><div class="segmenty" id="presety"></div></div>
-                </div>
-
-                <div class="ust ust-pod">
-                  <div class="opis"><span>Klatki i jakość</span></div>
-                  <div class="pole pola">
-                    <label>Klatki/s<input type="number" id="fps" min="10" max="240" step="1"></label>
-                    <label>Mb/s<input type="number" id="bitrate" min="1" max="200" step="1"></label>
-                  </div>
-                </div>
-
-                <div class="ust ust-pod">
-                  <div class="opis">
-                    <label for="monitor">Ekran gry</label>
-                    <p class="pomoc" id="monitor-uwaga"></p>
-                  </div>
-                  <div class="pole"><select id="monitor" aria-label="Ekran gry"></select></div>
-                </div>
-
-                <details class="ust-rozwijane">
-                  <summary>Tryb pulpitu<span class="pomoc">Osobny ekran i ustawienia dla przełącznika „Pulpit”</span></summary>
-                  <div class="ust ust-pod">
-                    <div class="opis"><label for="monitor-pulpitu">Ekran pulpitu</label></div>
-                    <div class="pole"><select id="monitor-pulpitu" aria-label="Ekran pulpitu"></select></div>
-                  </div>
-                  <div class="ust ust-pod">
-                    <div class="opis">
-                      <span>Klatki i jakość pulpitu</span>
-                      <p class="pomoc" id="ram-pulpitu"></p>
-                    </div>
-                    <div class="pole pola">
-                      <label>Klatki/s<input type="number" id="fps-pulpitu" min="10" max="240" step="1"></label>
-                      <label>Mb/s<input type="number" id="bitrate-pulpitu" min="1" max="200" step="1"></label>
-                    </div>
-                  </div>
-                </details>
               </div>
             </section>
 
@@ -203,14 +222,6 @@
                     <p class="pomoc uwaga" id="skrot-filmu-uwaga" hidden></p>
                   </div>
                   <div class="pole"><button type="button" class="pole-skrotu" id="skrot-filmu" data-skrot data-pusty="Bez skrótu"></button></div>
-                </div>
-                <div class="ust ust-pod">
-                  <div class="opis">
-                    <label for="format-filmu">Rozmiar filmów</label>
-                    <p class="pomoc">Po nagraniu Clipeon w tle zapisuje film od nowa w mniejszym formacie. Do tego czasu film jest w bibliotece w pełnej jakości.</p>
-                    <p class="pomoc" id="format-filmu-uwaga"></p>
-                  </div>
-                  <div class="pole"><select id="format-filmu" aria-label="Rozmiar filmów"></select></div>
                 </div>
                 <div class="ust">
                   <div class="opis">
@@ -342,12 +353,29 @@
           </div>
         </form>
         <p class="o-programie">Clipeon <span id="wersja"></span> · by <a href="#" id="autor">Atsuieon</a></p>
-        <div class="stopka">
-          <span class="pomoc" id="komunikat" role="status"></span>
-          <button class="przycisk glowny" id="zapisz-ustawienia">Zapisz zmiany</button>
+        <!-- Pasek zapisu: wyjeżdża na środku dołu okna, gdy coś zmieniono, i nie znika przy przewijaniu -->
+        <div class="pasek-zapisu" id="pasek-zapisu" hidden>
+          <span class="kropka-zmian" aria-hidden="true"></span>
+          <span class="pasek-zapisu-tekst" id="komunikat" role="status"></span>
+          <button type="button" class="przycisk drugorzedny" id="cofnij-zmiany">Cofnij</button>
+          <button type="button" class="przycisk glowny duzy" id="zapisz-ustawienia">Zapisz zmiany</button>
         </div>
       </section>
     </main>
+  </div>
+
+  <!-- Pytanie przy wychodzeniu z ustawień bez zapisu (zakładka, ikona przy zegarze, zamknięcie okna) -->
+  <div class="nakladka pytanie" id="pytanie-zmiany" hidden>
+    <div class="karta okienko" role="alertdialog" aria-modal="true" aria-labelledby="pytanie-tytul" aria-describedby="pytanie-opis">
+      <h2 id="pytanie-tytul">Zapisać zmiany?</h2>
+      <p class="pomoc" id="pytanie-opis">Te ustawienia są zmienione, ale jeszcze niezapisane. Bez zapisu Clipeon nagrywa dalej po staremu.</p>
+      <ul class="pytanie-lista" id="pytanie-lista"></ul>
+      <div class="pytanie-przyciski">
+        <button type="button" class="przycisk drugorzedny" id="pytanie-wroc">Wróć do ustawień</button>
+        <button type="button" class="przycisk drugorzedny" id="pytanie-odrzuc">Nie zapisuj</button>
+        <button type="button" class="przycisk glowny" id="pytanie-zapisz">Zapisz</button>
+      </div>
+    </div>
   </div>
 
   <!-- Edytor: odtwarzacz, przycinanie, kompresja -->

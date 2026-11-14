@@ -59,6 +59,12 @@ $("okno-min").addEventListener("click", () => okno.minimize());
 $("okno-max").addEventListener("click", () => okno.toggleMaximize());
 // Zamknięcie niszczy okno (i WebView); nagrywanie działa dalej w zasobniku
 $("okno-zamknij").addEventListener("click", () => okno.close());
+// Krzyżyk albo Alt+F4 przy niezapisanych ustawieniach: najpierw pytanie (moznaWyjsc niżej)
+okno.onCloseRequested(async (e) => {
+  if (!niezapisane()) return; // okno zamknie się samo
+  e.preventDefault();
+  if (await moznaWyjsc()) okno.destroy();
+});
 
 async function odswiezMaksymalizacje() {
   const max = await okno.isMaximized();
@@ -140,8 +146,12 @@ function ulozPigulke(kontener, animuj = true) {
 dodajPigulke(document.querySelector(".zakladki"), '.zakladka[aria-selected="true"]');
 
 // Klipy i Filmy to ta sama lista (widok-klipy), tylko z innymi plikami
-function pokazZakladke(nazwa) {
+async function pokazZakladke(nazwa) {
   if (nazwa !== "ustawienia" && nazwa !== "filmy") nazwa = "klipy";
+  // Ustawienia już widać: nie wczytujemy ich od nowa, bo zniknęłyby niezapisane zmiany
+  // (testerowi „sam zmieniał się mikrofon” — formularz wracał do zapisanych wartości)
+  if (nazwa === "ustawienia" && !$("widok-ustawienia").hidden) return;
+  if (!(await moznaWyjsc())) return;
   for (const b of document.querySelectorAll(".zakladka")) {
     b.setAttribute("aria-selected", String(b.dataset.zakladka === nazwa));
   }
@@ -189,7 +199,9 @@ function pokazStan(s) {
     $("baner-opis").textContent = problem;
     $("baner-kropka").className = "kropka " + (s.bledy.length ? "blad" : "wznawianie");
   }
-  $("status-tekst").textContent = tekst;
+  // Przy nagrywaniu widać klatki zapisanego trybu — od razu wiadomo, czy pulpit idzie w 30, czy w 60
+  const fps = cfg && (pulpit ? cfg.fps_pulpitu : cfg.fps);
+  $("status-tekst").textContent = s.nagrywa && !s.pauza && !s.bledy.length && fps ? `${tekst} · ${fps} kl./s` : tekst;
   // Przekreślony mikrofon, gdy Clipeon nagrywa bez mikrofonu
   $("status-mik").innerHTML = ikona("mikrofonWyl");
   $("status-mik").hidden = s.mikrofon !== false;
@@ -311,8 +323,14 @@ function pokazTryb(s) {
     const pole = pulpit ? "monitor_pulpitu" : "monitor";
     cfg[pole] = s.monitor;
     const select = $(pulpit ? "monitor-pulpitu" : "monitor");
-    if ([...select.options].some((o) => o.value === s.monitor)) select.value = s.monitor;
+    if ([...select.options].some((o) => o.value === s.monitor)) {
+      select.value = s.monitor;
+      if (zapisane) zapisane[pole] = s.monitor; // to nie jest zmiana do zapisania
+    }
   }
+  // Karta jakości trybu, który teraz nagrywa
+  for (const k of document.querySelectorAll("[data-tryb-karty]")) k.classList.toggle("aktywna", k.dataset.trybKarty === s.tryb);
+  if (cfg) odswiezFormularz();
 }
 
 async function ustawTryb(zmiana) {
@@ -335,7 +353,9 @@ for (const b of przyciskiTrybu()) {
   b.addEventListener("click", () => {
     if (b.dataset.tryb === stan.tryb) return;
     ustawTryb({ tryb: b.dataset.tryb });
-    dymek(b.dataset.tryb === "pulpit" ? "Nagrywam pulpit…" : "Nagrywam grę…");
+    const pulpit = b.dataset.tryb === "pulpit";
+    const jakosc = cfg ? ` · ${pulpit ? cfg.fps_pulpitu : cfg.fps} kl./s, ${pulpit ? cfg.bitrate_pulpitu_mbps : cfg.bitrate_mbps} Mb/s` : "";
+    dymek(`${pulpit ? "Nagrywam pulpit" : "Nagrywam grę"}${jakosc}`);
   });
 }
 
@@ -1503,9 +1523,9 @@ async function eksportujTeraz(klip, zlecenie) {
   eksportTrwa = true;
   $("postep").hidden = false;
   $("postep-pasek").style.width = "0%";
-  $("wynik").hidden = true;
+  if (!zlecenie.do_przeciagniecia) $("wynik").hidden = true;
   odswiezEdytor();
-  $("eksport-info").textContent = "Zapisuję…";
+  $("eksport-info").textContent = zlecenie.do_przeciagniecia ? "Przygotowuję plik…" : "Zapisuję…";
   let blad = null;
   try {
     if (zlecenie.zastap) {
@@ -1544,7 +1564,11 @@ $("eksportuj").addEventListener("click", async () => {
   } catch {}
 });
 
-// Co przeciągamy z podglądu: oryginał albo (przy zmianach) najpierw zapisaną wersję
+// Co przeciągamy z podglądu: oryginał albo (przy zmianach) przyciętą wersję. Ta wersja powstaje
+// w folderze tymczasowym (rdzeń sprząta go po dobie), a nie w bibliotece: przeciąganie na Discorda
+// nie ma zapisywać klipu na dysk. Discord czyta plik dopiero przy wysyłaniu, więc plik musi chwilę poleżeć.
+let ostatniePrzeciaganie = null;
+
 async function plikDoPrzeciagniecia() {
   if (!odtwarzany) return null;
   if (!zmiany()) return odtwarzany.sciezka;
@@ -1552,12 +1576,12 @@ async function plikDoPrzeciagniecia() {
   const klip = odtwarzany;
   const zlecenie = { ...biezaceZlecenie(), zastap: false };
   const klucz = klip.sciezka + JSON.stringify(zlecenie);
+  // Ta sama wersja jest już zapisana w bibliotece albo gotowa do przeciągnięcia
   if (ostatniEksport && ostatniEksport.klucz === klucz) return ostatniEksport.sciezka;
+  if (ostatniePrzeciaganie && ostatniePrzeciaganie.klucz === klucz) return ostatniePrzeciaganie.sciezka;
   dymek("Przygotowuję plik do przeciągnięcia…");
-  const nowy = await eksportujTeraz(klip, zlecenie);
-  ostatniEksport = { klucz, sciezka: nowy.sciezka };
-  pokazWynik(nowy);
-  wczytajKlipy();
+  const nowy = await eksportujTeraz(klip, { ...zlecenie, do_przeciagniecia: true });
+  ostatniePrzeciaganie = { klucz, sciezka: nowy.sciezka };
   return nowy.sciezka;
 }
 
@@ -1693,27 +1717,42 @@ document.addEventListener("contextmenu", (e) => e.preventDefault());
 
 // ---------- Ustawienia ----------
 
-const PRESETY = [
-  { nazwa: "Lekka — mniejsze pliki", fps: 30, bitrate: 10 },
-  { nazwa: "Standard — płynnie (polecana)", fps: 60, bitrate: 20 },
-  { nazwa: "Najwyższa — duże pliki", fps: 60, bitrate: 40 },
-];
+// Gotowe ustawienia w kartach jakości. Pod nazwą widać liczby, żeby nie zgadywać, co ustawiają.
+// Kontener ma w data-fps / data-bitrate pola, które przycisk wypełnia.
+const PRESETY = {
+  presety: [
+    { nazwa: "Lekka", fps: 30, bitrate: 10 },
+    { nazwa: "Standard", fps: 60, bitrate: 20, polecana: true },
+    { nazwa: "Najwyższa", fps: 60, bitrate: 40 },
+  ],
+  "presety-pulpitu": [
+    { nazwa: "Lekka", fps: 30, bitrate: 8 },
+    { nazwa: "Standard", fps: 30, bitrate: 12, polecana: true },
+    { nazwa: "Płynna", fps: 60, bitrate: 20 },
+  ],
+};
 
-for (const p of PRESETY) {
-  const b = document.createElement("button");
-  b.type = "button";
-  b.className = "segment";
-  b.textContent = p.nazwa;
-  b.title = `${p.fps} klatek na sekundę, ${p.bitrate} Mb/s`;
-  b.addEventListener("click", () => {
-    $("fps").value = p.fps;
-    $("bitrate").value = p.bitrate;
-    odswiezFormularz();
-  });
-  b.dataset.fps = p.fps;
-  b.dataset.bitrate = p.bitrate;
-  $("presety").append(b);
+for (const [id, lista] of Object.entries(PRESETY)) {
+  const kontener = $(id);
+  for (const p of lista) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "segment";
+    b.innerHTML = "<span></span><small></small>";
+    b.querySelector("span").textContent = p.nazwa;
+    b.querySelector("small").textContent = `${p.fps} kl./s · ${p.bitrate} Mb/s`;
+    b.title = `${p.fps} klatek na sekundę, ${p.bitrate} Mb/s${p.polecana ? " (polecane)" : ""}`;
+    b.addEventListener("click", () => {
+      $(kontener.dataset.fps).value = p.fps;
+      $(kontener.dataset.bitrate).value = p.bitrate;
+      odswiezFormularz();
+    });
+    b.dataset.fps = p.fps;
+    b.dataset.bitrate = p.bitrate;
+    kontener.append(b);
+  }
 }
+for (const el of document.querySelectorAll("[data-ikona]")) el.innerHTML = ikona(el.dataset.ikona);
 
 // Pola formularza i ich klucze w konfiguracji: [id pola, klucz, rodzaj].
 // Rodzaj: "tak" = przełącznik, "liczba" = pole liczbowe, "tekst" = lista wyboru.
@@ -1767,9 +1806,13 @@ function wypelnijListe(select, opcje, zapisana, opisBraku) {
   }
 }
 
+let monitoryLista = []; // do podpowiedzi o odświeżaniu ekranu (Hz)
+
 async function wczytajUstawienia() {
   const [u, monitory, mikrofony] = await Promise.all([invoke("ustawienia"), invoke("monitory"), invoke("mikrofony")]);
   cfg = u.cfg;
+  zapisane = null; // wpisywanie pól poniżej to nie są zmiany użytkownika
+  monitoryLista = monitory;
   ostatniWybor = `${stan.tryb}|${stan.monitor}`;
 
   // Listy wypełniamy przed wpisaniem wartości, żeby było z czego wybierać
@@ -1797,7 +1840,8 @@ async function wczytajUstawienia() {
   $("folder").textContent = cfg.folder_klipow;
   $("autostart").checked = u.autostart;
   $("wersja").textContent = u.wersja;
-  $("komunikat").textContent = "";
+  zapisane = { ...zebraneUstawienia(), autostart: u.autostart };
+  $("pasek-zapisu").classList.remove("blad", "zapisano");
   odswiezFormularz();
 }
 
@@ -1816,8 +1860,13 @@ function odswiezFormularz() {
   $("monitor-uwaga").textContent = zHdr
     ? "Ten monitor ma włączony HDR. Klipy zapisują się w zwykłych kolorach (SDR), więc mogą wyglądać na bledsze niż w grze."
     : "";
-  // Ile mniej więcej zajmie godzina filmu w wybranym formacie (bitrate trybu gry + dźwięk)
-  const naGodzine = (udzial) => formatMB(((Number($("bitrate").value) || 0) * 1e6 * udzial + 480e3) / 8 * 3600);
+  // Film nagrywa się w jakości trybu, który jest teraz włączony
+  const pulpit = stan.tryb === "pulpit";
+  const [fpsFilmu, mbpsFilmu] = pulpit ? [$("fps-pulpitu").value, $("bitrate-pulpitu").value] : [$("fps").value, $("bitrate").value];
+  $("jakosc-filmu").innerHTML = "Film ma jakość trybu, który akurat nagrywa. Teraz: <b></b>";
+  $("jakosc-filmu").querySelector("b").textContent = `${pulpit ? "Pulpit" : "Gra"} · ${fpsFilmu} kl./s · ${mbpsFilmu} Mb/s`;
+  // Ile mniej więcej zajmie godzina filmu w wybranym formacie (bitrate włączonego trybu + dźwięk)
+  const naGodzine = (udzial) => formatMB(((Number(mbpsFilmu) || 0) * 1e6 * udzial + 480e3) / 8 * 3600);
   const film = {
     bez_zmian: `Godzina filmu zajmie ok. ${naGodzine(1)}.`,
     hevc: `Godzina filmu zajmie ok. ${naGodzine(0.45)} zamiast ${naGodzine(1)}. Podgląd HEVC w Clipeonie wymaga rozszerzenia HEVC z Microsoft Store.`,
@@ -1828,18 +1877,181 @@ function odswiezFormularz() {
   const s = Number($("bufor").value);
   const sciezki = Number($("dzwiek").checked) + Number($("mikrofon").checked);
   const ram = (mbps) => formatMB((s * ((Number(mbps) || 0) * 1e6 + sciezki * 160e3)) / 8);
-  $("ram-pulpitu").textContent = `Bufor pulpitu zajmuje ok. ${ram($("bitrate-pulpitu").value)} pamięci RAM.`;
-  $("ram").textContent = `Zajmuje to ok. ${ram($("bitrate").value)} pamięci RAM.`;
+  $("ram").textContent = `Zajmuje to ok. ${ram($("bitrate").value)} pamięci RAM w trybie Gra i ${ram($("bitrate-pulpitu").value)} w trybie Pulpit.`;
+  // Więcej klatek niż odświeżanie ekranu nic nie da: ekran nie pokazuje nowych obrazów częściej
+  const hzEkranu = (id) => (monitoryLista.find((m) => (id ? m.id === id : m.glowny)) || {}).hz || 0;
+  for (const [pole, ekran, uwaga] of [["fps", "monitor", "hz-gry"], ["fps-pulpitu", "monitor-pulpitu", "hz-pulpitu"]]) {
+    const hz = hzEkranu($(ekran).value);
+    $(uwaga).textContent = hz && Number($(pole).value) > hz
+      ? `Ten ekran odświeża się ${hz} razy na sekundę, więc nagranie i tak będzie miało najwyżej ${hz} różnych klatek na sekundę.`
+      : "";
+  }
   const wybrany = $("enkoder").value;
   $("enkoder-uwaga").textContent = uwagi[wybrany] || (wybrany.startsWith("hevc") ? uwagi.hevc_amf : "");
   $("bufor-wartosc").textContent = s >= 60 ? `${Math.floor(s / 60)} min${s % 60 ? ` ${s % 60} s` : ""}` : `${s} s`;
-  for (const b of $("presety").children) {
-    b.classList.toggle("wybrany", b.dataset.fps === $("fps").value && b.dataset.bitrate === $("bitrate").value);
+  for (const id of Object.keys(PRESETY)) {
+    const k = $(id);
+    for (const b of k.querySelectorAll(".segment")) {
+      b.classList.toggle("wybrany", b.dataset.fps === $(k.dataset.fps).value && b.dataset.bitrate === $(k.dataset.bitrate).value);
+    }
+  }
+  odswiezPasekZapisu();
+}
+
+// ---------- Niezapisane zmiany: pasek zapisu i pytanie przy wychodzeniu ----------
+
+let zapisane = null; // ustawienia z formularza zaraz po wczytaniu albo zapisie; null = formularz się wczytuje
+let zapisujemy = false;
+
+// Ustawienia tak, jak wyglądają w formularzu (to idzie do zapisu)
+function zebraneUstawienia() {
+  return {
+    ...cfg,
+    ...odczytajPola(),
+    skrot: $("skrot").dataset.wartosc,
+    skrot_filmu: $("skrot-filmu").dataset.wartosc,
+    folder_klipow: $("folder").textContent,
+    sprzatanie_dni: $("sprz-dni-wl").checked ? Number($("sprz-dni").value) || 30 : 0,
+    sprzatanie_gb: $("sprz-gb-wl").checked ? Number($("sprz-gb").value) || 50 : 0,
+  };
+}
+
+// Klucz ustawienia → pole formularza (do zaznaczania zmienionych) i nazwa na liście w pytaniu
+const POLE_KLUCZA = {
+  ...Object.fromEntries(POLA.map(([id, klucz]) => [klucz, id])),
+  skrot: "skrot", skrot_filmu: "skrot-filmu", folder_klipow: "folder", sprzatanie_dni: "sprz-dni", sprzatanie_gb: "sprz-gb", autostart: "autostart",
+};
+const NAZWY_USTAWIEN = {
+  bufor_sekundy: "Ile ostatnich sekund zapisywać", fps: "Gra: klatki/s", bitrate_mbps: "Gra: Mb/s",
+  fps_pulpitu: "Pulpit: klatki/s", bitrate_pulpitu_mbps: "Pulpit: Mb/s", monitor: "Ekran gry", monitor_pulpitu: "Ekran pulpitu",
+  format_filmu: "Rozmiar filmów", dzwiek_systemowy: "Dźwięk z gry i komputera", mikrofon: "Mój mikrofon",
+  mikrofon_urzadzenie: "Który mikrofon", dzwiek_zapisu: "Dźwięk po zapisaniu", powiadomienie_zapisu: "Powiadomienie w rogu ekranu",
+  ikona_przy_zegarze: "Ikona przy zegarze", sprawdzaj_aktualizacje: "Sprawdzanie nowej wersji", animowane_tlo: "Animowane tło",
+  kolorowy_napis: "Kolorowy napis", enkoder: "Format wideo", metoda_przechwytywania: "Sposób przechwytywania obrazu",
+  skrot: "Skrót do zapisania klipu", skrot_filmu: "Skrót do nagrywania filmu", folder_klipow: "Gdzie zapisywać klipy",
+  sprzatanie_dni: "Usuwanie starych klipów", sprzatanie_gb: "Limit miejsca na klipy", autostart: "Uruchamianie razem z Windows",
+};
+
+// Które ustawienia różnią się od zapisanych
+function zmienioneUstawienia() {
+  if (!zapisane || !cfg) return [];
+  const teraz = { ...zebraneUstawienia(), autostart: $("autostart").checked };
+  return Object.keys(POLE_KLUCZA).filter((k) => JSON.stringify(teraz[k]) !== JSON.stringify(zapisane[k]));
+}
+
+// Są zmiany, których nie widać w nagrywaniu (ustawienia otwarte i niezapisane)
+const niezapisane = () => !$("widok-ustawienia").hidden && zmienioneUstawienia().length > 0;
+
+function odswiezPasekZapisu() {
+  const klucze = zmienioneUstawienia();
+  for (const el of document.querySelectorAll(".zmienione, .zmienione-pole")) el.classList.remove("zmienione", "zmienione-pole");
+  for (const k of klucze) {
+    const pole = $(POLE_KLUCZA[k]);
+    const ust = pole && pole.closest(".ust");
+    if (ust) ust.classList.add("zmienione");
+    else pole?.closest("label")?.classList.add("zmienione-pole");
+  }
+  if (zapisujemy) return;
+  const p = $("pasek-zapisu");
+  if (klucze.length) {
+    clearTimeout(odswiezPasekZapisu.t);
+    p.classList.remove("zapisano");
+    if (!p.classList.contains("blad")) {
+      $("komunikat").textContent = klucze.length === 1
+        ? `Niezapisana zmiana: ${NAZWY_USTAWIEN[klucze[0]]}`
+        : `Niezapisane zmiany: ${klucze.length}`;
+    }
+    p.hidden = false;
+  } else if (!p.classList.contains("zapisano")) {
+    p.classList.remove("blad");
+    p.hidden = true;
   }
 }
 
+// Zapisuje formularz; zwraca true, gdy się udało (błąd zostaje na pasku zapisu)
+async function zapiszUstawienia() {
+  if (zapisujemy) return false;
+  koniecNasluchu();
+  const nowy = zebraneUstawienia();
+  const autostart = $("autostart").checked;
+  const p = $("pasek-zapisu");
+  zapisujemy = true;
+  $("zapisz-ustawienia").disabled = $("cofnij-zmiany").disabled = true;
+  p.classList.remove("blad");
+  $("komunikat").textContent = "Zapisuję…";
+  try {
+    await invoke("zapisz_ustawienia", { cfg: nowy, autostart });
+    cfg = nowy;
+    zapisane = { ...nowy, autostart };
+    p.classList.add("zapisano");
+    $("komunikat").textContent = "Zapisano. Nagrywanie wystartowało z nowymi ustawieniami.";
+    clearTimeout(odswiezPasekZapisu.t);
+    odswiezPasekZapisu.t = setTimeout(() => {
+      p.classList.remove("zapisano");
+      odswiezPasekZapisu();
+    }, 3500);
+    odswiezPrzyciskZapisu();
+    pokazStan(stan); // klatki na pasku stanu i podpowiedź przycisku filmu ze skrótem
+    return true;
+  } catch (e) {
+    p.classList.add("blad");
+    $("komunikat").textContent = String(e);
+    return false;
+  } finally {
+    zapisujemy = false;
+    $("zapisz-ustawienia").disabled = $("cofnij-zmiany").disabled = false;
+    odswiezPasekZapisu();
+  }
+}
+
+// Wyjście z ustawień (inna zakładka, ikona przy zegarze, zamknięcie okna). Przy niezapisanych zmianach
+// pyta: Zapisz / Nie zapisuj / Wróć. Zwraca obietnicę: true = można wyjść.
+let pytanie = null;
+
+function moznaWyjsc() {
+  if (!niezapisane()) return Promise.resolve(true);
+  if (pytanie) return pytanie.obietnica;
+  koniecNasluchu();
+  const klucze = zmienioneUstawienia();
+  const nazwy = klucze.slice(0, 6).map((k) => NAZWY_USTAWIEN[k]);
+  if (klucze.length > 6) nazwy.push(`i ${klucze.length - 6} więcej`);
+  $("pytanie-lista").replaceChildren(...nazwy.map((n) => Object.assign(document.createElement("li"), { textContent: n })));
+  $("pytanie-zmiany").hidden = false;
+  $("pytanie-zapisz").focus();
+  pytanie = {};
+  pytanie.obietnica = new Promise((gotowe) => (pytanie.gotowe = gotowe));
+  return pytanie.obietnica;
+}
+
+function odpowiedz(wynik) {
+  $("pytanie-zmiany").hidden = true;
+  const p = pytanie;
+  pytanie = null;
+  p?.gotowe(wynik);
+}
+
+$("pytanie-wroc").addEventListener("click", () => odpowiedz(false));
+$("pytanie-odrzuc").addEventListener("click", () => {
+  odpowiedz(true);
+  wczytajUstawienia(); // formularz wraca do zapisanych wartości
+});
+$("pytanie-zapisz").addEventListener("click", async () => {
+  // Gdy zapis się nie uda, zostajemy w ustawieniach — błąd widać na pasku zapisu
+  odpowiedz(await zapiszUstawienia());
+});
+$("pytanie-zmiany").addEventListener("click", (e) => e.target === $("pytanie-zmiany") && odpowiedz(false));
+document.addEventListener("keydown", (e) => {
+  if (pytanie && e.key === "Escape") {
+    e.preventDefault();
+    odpowiedz(false);
+  }
+});
+
 // Każda zmiana w formularzu (zdarzenia wpisywania wędrują w górę do formularza)
-$("formularz").addEventListener("input", odswiezFormularz);
+$("formularz").addEventListener("input", () => {
+  $("pasek-zapisu").classList.remove("blad");
+  odswiezFormularz();
+});
 
 // Suwak „Ile ostatnich sekund”: przy przeciąganiu myszką zaczepia się na równych wartościach
 // (30 s, 1 min, 1 min 30 s…), a pod suwakiem są kreski co minutę. Strzałki na klawiaturze chodzą co 5 s.
@@ -1876,6 +2088,7 @@ $("mikrofon-urzadzenie").addEventListener("change", () => {
 $("zmien-folder").addEventListener("click", async () => {
   const f = await invoke("wybierz_folder");
   if (f) $("folder").textContent = f;
+  odswiezPasekZapisu();
 });
 
 // ---------- Ustawianie skrótu ----------
@@ -1909,6 +2122,7 @@ function koniecNasluchu(wartosc) {
   pole.classList.remove("nasluch");
   ustawSkrot(pole, wartosc ?? pole.dataset.wartosc);
   invoke("wstrzymaj_skroty", { wstrzymaj: false });
+  odswiezPasekZapisu();
 }
 
 for (const pole of document.querySelectorAll("[data-skrot]")) {
@@ -1958,32 +2172,8 @@ document.addEventListener("keyup", (e) => {
   if (!uwagaSkrotu) pokazWciskane(e);
 }, true);
 
-$("zapisz-ustawienia").addEventListener("click", async () => {
-  const nowy = {
-    ...cfg,
-    ...odczytajPola(),
-    skrot: $("skrot").dataset.wartosc,
-    skrot_filmu: $("skrot-filmu").dataset.wartosc,
-    folder_klipow: $("folder").textContent,
-    sprzatanie_dni: $("sprz-dni-wl").checked ? Number($("sprz-dni").value) || 30 : 0,
-    sprzatanie_gb: $("sprz-gb-wl").checked ? Number($("sprz-gb").value) || 50 : 0,
-  };
-
-  const przycisk = $("zapisz-ustawienia");
-  przycisk.disabled = true;
-  $("komunikat").textContent = "Zapisuję…";
-  try {
-    await invoke("zapisz_ustawienia", { cfg: nowy, autostart: $("autostart").checked });
-    cfg = nowy;
-    $("komunikat").textContent = "Zapisano. Nagrywanie wystartowało z nowymi ustawieniami.";
-    odswiezPrzyciskZapisu();
-    pokazFilm(stan); // podpowiedź przycisku filmu pokazuje skrót
-  } catch (e) {
-    $("komunikat").textContent = String(e);
-  } finally {
-    przycisk.disabled = false;
-  }
-});
+$("zapisz-ustawienia").addEventListener("click", zapiszUstawienia);
+$("cofnij-zmiany").addEventListener("click", () => wczytajUstawienia());
 
 function odswiezPrzyciskZapisu() {
   $("zapisz-klip").innerHTML = zIkona("zapisz", `Zapisz ${cfg ? cfg.bufor_sekundy : 30} s`);
