@@ -84,7 +84,12 @@ function udawanyTauri() {
     core: { invoke: async (k, a) => (odpowiedzi[k] ? odpowiedzi[k](a) : null), convertFileSrc: (x) => x },
     event: { listen: async () => () => {} },
     window: {
-      getCurrentWindow: () => ({ minimize() {}, toggleMaximize() {}, close() {}, isMaximized: async () => false, onResized() {} }),
+      getCurrentWindow: () => ({
+        minimize() {}, toggleMaximize() {}, close() {}, isMaximized: async () => false, onResized() {},
+        // Zamknięcie okna: test woła zapamiętaną obsługę sam, tak jak Tauri przy krzyżyku albo Alt+F4
+        onCloseRequested(h) { window.__przyZamknieciu = h; },
+        destroy() { window.__zniszczone = (window.__zniszczone || 0) + 1; },
+      }),
     },
   };
 }
@@ -277,13 +282,80 @@ sprawdz(await strona.isVisible("#enkoder"), "„Zaawansowane” nie są widoczne
 await zrzut("3-zaawansowane");
 sprawdz(await strona.evaluate(() => document.querySelector(".karta.zaawansowane").closest(".grupa") === document.getElementById("autostart").closest(".grupa")), "„Zaawansowane” nie są pod Systemem");
 
-// Lista wyboru leży pod opisem i zajmuje szerokość karty (opis nie jest ściśnięty w wąską kolumnę)
-const [opisR, listaR, kartaR] = await strona.evaluate(() => {
-  const lista = document.getElementById("format-filmu");
-  const r = (e) => { const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height }; };
-  return [r(lista.closest(".ust").querySelector(".opis")), r(lista), r(lista.closest(".karta"))];
+// ---------- Jakość nagrywania: karty Gra / Pulpit / Filmy ----------
+// Klatki pulpitu widać od razu (w 1.4.3 były w zwiniętym wierszu i tester zmieniał klatki gry)
+for (const id of ["fps", "bitrate", "fps-pulpitu", "bitrate-pulpitu", "monitor", "monitor-pulpitu", "format-filmu"]) {
+  sprawdz(await strona.isVisible(`#${id}`), `pole #${id} nie jest widoczne bez rozwijania`);
+}
+sprawdz((await strona.locator("details").count()) === 0, "w ustawieniach zostały zwijane wiersze");
+// Trzy karty obok siebie, a każde pole leży w swojej karcie
+const karty = await strona.evaluate(() => ["jakosc-gra", "jakosc-pulpit", "jakosc-filmy"].map((id) => Math.round($(id).getBoundingClientRect().top)));
+sprawdz(new Set(karty).size === 1, `karty jakości nie leżą obok siebie: ${karty}`);
+sprawdz(await strona.evaluate(() => $("fps-pulpitu").closest(".karta") === $("jakosc-pulpit") && $("fps").closest(".karta") === $("jakosc-gra") && $("format-filmu").closest(".karta") === $("jakosc-filmy")), "pola jakości są w złych kartach");
+// Etykiety mówią, który tryb zmieniają
+sprawdz((await strona.textContent('label:has(#fps-pulpitu)')).includes("pulpitu") && (await strona.textContent('label:has(#fps)')).includes("gry"), "etykiety klatek nie mówią, czy to gra, czy pulpit");
+// Karta trybu, który nagrywa, jest podświetlona; plakietka idzie za przełącznikiem
+sprawdz((await strona.isVisible("#jakosc-gra .plakietka")) && (await strona.isHidden("#jakosc-pulpit .plakietka")), "karta gry nie jest oznaczona jako nagrywająca");
+await strona.evaluate(() => pokazStan({ ...stan, tryb: "pulpit" }));
+sprawdz((await strona.isVisible("#jakosc-pulpit .plakietka")) && (await strona.isHidden("#jakosc-gra .plakietka")), "plakietka „Nagrywa teraz” nie przechodzi na pulpit");
+sprawdz((await strona.textContent("#jakosc-filmu")).includes("Pulpit · 30 kl./s"), `karta filmów nie mówi, w jakiej jakości nagra film: „${await strona.textContent("#jakosc-filmu")}”`);
+sprawdz((await strona.textContent("#status-tekst")) === "Nagrywa pulpit · 30 kl./s", `status nie mówi, ile klatek nagrywa pulpit: „${await strona.textContent("#status-tekst")}”`);
+await zrzut("2a-jakosc-pulpit");
+await strona.evaluate(() => pokazStan({ ...stan, tryb: "gra" }));
+// Ekran 144 Hz: więcej klatek nic nie da
+await strona.fill("#fps-pulpitu", "200");
+sprawdz((await strona.textContent("#hz-pulpitu")).includes("144"), "brak uwagi, że ekran 144 Hz nie da 200 kl./s");
+await strona.fill("#fps-pulpitu", "30");
+sprawdz((await strona.textContent("#hz-pulpitu")) === "", "uwaga o odświeżaniu ekranu nie znika");
+
+// ---------- Pasek zapisu i niezapisane zmiany ----------
+// Gotowe ustawienie pulpitu zmienia tylko pulpit
+await strona.click('#presety-pulpitu .segment:has-text("Płynna")');
+sprawdz((await strona.inputValue("#fps-pulpitu")) === "60" && (await strona.inputValue("#fps")) === "60" && (await strona.inputValue("#bitrate")) === "20", "gotowe ustawienie pulpitu zmieniło grę");
+sprawdz(await strona.isVisible("#pasek-zapisu"), "po zmianie nie widać paska zapisu");
+sprawdz(await strona.evaluate(() => $("fps-pulpitu").closest("label").classList.contains("zmienione-pole")), "zmienione pole nie jest zaznaczone");
+// Pasek leży na środku dołu okna, a przycisk jest duży
+const pasek = await strona.locator("#pasek-zapisu").boundingBox();
+const okno = strona.viewportSize();
+sprawdz(Math.abs(pasek.x + pasek.width / 2 - okno.width / 2) < 4 && pasek.y + pasek.height > okno.height - 60, `pasek zapisu nie jest na środku dołu: ${JSON.stringify(pasek)}`);
+sprawdz((await strona.locator("#zapisz-ustawienia").boundingBox()).height >= 40, "przycisk „Zapisz zmiany” jest mały");
+await zrzut("2b-pasek-zapisu");
+// Wyjście do innej zakładki: pytanie, „Wróć” zostawia w ustawieniach ze zmianami
+await strona.click('[data-zakladka="klipy"]');
+sprawdz(await strona.isVisible("#pytanie-zmiany"), "wyjście z ustawień bez zapisu nie pyta o zmiany");
+sprawdz((await strona.textContent("#pytanie-lista")).includes("Pulpit: klatki/s"), `pytanie nie mówi, co zmieniono: „${await strona.textContent("#pytanie-lista")}”`);
+await zrzut("2c-pytanie");
+await strona.click("#pytanie-wroc");
+sprawdz((await strona.isVisible("#widok-ustawienia")) && (await strona.inputValue("#fps-pulpitu")) === "60", "„Wróć do ustawień” nie zostawia zmian");
+// Kliknięcie zakładki Ustawienia, gdy już je widać, nie kasuje zmian (mikrofon „sam się zmieniał”)
+await strona.click('[data-zakladka="ustawienia"]');
+await strona.waitForTimeout(100);
+sprawdz((await strona.inputValue("#fps-pulpitu")) === "60", "ponowne kliknięcie „Ustawienia” skasowało niezapisane zmiany");
+// „Nie zapisuj”: wychodzi, nic nie wysyła, a po powrocie są zapisane wartości
+await strona.click('[data-zakladka="klipy"]');
+await strona.click("#pytanie-odrzuc");
+await strona.waitForTimeout(100);
+sprawdz((await strona.isVisible("#widok-klipy")) && !(await strona.evaluate(() => window.__zapisane)), "„Nie zapisuj” nie wychodzi albo coś zapisało");
+await strona.click('[data-zakladka="ustawienia"]');
+await strona.waitForTimeout(300);
+sprawdz((await strona.inputValue("#fps-pulpitu")) === "30" && (await strona.isHidden("#pasek-zapisu")), "po „Nie zapisuj” formularz nie wrócił do zapisanych wartości");
+// Zamknięcie okna ze zmianami: pytanie, „Zapisz” zapisuje i dopiero wtedy zamyka
+await strona.selectOption("#mikrofon-urzadzenie", "m2");
+await strona.fill("#bitrate-pulpitu", "16");
+const zamkniecie = strona.evaluate(() => {
+  let zatrzymane = false;
+  return window.__przyZamknieciu({ preventDefault: () => (zatrzymane = true) }).then(() => zatrzymane);
 });
-sprawdz(listaR.y >= opisR.y + opisR.h && opisR.w > kartaR.w * 0.8 && listaR.w > kartaR.w * 0.8, `„Rozmiar filmów”: opis ${Math.round(opisR.w)} px, lista ${Math.round(listaR.w)} px, karta ${Math.round(kartaR.w)} px`);
+await strona.waitForTimeout(100);
+sprawdz(await strona.isVisible("#pytanie-zmiany"), "zamknięcie okna ze zmianami nie pyta o zapis");
+sprawdz(!(await strona.evaluate(() => window.__zniszczone)), "okno zamknęło się przed odpowiedzią");
+await strona.click("#pytanie-zapisz");
+sprawdz(await zamkniecie, "zamknięcie okna nie zostało wstrzymane");
+await strona.waitForTimeout(100);
+sprawdz((await strona.evaluate(() => [window.__zapisane?.cfg.bitrate_pulpitu_mbps, window.__zniszczone])).join() === "16,1", "„Zapisz” w pytaniu nie zapisał albo nie zamknął okna");
+sprawdz(await strona.evaluate(() => $("pasek-zapisu").classList.contains("zapisano")), "po zapisie pasek nie mówi „Zapisano”");
+// Bez zmian okno zamyka się bez pytania
+sprawdz(!(await strona.evaluate(() => { let z = false; window.__przyZamknieciu({ preventDefault: () => (z = true) }); return z; })), "zamknięcie bez zmian jest wstrzymywane");
 
 // Suwak sekund przyskakuje do równych wartości przy przeciąganiu myszką (strzałki dalej chodzą co 5 s)
 await strona.locator("#bufor").scrollIntoViewIfNeeded();
@@ -304,14 +376,12 @@ sprawdz((await strona.inputValue("#bufor")) === "35", `strzałka na suwaku: ${aw
 await strona.keyboard.press("ArrowLeft");
 sprawdz((await strona.locator("#bufor-kreski i").count()) === 10, "pod suwakiem nie ma kresek co minutę");
 
-// Zapis ustawień wysyła wszystkie pola z formularza
-await strona.click("#zapisz-ustawienia");
-await strona.waitForTimeout(100);
+// Zapis ustawień (z pytania przy zamykaniu okna) wysyła wszystkie pola z formularza
 const zapisane = await strona.evaluate(() => window.__zapisane);
 sprawdz(zapisane, "„Zapisz ustawienia” nic nie wysłał");
 if (zapisane) {
   const c = zapisane.cfg;
-  const oczekiwane = { mikrofon: true, mikrofon_urzadzenie: "m2", bufor_sekundy: 30, fps: 60, skrot: "Alt+F10", skrot_filmu: "Alt+F9", animowane_tlo: true, kolorowy_napis: true, sprzatanie_dni: 0 };
+  const oczekiwane = { mikrofon: true, mikrofon_urzadzenie: "m2", bufor_sekundy: 30, fps: 60, fps_pulpitu: 30, bitrate_pulpitu_mbps: 16, skrot: "Alt+F10", skrot_filmu: "Alt+F9", animowane_tlo: true, kolorowy_napis: true, sprzatanie_dni: 0 };
   for (const [k, v] of Object.entries(oczekiwane)) sprawdz(c[k] === v, `zapis ustawień: ${k} = ${JSON.stringify(c[k])}, oczekiwano ${JSON.stringify(v)}`);
 }
 
@@ -520,6 +590,20 @@ await strona.click("#eksportuj");
 await strona.waitForTimeout(200);
 zl = await v(() => window.__zlecenia?.at(-1));
 sprawdz(zl?.zastap === false, "„Zachowaj oryginał” nie zostawia oryginału");
+// Przeciąganie zmienionego klipu (np. na Discorda): ta sama wersja zapisana wyżej idzie bez nowego eksportu…
+const ileZlecen = () => v(() => (window.__zlecenia || []).length);
+let przedPrzeciaganiem = await ileZlecen();
+await v(() => plikDoPrzeciagniecia());
+sprawdz((await ileZlecen()) === przedPrzeciaganiem, "przeciąganie zapisuje drugi raz wersję, która jest już w bibliotece");
+// …a nowa wersja powstaje tylko w folderze do przeciągania, nie w bibliotece (majk: „automatycznie zapisuje mi go na dysk”)
+await v(() => (ostatniEksport = null));
+const wynikPrzed = await v(() => $("wynik").hidden);
+await v(() => plikDoPrzeciagniecia());
+zl = await v(() => window.__zlecenia?.at(-1));
+sprawdz((await ileZlecen()) === przedPrzeciaganiem + 1 && zl?.do_przeciagniecia === true && zl?.zastap === false, `przeciąganie nie prosi o plik tymczasowy: ${JSON.stringify(zl)}`);
+sprawdz((await v(() => $("wynik").hidden)) === wynikPrzed, "przeciąganie pokazuje kartę zapisanego klipu");
+await v(() => plikDoPrzeciagniecia());
+sprawdz((await ileZlecen()) === przedPrzeciaganiem + 1, "każde przeciągnięcie tej samej wersji robi nowy plik");
 
 // Kadrowanie: C włącza ramkę, uchwyt zmienia rozmiar, proporcje 9:16 działają
 await strona.keyboard.press("c");

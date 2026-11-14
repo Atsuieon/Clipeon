@@ -210,6 +210,7 @@ fn petla(
     let (w, h) = rozmiar;
     let okres = Duration::from_secs_f64(1.0 / fps.max(1) as f64);
     let czekaj_ms = (okres.as_millis() as u32).clamp(5, 50);
+    let najkrotszy = crate::wideo::najkrotszy_odstep(fps);
     let mut zrodlo = Some(zrodlo);
     let mut czysty = vec![0u8; (w * h * 4) as usize];
     let mut wlasna = vec![0u8; (w * h * 4) as usize];
@@ -249,9 +250,18 @@ fn petla(
             continue;
         };
 
+        // Czeka na nas klatka odłożona, bo przyszła za wcześnie: czekamy tylko tyle, ile do jej pory
+        // (a nie cały okres — wtedy wątek taktujący zdążał ją ominąć i powtarzał poprzednią)
+        let czekaj = match ostatnia {
+            Some(t) if brudny || zmiana => {
+                let zostalo = najkrotszy.saturating_sub(t.elapsed());
+                (zostalo.as_micros().div_ceil(1000) as u32).clamp(1, czekaj_ms)
+            }
+            _ => czekaj_ms,
+        };
         let mut info = DXGI_OUTDUPL_FRAME_INFO::default();
         let mut zasob: Option<IDXGIResource> = None;
-        match unsafe { z.duplikacja.AcquireNextFrame(czekaj_ms, &mut info, &mut zasob) } {
+        match unsafe { z.duplikacja.AcquireNextFrame(czekaj, &mut info, &mut zasob) } {
             Ok(()) => {
                 if info.LastPresentTime != 0
                     && let Some(t) = zasob.as_ref().and_then(|r| r.cast::<ID3D11Texture2D>().ok())
@@ -299,8 +309,9 @@ fn petla(
             }
         }
 
-        // Klatka nie częściej niż nasze FPS (wątek taktujący i tak wysyła równo, powtarzając ostatnią)
-        let pora = ostatnia.is_none_or(|t| t.elapsed() >= okres.mul_f64(0.9));
+        // Klatki nie częściej niż co pół okresu (wątek taktujący i tak wysyła równo, powtarzając ostatnią);
+        // próg równy całemu okresowi gubił klatki, które przyszły odrobinę za wcześnie
+        let pora = ostatnia.is_none_or(|t| t.elapsed() >= najkrotszy);
         if !(brudny || zmiana) || !pora {
             continue;
         }

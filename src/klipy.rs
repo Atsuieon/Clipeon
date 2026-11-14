@@ -72,6 +72,41 @@ pub fn folder_miniatur() -> PathBuf {
     baza.join("pl.clipper.app").join("miniatury")
 }
 
+/// Folder plików przygotowanych do przeciągnięcia z edytora (np. przycięty klip wrzucany na Discorda):
+/// %LOCALAPPDATA%\pl.clipper.app\przeciaganie. Leżą poza folderem klipów, więc nie trafiają do
+/// biblioteki — na stałe zapisuje tylko przycisk „Zapisz” w edytorze.
+pub fn folder_przeciagania() -> PathBuf {
+    let baza = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+    baza.join("pl.clipper.app").join("przeciaganie")
+}
+
+/// Tyle leży plik przygotowany do przeciągnięcia. Od razu po upuszczeniu usunąć go nie można:
+/// Discord czyta plik dopiero przy wysyłaniu wiadomości.
+pub const PRZECIAGANE_ZOSTAJA: std::time::Duration = std::time::Duration::from_secs(24 * 3600);
+
+/// Usuwa stare pliki przygotowane do przeciągnięcia (przy starcie i potem co godzinę).
+pub fn sprzataj_przeciagane() {
+    let ile = usun_starsze(&folder_przeciagania(), PRZECIAGANE_ZOSTAJA);
+    if ile > 0 {
+        crate::dziennik::info(&format!("Usunięto stare pliki przygotowane do przeciągnięcia: {ile}"));
+    }
+}
+
+/// Usuwa z folderu (bez podfolderów) pliki starsze niż `wiek`. Zwraca, ile usunął.
+fn usun_starsze(folder: &Path, wiek: std::time::Duration) -> usize {
+    let Ok(wpisy) = std::fs::read_dir(folder) else { return 0 };
+    let teraz = std::time::SystemTime::now();
+    wpisy
+        .flatten()
+        .filter(|w| {
+            w.metadata().is_ok_and(|m| {
+                m.is_file() && m.modified().is_ok_and(|t| teraz.duration_since(t).is_ok_and(|d| d > wiek))
+            })
+        })
+        .filter(|w| std::fs::remove_file(w.path()).is_ok())
+        .count()
+}
+
 /// Usuwa starą pamięć podręczną miniatur z wersji sprzed 1.0 (same miniatury, odtworzą się same).
 pub fn usun_stara_pamiec_podreczna() {
     if let Some(baza) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
@@ -155,18 +190,29 @@ pub fn sprawdz_sciezke(folder: &Path, klip: &Path) -> Result<PathBuf, String> {
     sprawdz(folder, klip, &["mp4"])
 }
 
-/// Jak `sprawdz_sciezke`, ale przepuszcza też GIF i WebP zapisane z edytora (przeciąganie, folder).
+/// Jak `sprawdz_sciezke`, ale przepuszcza też GIF i WebP zapisane z edytora oraz pliki przygotowane
+/// do przeciągnięcia (folder `folder_przeciagania`) — do przeciągania i „Pokaż w folderze”.
 pub fn sprawdz_wynik(folder: &Path, plik: &Path) -> Result<PathBuf, String> {
-    sprawdz(folder, plik, &["mp4", "gif", "webp"])
+    sprawdz_wynik_w(folder, &folder_przeciagania(), plik)
+}
+
+fn sprawdz_wynik_w(folder: &Path, przeciaganie: &Path, plik: &Path) -> Result<PathBuf, String> {
+    const ROZSZERZENIA: &[&str] = &["mp4", "gif", "webp"];
+    sprawdz(folder, plik, ROZSZERZENIA).or_else(|blad| sprawdz_w(przeciaganie, plik, ROZSZERZENIA, false).map_err(|_| blad))
 }
 
 fn sprawdz(folder: &Path, klip: &Path, rozszerzenia: &[&str]) -> Result<PathBuf, String> {
+    sprawdz_w(folder, klip, rozszerzenia, true)
+}
+
+/// `podfoldery` = wpuszczamy też jeden poziom niżej (podfoldery miesięcy w folderze klipów).
+fn sprawdz_w(folder: &Path, klip: &Path, rozszerzenia: &[&str], podfoldery: bool) -> Result<PathBuf, String> {
     let klip = klip.canonicalize().map_err(|_| "Klip nie istnieje".to_string())?;
     let folder = folder.canonicalize().map_err(|_| "Folder klipów nie istnieje".to_string())?;
     let mp4 = klip.extension().is_some_and(|e| rozszerzenia.iter().any(|r| e.eq_ignore_ascii_case(r)));
     let rodzic = klip.parent();
     let w_folderze = rodzic == Some(folder.as_path())
-        || rodzic.and_then(|r| r.parent()) == Some(folder.as_path());
+        || (podfoldery && rodzic.and_then(|r| r.parent()) == Some(folder.as_path()));
     if !mp4 || !w_folderze {
         return Err("Ten plik nie jest klipem z folderu klipów".into());
     }
@@ -355,7 +401,7 @@ fn dlugosc_z_opisu(opis: &str) -> Option<f64> {
 
 #[cfg(test)]
 mod testy {
-    use super::{lista, nazwa_gry_z_opisu, obraz_z_opisu, sprawdz_sciezke, szczyty};
+    use super::{lista, nazwa_gry_z_opisu, obraz_z_opisu, sprawdz_sciezke, sprawdz_wynik_w, szczyty, usun_starsze};
 
     #[test]
     fn szczyty_fali() {
@@ -421,6 +467,46 @@ mod testy {
         assert!(sprawdz_sciezke(&folder, &folder.join("2026-11").join("notatka.txt")).is_err());
         let _ = std::fs::remove_file(&poza);
         let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn przeciagany_plik_z_wlasnego_folderu() {
+        let folder = przyklad("przeciaganie");
+        let przeciaganie = folder.with_extension("przeciaganie");
+        let _ = std::fs::remove_dir_all(&przeciaganie);
+        std::fs::create_dir_all(przeciaganie.join("glebiej")).unwrap();
+        let przyciety = przeciaganie.join("Clipeon_2026-11-10_18-30-00_cut.mp4");
+        std::fs::write(&przyciety, b"przyciety").unwrap();
+        std::fs::write(przeciaganie.join("notatka.txt"), b"nie klip").unwrap();
+        std::fs::write(przeciaganie.join("glebiej").join("klip.mp4"), b"glebiej").unwrap();
+        // Klip z biblioteki i plik przygotowany do przeciągnięcia przechodzą
+        assert!(sprawdz_wynik_w(&folder, &przeciaganie, &folder.join("Clipeon_2026-10-01_12-00-00.mp4")).is_ok());
+        assert!(sprawdz_wynik_w(&folder, &przeciaganie, &przyciety).is_ok());
+        // W folderze przeciągania: bez podfolderów i tylko klipy
+        assert!(sprawdz_wynik_w(&folder, &przeciaganie, &przeciaganie.join("glebiej").join("klip.mp4")).is_err());
+        assert!(sprawdz_wynik_w(&folder, &przeciaganie, &przeciaganie.join("notatka.txt")).is_err());
+        // Biblioteka nie widzi plików do przeciągania
+        assert!(sprawdz_sciezke(&folder, &przyciety).is_err());
+        let _ = std::fs::remove_dir_all(&przeciaganie);
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn stare_pliki_do_przeciagania_znikaja() {
+        let folder = std::env::temp_dir().join(format!("clipeon-test-stare-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(&folder).unwrap();
+        let (stary, nowy) = (folder.join("stary.mp4"), folder.join("nowy.mp4"));
+        std::fs::write(&stary, b"stary").unwrap();
+        std::fs::write(&nowy, b"nowy").unwrap();
+        let dzien = std::time::Duration::from_secs(24 * 3600);
+        let wczoraj = std::time::SystemTime::now() - dzien - std::time::Duration::from_secs(60);
+        std::fs::File::options().write(true).open(&stary).unwrap().set_modified(wczoraj).unwrap();
+        assert_eq!(usun_starsze(&folder, dzien), 1);
+        assert!(!stary.exists() && nowy.exists());
+        // Brak folderu nie jest błędem
+        let _ = std::fs::remove_dir_all(&folder);
+        assert_eq!(usun_starsze(&folder, dzien), 0);
     }
 
     #[test]
