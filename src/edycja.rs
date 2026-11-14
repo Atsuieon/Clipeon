@@ -21,7 +21,7 @@ pub struct Zlecenie {
     pub rozmiar_mb: Option<u32>,
     /// Zastąp oryginał (stary plik trafia do Kosza)
     pub zastap: bool,
-    /// Głośność (1.0 = bez zmian): [gra, mikrofon] dla klipów z osobnymi ścieżkami albo [dźwięk];
+    /// Głośność (1.0 = bez zmian): każda osobna ścieżka po kolei (gra, [Discord i reszta,] mikrofon) albo [dźwięk];
     /// pusta lista = bez zmian
     #[serde(default)]
     pub glosnosci: Vec<f64>,
@@ -395,8 +395,8 @@ fn argumenty_animacji(
     a
 }
 
-/// Argumenty dźwięku. Klip z osobnymi ścieżkami ma: 0 = miks, 1 = gra, 2 = mikrofon.
-/// Zmiana głośności składa nowy miks z gry i mikrofonu (jedna ścieżka w wyniku).
+/// Argumenty dźwięku. Klip z osobnymi ścieżkami ma: 0 = miks, potem każda ścieżka osobno (gra, mikrofon;
+/// od 1.4.5 też „Discord i reszta”). Zmiana głośności składa nowy miks z osobnych ścieżek (jedna w wyniku).
 fn argumenty_audio(z: &Zlecenie, sciezki: u32, kopiuj: bool, tylko_pierwsza: bool, kbps: u32) -> Vec<String> {
     let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
     if sciezki == 0 {
@@ -405,12 +405,13 @@ fn argumenty_audio(z: &Zlecenie, sciezki: u32, kopiuj: bool, tylko_pierwsza: boo
     let kodowanie = s(&["-c:a", "aac", "-b:a", &format!("{kbps}k")]);
     if !z.glosnosci.is_empty() {
         let g = |i: usize| z.glosnosci.get(i).copied().unwrap_or(1.0).clamp(0.0, 4.0);
-        let filtr = if sciezki >= 3 && z.glosnosci.len() >= 2 {
-            format!(
-                "[0:a:1]volume={:.2}[g];[0:a:2]volume={:.2}[m];[g][m]amix=inputs=2:duration=longest:normalize=0[a]",
-                g(0),
-                g(1)
-            )
+        // Osobne ścieżki to wszystkie poza miksem (pierwszą)
+        let osobne = if sciezki >= 3 { (sciezki - 1) as usize } else { 0 };
+        let filtr = if osobne >= 2 && z.glosnosci.len() >= 2 {
+            let mut f: String = (0..osobne).map(|i| format!("[0:a:{}]volume={:.2}[s{i}];", i + 1, g(i))).collect();
+            f.extend((0..osobne).map(|i| format!("[s{i}]")));
+            f.push_str(&format!("amix=inputs={osobne}:duration=longest:normalize=0[a]"));
+            f
         } else {
             format!("[0:a:0]volume={:.2}[a]", g(0))
         };
@@ -425,4 +426,43 @@ fn argumenty_audio(z: &Zlecenie, sciezki: u32, kopiuj: bool, tylko_pierwsza: boo
         a.extend(kodowanie);
     }
     a
+}
+
+#[cfg(test)]
+mod testy {
+    use super::{Zlecenie, argumenty_audio};
+
+    fn zlecenie(glosnosci: &[f64]) -> Zlecenie {
+        serde_json::from_value(serde_json::json!({
+            "start": 0.0, "koniec": 10.0, "przyciete": false, "dokladnie": false, "rozmiar_mb": null,
+            "zastap": false, "glosnosci": glosnosci,
+        }))
+        .unwrap()
+    }
+
+    fn audio(glosnosci: &[f64], sciezki: u32) -> String {
+        argumenty_audio(&zlecenie(glosnosci), sciezki, true, false, 160).join(" ")
+    }
+
+    #[test]
+    fn glosnosc_trzech_osobnych_sciezek() {
+        // Miks, Gra, Discord i reszta, Mikrofon: wyciszony Discord, ciszej mikrofon
+        let a = audio(&[1.0, 0.0, 0.5], 4);
+        assert!(a.contains("[0:a:1]volume=1.00[s0];[0:a:2]volume=0.00[s1];[0:a:3]volume=0.50[s2];"), "{a}");
+        assert!(a.contains("[s0][s1][s2]amix=inputs=3:duration=longest:normalize=0[a]"), "{a}");
+        assert!(a.ends_with("-map [a] -c:a aac -b:a 160k"), "{a}");
+    }
+
+    #[test]
+    fn glosnosc_gry_i_mikrofonu_oraz_jednej_sciezki() {
+        let a = audio(&[1.5, 0.0], 3);
+        assert!(a.contains("[0:a:1]volume=1.50[s0];[0:a:2]volume=0.00[s1];[s0][s1]amix=inputs=2"), "{a}");
+        // Jedna ścieżka: sama głośność
+        assert!(audio(&[0.5], 1).starts_with("-filter_complex [0:a:0]volume=0.50[a]"));
+        // Bez zmiany głośności: ścieżki kopiowane, bez dźwięku nic
+        assert_eq!(audio(&[], 4), "-map 0:a -c:a copy");
+        assert_eq!(audio(&[1.0], 0), "");
+        // Głośność z okna jest przycinana do 0–400%
+        assert!(audio(&[9.0], 1).contains("volume=4.00"));
+    }
 }

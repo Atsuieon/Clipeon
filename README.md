@@ -24,13 +24,13 @@
 ## Funkcje
 
 - **Ostatnie sekundy gry jednym skrótem** — wciśnij **Alt+F10**, a ostatnie 30 s (do ustawienia od 5 s do 10 min) zapisze się jako MP4.
-- **Filmy** — „Nagraj film” albo **Alt+F9** nagrywa bez limitu czasu, aż wciśniesz jeszcze raz. Film nie obciąża gry dodatkowo, a klipy działają w jego trakcie jak zwykle. Filmy mają własną zakładkę.
+- **Filmy** — „Nagraj film” albo **Alt+F9** nagrywa bez limitu czasu, aż wciśniesz jeszcze raz. Film nie obciąża gry dodatkowo, a klipy działają w jego trakcie jak zwykle. Filmy mają własną zakładkę. **Alt+F8** w trakcie filmu dodaje znacznik, do którego skoczysz w edytorze, a film przerwany awarią Clipeon złoży przy następnym starcie.
 - **Mniejsze filmy** — po nagraniu Clipeon może w tle zapisać film od nowa jako HEVC (ok. połowa rozmiaru) albo AV1 (ok. jedna trzecia). Robi to karta graficzna.
 - **Lekki** — obraz przechwytuje i koduje karta graficzna (AMD, NVIDIA, Intel), bez kopiowania klatek przez procesor; nic nie trafia na dysk, dopóki nie zapiszesz.
 - **Tryb pulpitu** — przełącznik „Gra | Pulpit” na pasku: pulpit ma własny ekran i lżejsze ustawienia (domyślnie 30 FPS, 12 Mb/s), a ekran wybierzesz jednym kliknięciem.
-- **Dźwięk gry i mikrofon osobno** — w edytorze dwie ścieżki z wykresem dźwięku: ściszysz albo wyciszysz jedno lub drugie i od razu to słychać.
+- **Gra, Discord i mikrofon osobno** — w edytorze trzy ścieżki z wykresem dźwięku: „Gra”, „Discord i reszta” i „Mikrofon”. Ściszysz albo wyciszysz każdą z nich i od razu to słychać.
 - **Edytor** — przycinanie, kadrowanie, zmniejszanie do 10 / 20 / 50 / 100 MB i zapis jako zapętlony GIF / WebP, np. pod Discorda. Głośność słychać od razu, a `←` / `→` przewijają o 5 s, `,` / `.` o klatkę.
-- **Przeciągnij i upuść** — gotowy klip przeciągasz prosto do Discorda, przeglądarki albo folderu.
+- **Przeciągnij albo skopiuj** — gotowy klip przeciągasz prosto do Discorda, przeglądarki albo folderu, albo klikasz „Kopiuj” i wklejasz Ctrl+V.
 - **Biblioteka** — klipy pogrupowane według dni, zaznaczanie wielu naraz, usuwanie do Kosza.
 - **Nie przestaje nagrywać po cichu** — sam wznawia nagrywanie po problemie ze sterownikiem, przechodzi na inny sposób przechwytywania, gdy któryś nie działa, i ostrzega, gdy coś jest nie tak.
 
@@ -104,8 +104,8 @@ Clipeon to ta sama aplikacja pod nową nazwą. Zainstaluj go: instalator sam usu
 
 Clipeon keeps the last seconds of your gameplay in memory and saves them as an MP4 when you press **Alt+F10**;
 **Alt+F9** starts and stops a long recording with no time limit, which can then be re-encoded to HEVC or AV1 in the background to save space.
-GPU capture and encoding (AMD / NVIDIA / Intel), a desktop recording mode, separate game and mic tracks, trimming, shrink-to-size for Discord,
-drag-and-drop clips into other apps. Windows 10 2004+ / 11. [Download the latest release](https://github.com/Atsuieon/Clipeon/releases/latest)
+GPU capture and encoding (AMD / NVIDIA / Intel), a desktop recording mode, separate game / Discord / mic tracks, film markers, crash recovery for long recordings, trimming, shrink-to-size for Discord,
+drag-and-drop or copy-paste clips into other apps. Windows 10 2004+ / 11. [Download the latest release](https://github.com/Atsuieon/Clipeon/releases/latest)
 — the installer is unsigned, so SmartScreen may warn: *More info → Run anyway*. The interface is in Polish.
 
 ## Licencja

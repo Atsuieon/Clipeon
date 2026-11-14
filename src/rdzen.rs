@@ -24,6 +24,9 @@ pub struct Stan {
     pub bledy: Vec<String>,
     /// Strażnik właśnie wznawia nagrywanie (powód)
     pub wznawianie: Option<String>,
+    /// Windows zmienił urządzenie dźwięku i Clipeon przełącza na nie nagrywanie: „dźwięk”, „mikrofon”
+    /// albo „dźwięk i mikrofon” (żółta kropka, nie błąd — obraz nagrywa się dalej)
+    pub przelaczanie: Option<String>,
     /// "gra" albo "pulpit"
     pub tryb: String,
     /// Krótka nazwa nagrywanego ekranu, np. „Ekran 2”
@@ -53,6 +56,8 @@ pub struct Stan {
     pub film_zmniejszanie: Option<u8>,
     /// Skrót filmu jest zajęty przez inny program (opis) — film da się wtedy włączyć tylko z okna
     pub skrot_filmu_blad: Option<String>,
+    /// Skrót znacznika jest zajęty przez inny program (opis)
+    pub skrot_znacznika_blad: Option<String>,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -74,6 +79,10 @@ pub enum Zdarzenie {
     /// Zmniejszanie się nie udało — film został w pełnej jakości
     FilmNiezmniejszony(String),
     BladFilmu(String),
+    /// Znacznik w filmie: (numer, sekunda filmu); None = skrót wciśnięty, gdy film nie trwa
+    Znacznik(Option<(usize, u64)>),
+    /// Film przerwany awarią programu został złożony przy starcie
+    FilmOdzyskany { plik: PathBuf, sekundy: f64, czesci: usize },
 }
 
 /// Po tylu sekundach bez nowych klatek strażnik uznaje, że nagrywanie stoi
@@ -94,6 +103,9 @@ const SESJA_STABILNA_PO: Duration = Duration::from_secs(10);
 /// Po tylu sekundach wracamy na drogę odrzuconą chwilowo (każdy kolejny nieudany powrót dwa razy później)
 const POWROT_NA_DROGE_PO: Duration = Duration::from_secs(60);
 const POWROT_NAJPOZNIEJ_PO: Duration = Duration::from_secs(1800);
+/// Przełączenie dźwięku na nowe urządzenie trwa ułamek sekundy — żółtą kropkę trzymamy co najmniej tyle,
+/// żeby dało się ją zauważyć
+const PRZELACZANIE_WIDAC: Duration = Duration::from_secs(2);
 /// Po tylu sekundach bez problemów zapamiętujemy drogę jako działającą
 const DROGA_DZIALA_PO: Duration = Duration::from_secs(30);
 
@@ -132,9 +144,11 @@ struct Wnetrze {
     bledy: BTreeMap<&'static str, String>,
     _skrot: Option<skrot::Nasluch>,
     _skrot_filmu: Option<skrot::Nasluch>,
+    _skrot_znacznika: Option<skrot::Nasluch>,
     /// Okno ustawia właśnie nowy skrót: skróty są wyrejestrowane, żeby wciskane klawisze nie robiły klipów
     skroty_wstrzymane: bool,
     skrot_filmu_blad: Option<String>,
+    skrot_znacznika_blad: Option<String>,
     /// Trwające długie nagrywanie
     film: Option<Film>,
     /// Zakończony film jest składany w plik (w tle)
@@ -147,12 +161,18 @@ struct Wnetrze {
     start_sesji: Option<Instant>,
     /// Powód trwającego wznawiania (żółta kropka)
     wznawianie: Option<String>,
+    /// Ścieżki dźwięku ("system", "mikrofon"), które przełączają się na nowe urządzenie: od kiedy
+    /// i czy jeszcze trwa (skończone zostaje do PRZELACZANIE_WIDAC, potem zdejmuje je strażnik)
+    przelaczanie: BTreeMap<&'static str, (Instant, bool)>,
     /// Drogi przechwytywania, które zawiodły w tym uruchomieniu: (monitor, droga)
     odrzucone: HashSet<(String, Droga)>,
     /// Lżejsze ustawienia enkodera (po wykryciu, że nie nadąża)
     lekki: bool,
     /// Gra na wierzchu nagrywanego ekranu (do pokazania w oknie i w zasobniku)
     gra: Option<crate::gra::Gra>,
+    /// Program, którego dźwięk idzie do ścieżki „Gra”: wybrana gra albo ostatnia gra na wierzchu
+    /// (zostaje, gdy przełączysz się np. na Discorda, dopóki działa)
+    gra_dzwieku: String,
     /// Wybrana gra nie działa — nagrywanie czeka na nią
     czeka_na_gre: bool,
     /// Trwająca seria chwilowych awarii drogi w ffmpeg (np. gra zmienia tryb ekranu): od kiedy i która
@@ -184,6 +204,8 @@ struct Zachowane {
 #[derive(Clone)]
 pub struct Rdzen {
     w: Arc<Mutex<Wnetrze>>,
+    /// Proces gry, której dźwięk idzie do ścieżki „Gra” (0 = gry nie widać); czytają go wątki dźwięku
+    cel_dzwieku: audio::CelDzwieku,
     powiadom: Powiadom,
 }
 
@@ -196,17 +218,21 @@ impl Rdzen {
             bledy: BTreeMap::new(),
             _skrot: None,
             _skrot_filmu: None,
+            _skrot_znacznika: None,
             skroty_wstrzymane: false,
             skrot_filmu_blad: None,
+            skrot_znacznika_blad: None,
             film: None,
             zapis_filmu: false,
             zmniejszanie_filmu: None,
             pokolenie: 0,
             start_sesji: None,
             wznawianie: None,
+            przelaczanie: BTreeMap::new(),
             odrzucone: HashSet::new(),
             lekki: false,
             gra: None,
+            gra_dzwieku: String::new(),
             czeka_na_gre: false,
             seria_awarii: None,
             odrzucone_chwilowo: HashMap::new(),
@@ -214,7 +240,7 @@ impl Rdzen {
             gra_znikla_od: None,
             zachowane: None,
         };
-        Rdzen { w: Arc::new(Mutex::new(w)), powiadom: Arc::new(powiadom) }
+        Rdzen { w: Arc::new(Mutex::new(w)), cel_dzwieku: Default::default(), powiadom: Arc::new(powiadom) }
     }
 
     /// Blokada stanu odporna na „zatrucie” (awarię innego wątku w trakcie blokady).
@@ -234,6 +260,15 @@ impl Rdzen {
             pauza: w.pauza,
             bledy: w.bledy.values().cloned().collect(),
             wznawianie: w.wznawianie.clone(),
+            przelaczanie: match (
+                w.przelaczanie.contains_key("system") || w.przelaczanie.contains_key("reszta"),
+                w.przelaczanie.contains_key("mikrofon"),
+            ) {
+                (true, true) => Some("dźwięk i mikrofon".into()),
+                (true, false) => Some("dźwięk".into()),
+                (false, true) => Some("mikrofon".into()),
+                (false, false) => None,
+            },
             tryb: w.cfg.tryb.clone(),
             ekran: wideo::etykieta_ekranu(monitor),
             monitor: monitor.to_string(),
@@ -248,6 +283,7 @@ impl Rdzen {
             film_zapis: w.zapis_filmu,
             film_zmniejszanie: w.zmniejszanie_filmu,
             skrot_filmu_blad: w.skrot_filmu_blad.clone(),
+            skrot_znacznika_blad: w.skrot_znacznika_blad.clone(),
         }
     }
 
@@ -282,6 +318,52 @@ impl Rdzen {
     fn zglaszacz(&self, pokolenie: u64, klucz: &'static str) -> impl Fn(Option<String>) + Send + 'static {
         let r = self.clone();
         move |b| r.zglos(pokolenie, klucz, b)
+    }
+
+    /// Zgłoszenia ścieżki dźwięku: błąd i „działa” jak u reszty, a przełączanie na nowe urządzenie
+    /// (zamknięta gra, inne słuchawki) to tylko żółta kropka — bez błędu i bez alarmu.
+    fn zglaszacz_dzwieku(&self, pokolenie: u64, klucz: &'static str) -> impl Fn(audio::Zgloszenie) + Send + 'static {
+        let r = self.clone();
+        move |z| {
+            let zmiana = {
+                let mut w = r.zamek();
+                if w.pokolenie != pokolenie {
+                    return;
+                }
+                match &z {
+                    audio::Zgloszenie::Przelaczanie => w.przelaczanie.insert(klucz, (Instant::now(), true)).is_none(),
+                    // Przełączone: kropka zostaje żółta jeszcze chwilę (zdejmie ją strażnik)
+                    audio::Zgloszenie::Dziala => {
+                        if let Some(p) = w.przelaczanie.get_mut(klucz) {
+                            p.1 = false;
+                        }
+                        false
+                    }
+                    audio::Zgloszenie::Blad(_) => w.przelaczanie.remove(klucz).is_some(),
+                }
+            };
+            if zmiana {
+                r.wyslij_stan();
+            }
+            match z {
+                audio::Zgloszenie::Przelaczanie => {}
+                audio::Zgloszenie::Dziala => r.zglos(pokolenie, klucz, None),
+                audio::Zgloszenie::Blad(b) => r.zglos(pokolenie, klucz, Some(b)),
+            }
+        }
+    }
+
+    /// Zdejmuje żółtą kropkę po zakończonym przełączeniu dźwięku (woła strażnik co sekundę).
+    fn pilnuj_przelaczania(&self) {
+        let zmiana = {
+            let mut w = self.zamek();
+            let ile = w.przelaczanie.len();
+            w.przelaczanie.retain(|_, (od, trwa)| *trwa || od.elapsed() < PRZELACZANIE_WIDAC);
+            w.przelaczanie.len() != ile
+        };
+        if zmiana {
+            self.wyslij_stan();
+        }
     }
 
     /// Startuje (albo restartuje) skrót i nagrywanie według bieżącego configu.
@@ -375,28 +457,46 @@ impl Rdzen {
                 w.bledy.insert("skrot", e);
             }
         }
+        // Zajęty skrót filmu albo znacznika to nie alarm (film da się włączyć z okna) — tylko uwaga w ustawieniach
         w.skrot_filmu_blad = None;
-        if w.cfg.skrot_filmu.is_empty() {
-            return;
+        w.skrot_znacznika_blad = None;
+        if !w.cfg.skrot_filmu.is_empty() {
+            let r = self.clone();
+            let zglos = self.zglaszacz_skrotu(pokolenie, |w| &mut w.skrot_filmu_blad);
+            match skrot::nasluchuj(&w.cfg.skrot_filmu, move || r.przelacz_film(), zglos) {
+                Ok(n) => w._skrot_filmu = Some(n),
+                Err(e) => w.skrot_filmu_blad = Some(e),
+            }
         }
-        // Zajęty skrót filmu to nie alarm (film da się włączyć z okna) — tylko uwaga w ustawieniach
-        let (r, r2) = (self.clone(), self.clone());
-        let zglos = move |b: Option<String>| {
+        if !w.cfg.skrot_znacznika.is_empty() {
+            let r = self.clone();
+            let zglos = self.zglaszacz_skrotu(pokolenie, |w| &mut w.skrot_znacznika_blad);
+            match skrot::nasluchuj(&w.cfg.skrot_znacznika, move || r.dodaj_znacznik(), zglos) {
+                Ok(n) => w._skrot_znacznika = Some(n),
+                Err(e) => w.skrot_znacznika_blad = Some(e),
+            }
+        }
+    }
+
+    /// Zgłoszenia nasłuchu dodatkowego skrótu (film, znacznik): opis zajętego skrótu trafia do `pole`.
+    fn zglaszacz_skrotu(
+        &self,
+        pokolenie: u64,
+        pole: fn(&mut Wnetrze) -> &mut Option<String>,
+    ) -> impl Fn(Option<String>) + Send + 'static {
+        let r = self.clone();
+        move |b: Option<String>| {
             {
-                let mut w = r2.zamek();
-                if w.pokolenie != pokolenie || w.skrot_filmu_blad == b {
+                let mut w = r.zamek();
+                if w.pokolenie != pokolenie || *pole(&mut w) == b {
                     return;
                 }
                 if let Some(b) = &b {
                     crate::dziennik::info(b);
                 }
-                w.skrot_filmu_blad = b;
+                *pole(&mut w) = b;
             }
-            r2.wyslij_stan();
-        };
-        match skrot::nasluchuj(&w.cfg.skrot_filmu, move || r.przelacz_film(), zglos) {
-            Ok(n) => w._skrot_filmu = Some(n),
-            Err(e) => w.skrot_filmu_blad = Some(e),
+            r.wyslij_stan();
         }
     }
 
@@ -410,10 +510,10 @@ impl Rdzen {
             }
             w.skroty_wstrzymane = wstrzymaj;
             if wstrzymaj {
-                (w._skrot.take(), w._skrot_filmu.take())
+                (w._skrot.take(), w._skrot_filmu.take(), w._skrot_znacznika.take())
             } else {
                 self.zarejestruj_skroty(&mut w);
-                (None, None)
+                (None, None, None)
             }
         };
         // Poza blokadą: wątek skrótu może właśnie na nią czekać
@@ -422,6 +522,7 @@ impl Rdzen {
             let mut w = self.zamek();
             w.bledy.remove("skrot");
             w.skrot_filmu_blad = None;
+            w.skrot_znacznika_blad = None;
         }
         self.wyslij_stan();
     }
@@ -462,6 +563,7 @@ impl Rdzen {
             let mut w = self.zamek();
             w.pokolenie += 1;
             w.bledy.retain(|k, _| zostaw.contains(k));
+            w.przelaczanie.clear();
             let sesja = w.sesja.take();
             // Bufory zostają na następną sesję — chyba że trwa film (ten dostaje nowy segment)
             if let Some(s) = sesja.as_ref().filter(|_| w.film.is_none()) {
@@ -479,7 +581,7 @@ impl Rdzen {
                     pulpit: s.pulpit,
                 });
             }
-            ((w._skrot.take(), w._skrot_filmu.take()), sesja)
+            ((w._skrot.take(), w._skrot_filmu.take(), w._skrot_znacznika.take()), sesja)
         };
         drop(skroty);
         drop(sesja);
@@ -556,8 +658,11 @@ impl Rdzen {
         // Dźwięk: AAC 160 kb/s; bufor dłuższy o 2 s, żeby na pewno pokrył początek obrazu
         // Gdy obraz nagrywa się dalej do starego bufora, dźwięk też (to samo urządzenie = ta sama ścieżka)
         let (mut audio_, mut bufory_audio, mut urzadzenia_audio) = (Vec::new(), Vec::new(), Vec::new());
+        // Gra osobno od reszty komputera (loopback procesu, Windows 10 2004+), inaczej jedna ścieżka
+        let osobno = cfg.dzwiek_osobno && audio::dzwiek_procesu_dostepny();
         for (wlaczone, zrodlo, urzadzenie, klucz, nazwa) in [
-            (cfg.dzwiek_systemowy, Zrodlo::System, String::new(), "system", "Gra"),
+            (cfg.dzwiek_systemowy, if osobno { Zrodlo::Gra } else { Zrodlo::System }, String::new(), "system", "Gra"),
+            (cfg.dzwiek_systemowy && osobno, Zrodlo::Reszta, String::new(), "reszta", "Discord i reszta"),
             (cfg.mikrofon, Zrodlo::Mikrofon, cfg.mikrofon_urzadzenie.clone(), "mikrofon", "Mikrofon"),
         ] {
             if wlaczone {
@@ -566,7 +671,14 @@ impl Rdzen {
                     .and_then(|z| z.bufory_audio.iter().find(|(n, u, _)| *n == nazwa && *u == urzadzenie))
                     .map(|(_, _, b)| b.clone());
                 let b = stary.unwrap_or_else(|| Bufor::nowy(cfg.bufor_sekundy + 2));
-                audio_.push(audio::uruchom(zrodlo, urzadzenie.clone(), 160, b.clone(), self.zglaszacz(pokolenie, klucz)));
+                audio_.push(audio::uruchom(
+                    zrodlo,
+                    urzadzenie.clone(),
+                    160,
+                    b.clone(),
+                    self.cel_dzwieku.clone(),
+                    self.zglaszacz_dzwieku(pokolenie, klucz),
+                ));
                 bufory_audio.push((nazwa, b));
                 urzadzenia_audio.push(urzadzenie);
             }
@@ -735,6 +847,26 @@ impl Rdzen {
         });
     }
 
+    /// Znacznik w trwającym filmie (skrót): w pliku filmu będzie rozdziałem, a edytor pozwala do niego skoczyć.
+    pub fn dodaj_znacznik(&self) {
+        let znacznik = self.zamek().film.as_mut().map(|f| (f.dodaj_znacznik(), f.sekundy()));
+        if let Some((nr, sek)) = znacznik {
+            crate::dziennik::info(&format!("Film: znacznik {nr} w {sek} s"));
+        }
+        (self.powiadom)(Zdarzenie::Znacznik(znacznik));
+    }
+
+    /// Przy starcie programu: składa filmy przerwane awarią (`foldery` z film::przerwane).
+    pub fn odzyskaj_filmy(&self, foldery: Vec<PathBuf>) {
+        for tmp in foldery {
+            crate::dziennik::info(&format!("Odzyskuję film przerwany awarią: {}", tmp.display()));
+            match crate::film::odzyskaj(&tmp) {
+                Ok(w) => (self.powiadom)(Zdarzenie::FilmOdzyskany { plik: w.pliki[0].clone(), sekundy: w.sekundy, czesci: w.pliki.len() }),
+                Err(e) => crate::dziennik::blad(&format!("Nie udało się odzyskać filmu z {}: {e}", tmp.display())),
+            }
+        }
+    }
+
     /// Zaczyna albo kończy długie nagrywanie (skrót, przycisk w oknie, menu przy zegarze).
     pub fn przelacz_film(&self) {
         if self.zamek().film.is_some() {
@@ -872,12 +1004,14 @@ impl Rdzen {
         }
         // Nazwa gry na wierzchu — tylko do pokazania w oknie i w zasobniku
         let teraz = crate::gra::na_pierwszym_planie(&monitor);
+        let teraz_proces = teraz.as_ref().map(|g| g.proces.clone());
         let zmiana_nazwy = {
             let mut w = self.zamek();
             let zmiana = w.gra != teraz;
             w.gra = teraz;
             zmiana
         };
+        self.pilnuj_dzwieku_gry(&wybrana, teraz_proces.as_deref());
 
         if wybrana.is_empty() {
             if czekal {
@@ -921,6 +1055,32 @@ impl Rdzen {
         } else if zmiana_nazwy {
             self.wyslij_stan();
         }
+    }
+
+    /// Wybiera proces, którego dźwięk idzie do ścieżki „Gra”: wybrana w ustawieniach gra, a bez wyboru —
+    /// ostatnia gra na wierzchu (przełączenie na Discorda czy pulpit jej nie zmienia, dopóki gra działa).
+    fn pilnuj_dzwieku_gry(&self, wybrana: &str, na_wierzchu: Option<&str>) {
+        let poprzednia = self.zamek().gra_dzwieku.clone();
+        let mut nazwa = match (wybrana, na_wierzchu) {
+            ("", Some(p)) => p.to_string(),
+            ("", None) => poprzednia.clone(),
+            (w, _) => w.to_string(),
+        };
+        let pid = if nazwa.is_empty() { None } else { crate::gra::pid(&nazwa) };
+        if pid.is_none() {
+            nazwa.clear();
+        }
+        let pid = pid.unwrap_or(0);
+        if self.cel_dzwieku.swap(pid, Ordering::SeqCst) != pid {
+            let ma_sesje = self.zamek().sesja.is_some();
+            if ma_sesje && (pid != 0 || !poprzednia.is_empty()) {
+                crate::dziennik::info(&match pid {
+                    0 => "Dźwięk gry: gra się zamknęła — ścieżka „Gra” nagrywa cały dźwięk komputera".to_string(),
+                    p => format!("Dźwięk gry: nagrywam {nazwa} (proces {p}) osobno od reszty"),
+                });
+            }
+        }
+        self.zamek().gra_dzwieku = nazwa;
     }
 
     /// Co nie działa w nagrywaniu obrazu (None = działa albo jest wstrzymane).
@@ -989,6 +1149,7 @@ impl Rdzen {
 
                 // Jaka gra jest na wierzchu; przy wybranej grze: start, gdy rusza, stop, gdy znika
                 r.pilnuj_gry();
+                r.pilnuj_przelaczania();
 
                 let problem = r.problem_nagrywania(po_uspieniu);
                 // Inne błędy (skrót zajęty, brak dźwięku) też zasługują na alarm, ale nie na restart

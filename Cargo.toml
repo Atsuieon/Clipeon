@@ -1,6 +1,6 @@
 [package]
 name = "clipeon"
-version = "1.4.4"
+version = "1.4.5"
 edition = "2024"
 description = "Lekkie nagrywanie powtórek z gier dla Windows"
 authors = ["Atsuieon"]
@@ -19,9 +19,10 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-updater = { version = "2.14.1", default-features = false, features = ["native-tls", "system-proxy"] }
 toml = "1.2.1"
 trash = "5.3.0"
-windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_System_Performance", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_Media_Audio", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_Storage_FileSystem", "Win32_Graphics_Dxgi", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi_Common", "Win32_System_Recovery", "Win32_Security", "Win32_UI_Shell_PropertiesSystem", "Win32_Devices_FunctionDiscovery", "Win32_System_ProcessStatus", "Win32_System_Diagnostics_ToolHelp"] }
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_System_Performance", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_Media_Audio", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_Storage_FileSystem", "Win32_Graphics_Dxgi", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi_Common", "Win32_System_Recovery", "Win32_Security", "Win32_UI_Shell_PropertiesSystem", "Win32_Devices_FunctionDiscovery", "Win32_System_ProcessStatus", "Win32_System_Diagnostics_ToolHelp", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole", "Win32_UI_Shell"] }
 windows-capture = "2.0.1"
 windows-registry = "0.6"
+windows-core = "0.62.2"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

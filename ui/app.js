@@ -7,12 +7,14 @@ const $ = (id) => document.getElementById(id);
 
 // Ikony Lucide (linie 1.5 px)
 const IKONY = {
+  sluchawki: '<path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/>',
   zapisz: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
   pauza: '<rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/>',
   graj: '<polygon points="6 3 20 12 6 21 6 3"/>',
   pelny: '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
   okno: '<path d="M3 8h3a2 2 0 0 0 2-2V3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/>',
   folder: '<path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/>',
+  kopiuj: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
   kosz: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
   zamknij: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
   odswiez: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
@@ -174,7 +176,8 @@ for (const b of document.querySelectorAll(".zakladka")) {
 function pokazStan(s) {
   stan = s;
   const kropka = $("kropka");
-  const klasa = s.bledy.length ? "blad" : s.wznawianie ? "wznawianie" : s.nagrywa ? "nagrywa" : "";
+  // Żółta kropka: strażnik wznawia nagrywanie albo dźwięk przełącza się na nowe urządzenie
+  const klasa = s.bledy.length ? "blad" : s.wznawianie || s.przelaczanie ? "wznawianie" : s.nagrywa ? "nagrywa" : "";
   kropka.className = "kropka " + klasa;
   $("status").className = "status " + klasa;
   const pulpit = s.tryb === "pulpit";
@@ -182,15 +185,17 @@ function pokazStan(s) {
     ? "Nie nagrywa"
     : s.wznawianie
       ? "Wznawiam…"
-      : s.pauza
-        ? "Wstrzymane"
-        : s.czeka_na_gre
-          ? `Czekam na ${s.wybrana_gra}`
-          : pulpit
-            ? "Nagrywa pulpit"
-            : s.gra
-              ? `Nagrywa: ${s.gra}`
-              : "Nagrywa";
+      : s.przelaczanie
+        ? "Przełączam…"
+        : s.pauza
+          ? "Wstrzymane"
+          : s.czeka_na_gre
+            ? `Czekam na ${s.wybrana_gra}`
+            : pulpit
+              ? "Nagrywa pulpit"
+              : s.gra
+                ? `Nagrywa: ${s.gra}`
+                : "Nagrywa";
   // Pasek z wyjaśnieniem i przyciskami, gdy coś nie działa
   const problem = s.bledy[0] || (s.wznawianie && `Wznawiam nagrywanie: ${s.wznawianie}`);
   $("baner").hidden = !problem;
@@ -201,11 +206,15 @@ function pokazStan(s) {
   }
   // Przy nagrywaniu widać klatki zapisanego trybu — od razu wiadomo, czy pulpit idzie w 30, czy w 60
   const fps = cfg && (pulpit ? cfg.fps_pulpitu : cfg.fps);
-  $("status-tekst").textContent = s.nagrywa && !s.pauza && !s.bledy.length && fps ? `${tekst} · ${fps} kl./s` : tekst;
+  $("status-tekst").textContent = s.nagrywa && !s.pauza && !s.bledy.length && !s.wznawianie && !s.przelaczanie && fps ? `${tekst} · ${fps} kl./s` : tekst;
   // Przekreślony mikrofon, gdy Clipeon nagrywa bez mikrofonu
   $("status-mik").innerHTML = ikona("mikrofonWyl");
   $("status-mik").hidden = s.mikrofon !== false;
-  $("status").title = s.bledy.join("\n");
+  $("status").title = s.bledy.length
+    ? s.bledy.join("\n")
+    : s.przelaczanie && !s.wznawianie
+      ? `Windows zmienił urządzenie dźwięku (np. po zamknięciu gry). Clipeon przełącza na nowe: ${s.przelaczanie}. Obraz nagrywa się dalej.`
+      : "";
   $("pauza").innerHTML = s.pauza ? zIkona("graj", "Wznów") : zIkona("pauza", "Wstrzymaj");
   $("zapisz-klip").disabled = !s.nagrywa;
   $("status").classList.toggle("czeka", !!s.czeka_na_gre);
@@ -243,6 +252,8 @@ function pokazFilm(s) {
   // Zajęty skrót filmu: uwaga w ustawieniach (film da się wtedy włączyć przyciskiem)
   $("skrot-filmu-uwaga").hidden = !s.skrot_filmu_blad;
   $("skrot-filmu-uwaga").textContent = s.skrot_filmu_blad || "";
+  $("skrot-znacznika-uwaga").hidden = !s.skrot_znacznika_blad;
+  $("skrot-znacznika-uwaga").textContent = s.skrot_znacznika_blad || "";
   // Zapisany film jest zmniejszany w tle do formatu z ustawień
   $("film-zmniejszanie").hidden = s.film_zmniejszanie == null;
   $("film-zmniejszanie").textContent = `Zmniejszam ostatni film: ${s.film_zmniejszanie ?? 0}%. Do końca jest w bibliotece w pełnej jakości.`;
@@ -725,7 +736,8 @@ let dlugosc = 0;
 let rozmiarDocelowy = null; // null = bez zmian, inaczej MB
 let eksportTrwa = false;
 let formatZapisu = "mp4"; // "mp4", "gif" albo "webp"
-let infoKlipu = { sciezki_audio: 1, fps: 0, szerokosc: 0, wysokosc: 0, webp: false };
+const INFO_DOMYSLNE = { sciezki_audio: 1, fps: 0, szerokosc: 0, wysokosc: 0, webp: false, znaczniki: [] };
+let infoKlipu = INFO_DOMYSLNE;
 // GIF i WebP: najdłuższy fragment (tak samo pilnuje tego rdzeń)
 const ANIMACJA_MAX = 15;
 const animacja = () => formatZapisu !== "mp4";
@@ -751,6 +763,8 @@ function odtworz(klip) {
   kadr = null;
   kadrowanie = false;
   dlugosc = 0;
+  infoKlipu = INFO_DOMYSLNE;
+  ulozZnaczniki();
   ostatniEksport = null;
   zatrzymajDzwiekNaZywo();
   przygotujGlosnosc(klip);
@@ -793,6 +807,7 @@ $("wideo").addEventListener("loadedmetadata", () => {
   zakres = { start: 0, koniec: dlugosc };
   odswiezEdytor();
   ulozKadr();
+  ulozZnaczniki();
 });
 
 // Odtwarzanie tylko w zaznaczonym zakresie (w pętli)
@@ -927,7 +942,7 @@ function odswiezEdytor() {
   else if (rozmiarDocelowy !== null) b.textContent = `Zapisz jako ${rozmiarDocelowy} MB`;
   else if (kadr) b.textContent = "Zapisz wykadrowany";
   else if (przyciete()) b.textContent = "Zapisz przycięty";
-  else if (maMikrofon && glosnosci()[1] === 0 && glosnosci()[0] === 1) b.textContent = "Zapisz bez mojego głosu";
+  else if (bezJednejSciezki()) b.textContent = `Zapisz bez ${bezJednejSciezki()}`;
   else if (glosnosciZmienione()) b.textContent = "Zapisz z nową głośnością";
   else b.textContent = "Zapisz";
   b.disabled = eksportTrwa || !zmiany() || zaDlugi;
@@ -1009,13 +1024,37 @@ listen("postep", (e) => {
   $("eksport-info").textContent = `Zapisuję… ${p}%`;
 });
 
-// ---------- Edytor: ścieżki dźwięku (Gra / Mikrofon albo jedna) ----------
+// ---------- Edytor: ścieżki dźwięku (Gra / Discord i reszta / Mikrofon albo jedna) ----------
 // Każda ścieżka to wykres głośności na osi czasu klipu, z poziomą linią głośności (0–200%).
 // Linię przeciąga się w górę i w dół, a zmianę słychać od razu (patrz „głośność słychać od razu”).
+// Wykres stoi w miejscu: głośność zmienia jego jasność (0% = blady, 200% = najjaśniejszy) i tylko
+// odrobinę wysokość słupków.
 // Każdy wpis: { nazwa, glosnosc (0..2), przed (głośność sprzed wyciszenia), fala (0–255 albo null), el, … }
 let sciezkiGlosu = [];
-let maMikrofon = false;
 const KUBELKI_FALI = 800;
+
+// Ścieżki do edycji: klip z osobnymi ścieżkami ma najpierw miks (nr 0), a potem każdą osobno —
+// Gra i Mikrofon, od 1.4.5 też „Discord i reszta”. Nazwy bierzemy z pliku; starsze pliki bez nazw
+// dostają domyślne. Każdy wpis: { nr (numer ścieżki w pliku), nazwa, ikona }.
+function opisySciezek(info) {
+  const n = info.sciezki_audio || 0;
+  if (n < 3) return n >= 1 ? [{ nr: 0, nazwa: "Dźwięk", ikona: "glosnik" }] : [];
+  const domyslne = n === 3 ? ["Gra", "Mikrofon"] : ["Gra", "Discord i reszta", "Mikrofon"];
+  return Array.from({ length: n - 1 }, (_, i) => {
+    const nazwa = (info.nazwy_sciezek || [])[i + 1] || domyslne[i] || `Ścieżka ${i + 1}`;
+    const ikona = /mikrofon/i.test(nazwa) ? "mikrofon" : /discord|reszta/i.test(nazwa) ? "sluchawki" : "glosnik";
+    return { nr: i + 1, nazwa, ikona };
+  });
+}
+
+// Wyciszona dokładnie jedna z kilku ścieżek, reszta bez zmian: co wypada („mojego głosu”, „Discorda”…)
+function bezJednejSciezki() {
+  if (sciezkiGlosu.length < 2) return "";
+  const zero = sciezkiGlosu.filter((s) => s.glosnosc === 0);
+  if (zero.length !== 1 || sciezkiGlosu.some((s) => s.glosnosc !== 0 && s.glosnosc !== 1)) return "";
+  const { ikonaNazwa, nazwa } = zero[0];
+  return ikonaNazwa === "mikrofon" ? "mojego głosu" : ikonaNazwa === "sluchawki" ? "Discorda i reszty" : nazwa === "Gra" ? "dźwięku gry" : nazwa;
+}
 
 async function przygotujGlosnosc(klip) {
   const kont = $("sciezki-dzwieku");
@@ -1027,16 +1066,14 @@ async function przygotujGlosnosc(klip) {
   } catch {}
   if (odtwarzany !== klip) return;
   infoKlipu = info;
+  ulozZnaczniki();
   // Gdy podgląd nie zna długości (kodek nieobsługiwany przez WebView), bierzemy ją z pliku
   if (!dlugosc && info.dlugosc) {
     dlugosc = info.dlugosc;
     zakres = { start: 0, koniec: dlugosc };
   }
-  // Klip z osobnymi ścieżkami ma: miks, gra, mikrofon
-  maMikrofon = info.sciezki_audio >= 3;
-  const opisy = maMikrofon ? [["Gra", "glosnik"], ["Mikrofon", "mikrofon"]] : info.sciezki_audio >= 1 ? [["Dźwięk", "glosnik"]] : [];
-  const numery = maMikrofon ? [1, 2] : [0];
-  const moje = opisy.map(([nazwa, ikonaNazwa]) => {
+  const opisy = opisySciezek(info);
+  const moje = opisy.map(({ nazwa, ikona: ikonaNazwa }) => {
     const s = { nazwa, ikonaNazwa, glosnosc: 1, przed: 1, fala: null };
     s.el = document.createElement("div");
     s.el.className = "sciezka";
@@ -1062,7 +1099,7 @@ async function przygotujGlosnosc(klip) {
   // Wykresy dochodzą po chwili (ffmpeg musi przejść przez dźwięk klipu); bez nich zostaje sama linia głośności
   moje.forEach(async (s, i) => {
     try {
-      const fala = await invoke("fala_dzwieku", { sciezka: klip.sciezka, nr: numery[i], kubelki: KUBELKI_FALI });
+      const fala = await invoke("fala_dzwieku", { sciezka: klip.sciezka, nr: opisy[i].nr, kubelki: KUBELKI_FALI });
       if (odtwarzany !== klip || !fala) return;
       s.fala = Array.from(fala);
       rysujFale(s);
@@ -1078,12 +1115,19 @@ function ustawGlosnosc(s, v) {
   odswiezEdytor();
 }
 
+// Połowa wysokości etykiety z procentem (.fala-procent: 16 px wiersza + 2 px odstępów)
+const POL_ETYKIETY = 9;
+
 function odswiezSciezki() {
   for (const s of sciezkiGlosu) {
     const p = Math.round(s.glosnosc * 100);
     s.linia.style.bottom = `${p / 2}%`;
-    s.linia.classList.toggle("nisko", p < 45);
-    s.linia.classList.toggle("wysoko", p > 165);
+    // Etykieta siedzi na linii, a przy brzegach płynnie zsuwa się do środka wykresu (dawniej przeskakiwała
+    // nad linię poniżej 45% i pod linię powyżej 165%)
+    const h = s.pole.clientHeight || 44;
+    const y = (h * p) / 200;
+    const srodek = Math.min(Math.max(y, POL_ETYKIETY + 1), h - POL_ETYKIETY - 1);
+    s.linia.firstChild.style.top = `${y - srodek - POL_ETYKIETY}px`;
     s.linia.firstChild.textContent = `${p}%`;
     s.pole.setAttribute("aria-valuenow", p);
     s.pole.setAttribute("aria-valuetext", p === 0 ? "wyciszona" : `${p}%`);
@@ -1095,7 +1139,14 @@ function odswiezSciezki() {
   }
 }
 
-// Wykres: słupki od dołu; pełna wysokość = 200%, więc przy 100% najgłośniejsze miejsca sięgają linii
+// Jasność słupków wykresu dla głośności 0..2: 0% blado (ale dalej widać, gdzie jest dźwięk), 100% jak
+// dawniej, 200% najjaśniej
+const jasnoscFali = (g) => (g <= 1 ? 0.16 + 0.34 * g : 0.5 + 0.35 * (g - 1));
+// Jaką część wysokości pola zajmuje najgłośniejszy słupek: głośność rusza wykresem tylko odrobinę
+// (po 8% wysokości na każde 100%), żeby było widać kierunek zmiany
+const wysokoscFali = (g) => 0.54 + 0.08 * g;
+
+// Wykres: słupki od dołu. Nie rośnie razem z linią głośności — zmienia głównie jasność
 function rysujFale(s) {
   const c = s.plotno;
   const dpr = window.devicePixelRatio || 1;
@@ -1109,9 +1160,8 @@ function rysujFale(s) {
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, w, h);
   if (!s.fala) return;
-  // Wyciszona ścieżka dalej pokazuje (blado), gdzie jest dźwięk
-  const glosnosc = s.glosnosc === 0 ? 1 : s.glosnosc;
-  g.fillStyle = s.glosnosc === 0 ? "rgba(255, 255, 255, 0.16)" : "rgba(255, 255, 255, 0.5)";
+  g.fillStyle = `rgba(255, 255, 255, ${jasnoscFali(s.glosnosc).toFixed(3)})`;
+  const skala = wysokoscFali(s.glosnosc) * h;
   const krok = 3;
   for (let x = 0; x < w; x += krok) {
     // Najgłośniejsze miejsce z kawałka klipu pod tym słupkiem
@@ -1120,24 +1170,33 @@ function rysujFale(s) {
     let szczyt = 0;
     for (let i = od; i < od + ile && i < s.fala.length; i++) szczyt = Math.max(szczyt, s.fala[i]);
     // Pierwiastek, żeby ciche dźwięki (rozmowa, kroki) też było widać
-    const wys = Math.min(h, Math.sqrt(szczyt / 255) * glosnosc * (h / 2));
+    const wys = Math.sqrt(szczyt / 255) * skala;
     if (wys >= 0.5) g.fillRect(x, h - wys, krok - 1, wys);
   }
 }
 
-// Przeciąganie w górę / w dół = głośność; samo kliknięcie = przewinięcie w to miejsce klipu
+// Przeciąganie w górę / w dół = głośność; samo kliknięcie = przewinięcie w to miejsce klipu.
+// Linia rusza z miejsca, w którym stoi, i idzie o tyle, o ile ruszy się myszka — niezależnie od tego,
+// gdzie na ścieżce złapano. Dawniej skakała pod kursor (złapanie przy górnej krawędzi od razu dawało
+// prawie 200%), a każde przesunięcie się układu okna w trakcie ciągnięcia zmieniało głośność.
 function podepnijFale(s) {
   const pole = s.pole;
   pole.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
     pole.setPointerCapture(e.pointerId);
-    const y0 = e.clientY;
+    // Wysokość pola = 200%; mierzona raz, na początku
+    const wysokosc = pole.getBoundingClientRect().height || 44;
+    const g0 = s.glosnosc;
+    let y0 = e.clientY;
     let ciagnie = false;
     const ruch = (m) => {
-      if (!ciagnie && Math.abs(m.clientY - y0) < 3) return;
-      ciagnie = true;
-      const r = pole.getBoundingClientRect();
-      ustawGlosnosc(s, ((r.bottom - m.clientY) / r.height) * 2);
+      if (!ciagnie) {
+        if (Math.abs(m.clientY - y0) < 3) return;
+        // Ruch liczymy od chwili, gdy przeciąganie się zaczęło, żeby linia nie drgnęła o te 3 px
+        ciagnie = true;
+        y0 = m.clientY;
+      }
+      ustawGlosnosc(s, g0 + ((y0 - m.clientY) / wysokosc) * 2);
     };
     const koniec = (k) => {
       pole.removeEventListener("pointermove", ruch);
@@ -1221,6 +1280,48 @@ function klatka(ile) {
   const nr = Math.floor(v.currentTime * fps + 0.01) + ile;
   v.currentTime = Math.min(Math.max((nr + 0.5) / fps, 0), Math.max(dlugosc - 0.5 / fps, 0));
   odswiezGlowice();
+}
+
+// ---------- Edytor: znaczniki filmu ----------
+// Znaczniki (skrót w trakcie filmu) są w pliku rozdziałami: kreski na osi czasu, kliknięcie skacze
+// do znacznika, a [ i ] do poprzedniego / następnego.
+
+function ulozZnaczniki() {
+  const os = $("os");
+  os.querySelectorAll(".os-znacznik").forEach((z) => z.remove());
+  if (!dlugosc) return;
+  (infoKlipu.znaczniki || []).forEach((t, i) => {
+    if (t > dlugosc) return;
+    const z = document.createElement("button");
+    z.type = "button";
+    z.className = "os-znacznik";
+    z.style.left = `${procent(t)}%`;
+    z.title = `Znacznik ${i + 1} (${formatCzas(t)})`;
+    z.setAttribute("aria-label", z.title);
+    // Bez przewijania osi pod spodem — skok dokładnie do znacznika
+    z.addEventListener("pointerdown", (e) => e.stopPropagation());
+    z.addEventListener("click", (e) => {
+      e.stopPropagation();
+      skoczDoZnacznika(t);
+    });
+    os.insertBefore(z, $("os-glowica"));
+  });
+}
+
+function skoczDoZnacznika(t) {
+  const v = $("wideo");
+  v.currentTime = Math.min(Math.max(t, zakres.start), Math.max(zakres.koniec - 0.05, zakres.start));
+  odswiezGlowice();
+}
+
+// Poprzedni (-1) albo następny (1) znacznik. Poprzedni liczymy z pół sekundy zapasu, żeby przy
+// odtwarzaniu [ cofało do wcześniejszego, a nie do tego, który właśnie minął
+function znacznikObok(kierunek) {
+  const t = $("wideo").currentTime;
+  const lista = infoKlipu.znaczniki || [];
+  const cel = kierunek < 0 ? lista.findLast((z) => z < t - 0.5) : lista.find((z) => z > t + 0.05);
+  if (cel === undefined) dymek(lista.length ? "Dalej nie ma znaczników" : "Ten film nie ma znaczników");
+  else skoczDoZnacznika(cel);
 }
 
 // ---------- Edytor: format zapisu (MP4 / GIF / WebP) ----------
@@ -1400,12 +1501,12 @@ document.addEventListener("fullscreenchange", () =>
 );
 
 // ---------- Edytor: głośność słychać od razu ----------
-// Ścieżki gry i mikrofonu (albo jedyna ścieżka) grają osobno, każda przez własny „gain” (0–200%),
+// Osobne ścieżki (gra, Discord i reszta, mikrofon — albo jedyna ścieżka) grają osobno, każda przez własny „gain” (0–200%),
 // a wideo jest wyciszone. Bez tego suwaki działałyby dopiero w zapisanym pliku.
 
 async function przygotujDzwiekNaZywo(klip, info) {
   zatrzymajDzwiekNaZywo();
-  const numery = info.sciezki_audio >= 3 ? [1, 2] : info.sciezki_audio >= 1 ? [0] : [];
+  const numery = opisySciezek(info).map((o) => o.nr);
   if (!numery.length) return;
   dzwiek.klip = klip;
   try {
@@ -1598,6 +1699,7 @@ function pokazWynik(klip) {
 
 przeciagalny($("wynik-przeciagnij"), () => wynikKlip && wynikKlip.sciezka);
 $("wynik-folder").addEventListener("click", () => wynikKlip && pokazWFolderze(wynikKlip));
+$("wynik-kopiuj").addEventListener("click", () => wynikKlip && kopiujKlip(wynikKlip));
 $("wynik-otworz").addEventListener("click", () => wynikKlip && odtworz(wynikKlip));
 przeciagalny($("wideo"), plikDoPrzeciagniecia);
 
@@ -1606,7 +1708,18 @@ $("odtwarzacz").addEventListener("click", (e) => {
   if (e.target === $("odtwarzacz")) zamknijOdtwarzacz();
 });
 $("odtw-folder").addEventListener("click", () => odtwarzany && pokazWFolderze(odtwarzany));
+$("odtw-kopiuj").addEventListener("click", () => odtwarzany && kopiujKlip(odtwarzany));
 $("odtw-usun").addEventListener("click", () => odtwarzany && usun(odtwarzany));
+
+// Klip do schowka jako plik — Ctrl+V w Discordzie, Eksploratorze albo przeglądarce wkleja go od razu
+async function kopiujKlip(klip) {
+  try {
+    await invoke("kopiuj_klip", { sciezka: klip.sciezka });
+    dymek("Skopiowano — wklej Ctrl+V w Discordzie");
+  } catch (e) {
+    dymek(String(e));
+  }
+}
 
 async function pokazWFolderze(klip) {
   try {
@@ -1670,6 +1783,7 @@ function pokazMenu(x, y, klip) {
   for (const mb of ROZMIARY.slice(1)) {
     if (mb * 1e6 < klip.rozmiar) pozycja("kompresja", `Kompresuj do ${mb} MB`, () => kompresuj(klip, mb));
   }
+  pozycja("kopiuj", "Kopiuj (wklej Ctrl+V w Discordzie)", () => kopiujKlip(klip));
   pozycja("folder", "Pokaż w folderze", () => pokazWFolderze(klip));
   pozycja("kosz", "Usuń", () => usun(klip));
   m.hidden = false;
@@ -1699,14 +1813,21 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     przelaczPelnyEkran();
   } else if (!$("odtwarzacz").hidden && !e.target.closest("input, select, textarea, .uchwyt") && !e.ctrlKey && !e.altKey) {
-    // ← / → o 5 s, , / . (czyli < / >) o jedną klatkę, C = kadrowanie
+    // ← / → o 5 s, , / . (czyli < / >) o jedną klatkę, C = kadrowanie, [ / ] = poprzedni / następny znacznik
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") przewin(e.key === "ArrowLeft" ? -5 : 5);
     else if (e.key === "," || e.key === "<") klatka(-1);
     else if (e.key === "." || e.key === ">") klatka(1);
     else if (e.key === "c" || e.key === "C") przelaczKadrowanie();
+    else if (e.key === "[" || e.key === "]") znacznikObok(e.key === "[" ? -1 : 1);
     else return;
     e.preventDefault();
     obudzSterowanie();
+  } else if (
+    !$("odtwarzacz").hidden && e.ctrlKey && !e.shiftKey && (e.key === "c" || e.key === "C") &&
+    !e.target.closest("input, textarea") && !getSelection().toString()
+  ) {
+    e.preventDefault();
+    if (odtwarzany) kopiujKlip(odtwarzany);
   } else if (!$("odtwarzacz").hidden && e.ctrlKey && e.shiftKey && (e.key === "D" || e.key === "d")) {
     e.preventDefault();
     przelaczLicznik();
@@ -1764,6 +1885,7 @@ const POLA = [
   ["fps-pulpitu", "fps_pulpitu", "liczba"],
   ["bitrate-pulpitu", "bitrate_pulpitu_mbps", "liczba"],
   ["dzwiek", "dzwiek_systemowy", "tak"],
+  ["dzwiek-osobno", "dzwiek_osobno", "tak"],
   ["mikrofon", "mikrofon", "tak"],
   ["dzwiek-zapisu", "dzwiek_zapisu", "tak"],
   ["powiadomienie-zapisu", "powiadomienie_zapisu", "tak"],
@@ -1837,6 +1959,7 @@ async function wczytajUstawienia() {
   $("sprz-gb").value = cfg.sprzatanie_gb || 50;
   ustawSkrot($("skrot"), cfg.skrot);
   ustawSkrot($("skrot-filmu"), cfg.skrot_filmu);
+  ustawSkrot($("skrot-znacznika"), cfg.skrot_znacznika ?? "Alt+F8");
   $("folder").textContent = cfg.folder_klipow;
   $("autostart").checked = u.autostart;
   $("wersja").textContent = u.wersja;
@@ -1875,7 +1998,8 @@ function odswiezFormularz() {
   $("format-filmu-uwaga").textContent = film[$("format-filmu").value] || "";
   // Szacunek RAM bufora: obraz (bitrate) + dźwięk (160 kb/s na ścieżkę)
   const s = Number($("bufor").value);
-  const sciezki = Number($("dzwiek").checked) + Number($("mikrofon").checked);
+  $("dzwiek-osobno").disabled = !$("dzwiek").checked;
+  const sciezki = Number($("dzwiek").checked) * (1 + Number($("dzwiek-osobno").checked)) + Number($("mikrofon").checked);
   const ram = (mbps) => formatMB((s * ((Number(mbps) || 0) * 1e6 + sciezki * 160e3)) / 8);
   $("ram").textContent = `Zajmuje to ok. ${ram($("bitrate").value)} pamięci RAM w trybie Gra i ${ram($("bitrate-pulpitu").value)} w trybie Pulpit.`;
   // Więcej klatek niż odświeżanie ekranu nic nie da: ekran nie pokazuje nowych obrazów częściej
@@ -1910,6 +2034,7 @@ function zebraneUstawienia() {
     ...odczytajPola(),
     skrot: $("skrot").dataset.wartosc,
     skrot_filmu: $("skrot-filmu").dataset.wartosc,
+    skrot_znacznika: $("skrot-znacznika").dataset.wartosc,
     folder_klipow: $("folder").textContent,
     sprzatanie_dni: $("sprz-dni-wl").checked ? Number($("sprz-dni").value) || 30 : 0,
     sprzatanie_gb: $("sprz-gb-wl").checked ? Number($("sprz-gb").value) || 50 : 0,
@@ -1919,7 +2044,7 @@ function zebraneUstawienia() {
 // Klucz ustawienia → pole formularza (do zaznaczania zmienionych) i nazwa na liście w pytaniu
 const POLE_KLUCZA = {
   ...Object.fromEntries(POLA.map(([id, klucz]) => [klucz, id])),
-  skrot: "skrot", skrot_filmu: "skrot-filmu", folder_klipow: "folder", sprzatanie_dni: "sprz-dni", sprzatanie_gb: "sprz-gb", autostart: "autostart",
+  skrot: "skrot", skrot_filmu: "skrot-filmu", skrot_znacznika: "skrot-znacznika", folder_klipow: "folder", sprzatanie_dni: "sprz-dni", sprzatanie_gb: "sprz-gb", autostart: "autostart",
 };
 const NAZWY_USTAWIEN = {
   bufor_sekundy: "Ile ostatnich sekund zapisywać", fps: "Gra: klatki/s", bitrate_mbps: "Gra: Mb/s",
@@ -1928,7 +2053,7 @@ const NAZWY_USTAWIEN = {
   mikrofon_urzadzenie: "Który mikrofon", dzwiek_zapisu: "Dźwięk po zapisaniu", powiadomienie_zapisu: "Powiadomienie w rogu ekranu",
   ikona_przy_zegarze: "Ikona przy zegarze", sprawdzaj_aktualizacje: "Sprawdzanie nowej wersji", animowane_tlo: "Animowane tło",
   kolorowy_napis: "Kolorowy napis", enkoder: "Format wideo", metoda_przechwytywania: "Sposób przechwytywania obrazu",
-  skrot: "Skrót do zapisania klipu", skrot_filmu: "Skrót do nagrywania filmu", folder_klipow: "Gdzie zapisywać klipy",
+  skrot: "Skrót do zapisania klipu", skrot_filmu: "Skrót do nagrywania filmu", skrot_znacznika: "Skrót znacznika w filmie", folder_klipow: "Gdzie zapisywać klipy",
   sprzatanie_dni: "Usuwanie starych klipów", sprzatanie_gb: "Limit miejsca na klipy", autostart: "Uruchamianie razem z Windows",
 };
 
@@ -2186,6 +2311,8 @@ function odswiezPrzyciskZapisu() {
 
 $("odswiez").innerHTML = ikona("odswiez");
 $("otworz-folder").innerHTML = zIkona("folder", "Folder");
+$("odtw-kopiuj").innerHTML = zIkona("kopiuj", "Kopiuj");
+$("odtw-kopiuj").title = "Kopiuj plik klipu (Ctrl+C) — potem Ctrl+V w Discordzie";
 $("odtw-folder").innerHTML = zIkona("folder", "Pokaż w folderze");
 $("odtw-usun").innerHTML = zIkona("kosz", "Usuń");
 $("odtw-zamknij").innerHTML = ikona("zamknij");

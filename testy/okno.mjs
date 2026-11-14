@@ -38,7 +38,7 @@ function udawanyTauri() {
     format_filmu: "bez_zmian",
   };
   const stan = {
-    nagrywa: true, pauza: false, bledy: [], wznawianie: null, tryb: "gra", ekran: "Ekran 1", monitor: "",
+    nagrywa: true, pauza: false, bledy: [], wznawianie: null, przelaczanie: null, tryb: "gra", ekran: "Ekran 1", monitor: "",
     droga: "dda", gra: "Gra testowa", wybrana_gra: "", gra_proces: "", czeka_na_gre: false, mikrofon: true,
     ramka: false, film: null, film_zapis: false, skrot_filmu_blad: null, film_zmniejszanie: null,
   };
@@ -61,7 +61,10 @@ function udawanyTauri() {
     zapisz_ustawienia: (a) => {
       window.__zapisane = a;
     },
-    info_klipu: () => ({ dlugosc: 20, sciezki_audio: 3, fps: 60, szerokosc: 192, wysokosc: 108, webp: true }),
+    info_klipu: () => ({ dlugosc: 20, sciezki_audio: 3, fps: 60, szerokosc: 192, wysokosc: 108, webp: true, ...window.__info }),
+    kopiuj_klip: (a) => {
+      window.__skopiowane = a.sciezka;
+    },
     dzwiek_podgladu: () => {
       const b = atob(window.__dzwiek);
       const u = new Uint8Array(b.length);
@@ -129,6 +132,15 @@ sprawdz((await strona.isVisible("#status-mik")) && (await strona.locator("#statu
 await zrzut("0-mikrofon-wylaczony");
 await strona.evaluate(() => pokazStan({ ...stan, mikrofon: true }));
 await strona.evaluate(() => pokazStan({ ...stan, tryb: "gra", pauza: false, czeka_na_gre: false, bledy: [], wznawianie: null, nagrywa: true, film: null, film_zapis: false, droga: "dda", ramka: false, skrot_filmu_blad: null }));
+
+// Windows zmienił urządzenie dźwięku (np. po zamknięciu gry): żółta kropka z napisem, bez paska z błędem
+await strona.evaluate(() => pokazStan({ ...stan, przelaczanie: "dźwięk" }));
+sprawdz((await strona.textContent("#status-tekst")) === "Przełączam…", "przełączanie dźwięku nie zmienia napisu przy kropce");
+sprawdz((await strona.locator("#kropka.wznawianie").count()) === 1, "przełączanie dźwięku nie daje żółtej kropki");
+sprawdz(await strona.isHidden("#baner"), "przełączanie dźwięku pokazuje pasek z problemem");
+await zrzut("0-przelaczanie-dzwieku");
+await strona.evaluate(() => pokazStan({ ...stan, przelaczanie: null }));
+sprawdz((await strona.textContent("#status-tekst")) === "Nagrywa: Gra testowa · 60 kl./s", "po przełączeniu dźwięku status nie wraca do „Nagrywa”");
 
 // ---------- Tło ze znaków i płyn pod myszką ----------
 // Jasne znaki (przezroczystość ≥ 0,4) rysuje tylko smuga — liczymy je wokół podanego punktu
@@ -511,16 +523,61 @@ sprawdz((await strona.textContent("#eksportuj")) === "Zapisz bez mojego głosu",
 await strona.locator(".sciezka .wycisz").nth(1).click();
 sprawdz(await v(() => sciezkiGlosu[1].glosnosc === 1), "przycisk przy ścieżce nie włącza mikrofonu");
 
-// Przeciągnięcie linii głośności w dół = ciszej, i słychać to od razu
+// Przeciągnięcie w dół = ciszej, i słychać to od razu. Linia rusza ze swojego miejsca (100%), nawet gdy
+// złapano ścieżkę przy samej górze — dawniej skakała pod kursor, czyli tutaj na prawie 200%
 // (odciszenie mikrofonu chowa wiersz zapisu, więc ścieżki mierzymy od nowa, gdy układ się uspokoi)
 await strona.waitForTimeout(200);
 falaR = await strona.locator(".fala").first().boundingBox();
-await strona.mouse.move(falaR.x + falaR.width / 2, falaR.y + falaR.height / 2);
+const [zlapX, zlapY] = [falaR.x + falaR.width / 2, falaR.y + 4];
+await strona.mouse.move(zlapX, zlapY);
 await strona.mouse.down();
-await strona.mouse.move(falaR.x + falaR.width / 2, falaR.y + falaR.height * 0.75, { steps: 4 });
+await strona.mouse.move(zlapX, zlapY + 3);
+sprawdz((await v(() => sciezkiGlosu[0].glosnosc)) === 1, `złapanie ścieżki z dala od linii zmienia głośność skokiem: ${await v(() => sciezkiGlosu[0].glosnosc)}`);
+// Ćwierć wysokości pola w dół = o 50% ciszej
+await strona.mouse.move(zlapX, zlapY + 3 + falaR.height / 4, { steps: 4 });
 await strona.mouse.up();
 sprawdz((await v(() => sciezkiGlosu[0].glosnosc)) === 0.5, `przeciągnięcie linii głośności: ${await v(() => sciezkiGlosu[0].glosnosc)} zamiast 0.5`);
 sprawdz((await strona.locator(".fala-procent").first().textContent()) === "50%", "linia głośności nie pokazuje procentu");
+
+// Wykres nie rośnie razem z linią: głośność zmienia głównie jasność słupków, a wysokość tylko odrobinę
+const wykresPrzy = (g) =>
+  strona.evaluate((g) => {
+    const s = sciezkiGlosu[0];
+    ustawGlosnosc(s, g);
+    const c = s.plotno;
+    const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+    let [szczyt, jasnosc] = [c.height, 0];
+    for (let y = 0; y < c.height; y++) {
+      for (let x = 0; x < c.width; x++) {
+        const a = d[(y * c.width + x) * 4 + 3];
+        if (a) {
+          szczyt = Math.min(szczyt, y);
+          jasnosc = Math.max(jasnosc, a);
+        }
+      }
+    }
+    return { wys: (c.height - szczyt) / c.height, jasnosc: jasnosc / 255 };
+  }, g);
+const [w0, w100, w200] = [await wykresPrzy(0), await wykresPrzy(1), await wykresPrzy(2)];
+sprawdz(w0.wys > 0.4 && w200.wys < 0.8 && w200.wys - w0.wys < 0.2, `wykres dalej rośnie z głośnością: ${JSON.stringify([w0, w100, w200])}`);
+sprawdz(w0.wys < w100.wys && w100.wys < w200.wys, `wykres nie rusza się ani odrobinę przy zmianie głośności: ${JSON.stringify([w0, w100, w200])}`);
+sprawdz(w0.jasnosc < w100.jasnosc - 0.2 && w100.jasnosc < w200.jasnosc - 0.2, `głośność nie zmienia jasności wykresu: ${JSON.stringify([w0, w100, w200])}`);
+// Etykieta z procentem nie przeskakuje: przy sąsiednich wartościach przesuwa się najwyżej o kilka pikseli
+const etykietaY = async (g) => {
+  await strona.evaluate((g) => ustawGlosnosc(sciezkiGlosu[0], g), g);
+  return (await strona.locator(".fala-procent").first().boundingBox()).y;
+};
+let poprzedniaY = await etykietaY(0);
+let najwiekszySkok = 0;
+for (let g = 0.05; g <= 2.001; g += 0.05) {
+  const y = await etykietaY(g);
+  najwiekszySkok = Math.max(najwiekszySkok, Math.abs(y - poprzedniaY));
+  poprzedniaY = y;
+}
+sprawdz(najwiekszySkok <= 1.5, `etykieta głośności przeskakuje o ${najwiekszySkok} px między sąsiednimi wartościami`);
+const [etykieta0, etykieta200] = [await etykietaY(0), await etykietaY(2)];
+sprawdz(etykieta200 >= falaR.y && etykieta0 + 18 <= falaR.y + falaR.height + 0.5, `etykieta głośności wychodzi poza ścieżkę: ${JSON.stringify([etykieta0, etykieta200, falaR])}`);
+await v(() => ustawGlosnosc(sciezkiGlosu[0], 0.5));
 // Wyciszenie mikrofonu przyciskiem przy ścieżce
 await strona.locator(".sciezka .wycisz").nth(1).click();
 await strona.waitForTimeout(200);
@@ -688,6 +745,59 @@ await strona.keyboard.press("Control+Shift+D");
 // Zamknięcie podglądu zatrzymuje dźwięk i zdejmuje wyciszenie
 await v(() => zamknijOdtwarzacz());
 sprawdz(await v(() => dzwiek.sciezki.length === 0 && !$("wideo").muted), "zamknięcie podglądu nie sprząta dźwięku na żywo");
+
+// Kopiuj: plik klipu idzie do schowka (Ctrl+V w Discordzie)
+await strona.evaluate((k) => odtworz(k), klip);
+await strona.waitForTimeout(300);
+await strona.click("#odtw-kopiuj");
+await strona.waitForTimeout(100);
+sprawdz((await v(() => window.__skopiowane)) === klip.sciezka, "„Kopiuj” nie kopiuje klipu do schowka");
+
+// Klip z dźwiękiem gry osobno: Gra / Discord i reszta / Mikrofon, każdą wycisza się osobno
+await v(() => zamknijOdtwarzacz());
+await v(() => (window.__info = { sciezki_audio: 4, nazwy_sciezek: ["Wszystko razem", "Gra", "Discord i reszta", "Mikrofon"] }));
+await strona.evaluate((k) => odtworz(k), klip);
+await strona.waitForFunction(() => dzwiek.sciezki.length === 3, null, { timeout: 5000 }).catch(() => {});
+const nazwy = await strona.locator("#sciezki-dzwieku .sciezka-opis span").allTextContents();
+sprawdz(nazwy.join("|") === "Gra|Discord i reszta|Mikrofon", `złe ścieżki przy trzech źródłach: ${nazwy}`);
+sprawdz((await v(() => dzwiek.sciezki.length)) === 3, "głośność na żywo: nie ma trzech ścieżek");
+await strona.locator(".sciezka .wycisz").nth(1).click();
+sprawdz((await strona.textContent("#eksportuj")) === "Zapisz bez Discorda i reszty", `wyciszony Discord: przycisk „${await strona.textContent("#eksportuj")}”`);
+await strona.click("#eksportuj");
+await strona.waitForTimeout(200);
+zl = await v(() => window.__zlecenia?.at(-1));
+sprawdz(JSON.stringify(zl?.glosnosci) === "[1,0,1]", `zlecenie bez Discorda: ${JSON.stringify(zl?.glosnosci)}`);
+// Starszy plik bez nazw ścieżek dostaje domyślne
+await v(() => zamknijOdtwarzacz());
+await v(() => (window.__info = { sciezki_audio: 4, nazwy_sciezek: [] }));
+await strona.evaluate((k) => odtworz(k), klip);
+await strona.waitForTimeout(300);
+const domyslne = await strona.locator("#sciezki-dzwieku .sciezka-opis span").allTextContents();
+sprawdz(domyslne.join("|") === "Gra|Discord i reszta|Mikrofon", `domyślne nazwy ścieżek: ${domyslne}`);
+await v(() => zamknijOdtwarzacz());
+
+// Znaczniki filmu: kreski na osi, kliknięcie skacze, [ i ] do poprzedniego / następnego
+await v(() => (window.__info = { znaczniki: [5, 12.5] }));
+await strona.evaluate((k) => odtworz(k), klip);
+await strona.waitForFunction(() => document.querySelectorAll("#os .os-znacznik").length === 2, null, { timeout: 3000 }).catch(() => {});
+sprawdz((await strona.locator("#os .os-znacznik").count()) === 2, "nie ma dwóch znaczników na osi czasu");
+await strona.locator("#os .os-znacznik").nth(1).click();
+sprawdz(Math.abs((await v(() => $("wideo").currentTime)) - 12.5) < 0.05, "kliknięcie znacznika nie skacze do niego");
+await strona.locator("#wideo").focus().catch(() => {});
+await v(() => document.activeElement.blur());
+await strona.keyboard.press("[");
+sprawdz(Math.abs((await v(() => $("wideo").currentTime)) - 5) < 0.05, "[ nie skacze do poprzedniego znacznika");
+await strona.keyboard.press("]");
+sprawdz(Math.abs((await v(() => $("wideo").currentTime)) - 12.5) < 0.05, "] nie skacze do następnego znacznika");
+await zrzut("7-znaczniki");
+await v(() => zamknijOdtwarzacz());
+await v(() => (window.__info = {}));
+// Klip bez znaczników nie ma kresek (stare kreski znikają)
+await strona.evaluate((k) => odtworz(k), klip);
+await strona.waitForTimeout(300);
+sprawdz((await strona.locator("#os .os-znacznik").count()) === 0, "kreski znaczników zostały po poprzednim filmie");
+await v(() => zamknijOdtwarzacz());
+sprawdz((await v(() => $("skrot-znacznika").dataset.wartosc)) === "Alt+F8", "w ustawieniach nie ma domyślnego skrótu znacznika Alt+F8");
 
 await przegladarka.close();
 if (bledy.length) {

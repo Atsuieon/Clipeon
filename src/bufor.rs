@@ -201,6 +201,26 @@ mod testy {
     }
 
     #[test]
+    fn dlugie_nagrywanie_trzyma_staly_rozmiar() {
+        // Godzina przy 60 FPS z klatką kluczową co 2 s: bufor 30 s nie rośnie i zawsze zaczyna się od klucza
+        let mut b = Bufor::pusty(30);
+        let okres = 10_000_000 / 60;
+        let mut najwiecej = 0;
+        for i in 0..60 * 3600i64 {
+            b.dodaj(Pakiet { czas: i * okres, klucz: i % 120 == 0, dane: Arc::from(vec![0u8; 1]) });
+            najwiecej = najwiecej.max(b.pakiety.len());
+        }
+        // 30 s + najwyżej jeden odstęp klatek kluczowych
+        assert!(najwiecej <= 60 * 32 + 1, "{najwiecej}");
+        let m = b.migawka();
+        assert!(m[0].klucz);
+        assert!(m.windows(2).all(|p| p[1].czas > p[0].czas));
+        assert!(m.last().unwrap().czas - m[0].czas >= 30 * 10_000_000 - okres);
+        // Wewnętrzna lista klatek kluczowych też się nie rozrasta
+        assert!(b.klucze.len() <= 17, "{}", b.klucze.len());
+    }
+
+    #[test]
     fn dzwiek_kazda_ramka_kluczowa() {
         let mut b = Bufor::pusty(1);
         for i in 0..100 {

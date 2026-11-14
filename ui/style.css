@@ -370,6 +370,15 @@ select option { background: #0a0a0a; }
 .os { position: relative; flex: 1; height: 36px; cursor: pointer; touch-action: none; }
 .os-tlo { position: absolute; left: 0; right: 0; top: 16px; height: 4px; border-radius: 4px; background: var(--ramka-pola); }
 .os-zakres { position: absolute; top: 10px; height: 16px; border-radius: 6px; background: rgba(255, 255, 255, 0.14); border: 1px solid rgba(255, 255, 255, 0.5); }
+/* Znacznik filmu: żółta kreska nad osią (większe pole do kliknięcia niż sama kreska) */
+.os-znacznik {
+  position: absolute; top: 0; width: 14px; height: 36px; margin-left: -7px; padding: 0; border: 0;
+  background: transparent; cursor: pointer;
+}
+.os-znacznik::before {
+  content: ""; position: absolute; left: 6px; top: 2px; width: 2px; height: 12px; border-radius: 2px; background: #f5c542;
+}
+.os-znacznik:hover::before, .os-znacznik:focus-visible::before { height: 16px; left: 5px; width: 4px; }
 .os-glowica { position: absolute; top: 4px; width: 2px; height: 28px; margin-left: -1px; background: #fff; border-radius: 2px; pointer-events: none; }
 .uchwyt {
   position: absolute; top: 4px; width: 12px; height: 28px; margin-left: -6px; border-radius: 4px; background: #fff;
@@ -718,9 +727,7 @@ input[type="number"]:focus-visible, select:focus-visible { outline: none; border
   position: absolute; right: 6px; top: -9px; padding: 1px 7px; border-radius: 999px; background: #fff; color: #000;
   font-size: 11px; line-height: 16px; font-variant-numeric: tabular-nums; white-space: nowrap;
 }
-/* Etykieta nie wychodzi poza wykres przy 0% i 200% */
-.fala-linia.nisko .fala-procent { top: -19px; }
-.fala-linia.wysoko .fala-procent { top: 1px; }
+/* Przy 0% i 200% etykieta zsuwa się do środka wykresu: `top` ustawia app.js (odswiezSciezki) */
 .sciezka.wyciszona .fala-linia { border-top-color: var(--pomoc); }
 .sciezka.wyciszona .fala-procent { background: var(--pomoc); }
 .sciezka.wyciszona .wycisz { color: var(--pomoc); }

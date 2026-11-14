@@ -1,34 +1,59 @@
 // Dźwięk: WASAPI (loopback = to, co słychać w głośnikach, albo mikrofon) -> ffmpeg AAC -> ramki ADTS w buforze RAM.
 // Czas ramek liczony z zegara QPC, tak samo jak dla obrazu, więc synchronizacja wychodzi sama.
+// Od 1.4.5 dźwięk komputera może iść dwiema ścieżkami: sama gra (z procesami potomnymi) i cała reszta
+// (Discord, muzyka, przeglądarka) — przez „loopback procesu” z Windows 10 2004.
 use crate::Zablokuj;
 use crate::bufor::{Pakiet, WspolnyBufor, teraz_100ns};
 use std::io::{Read, Write};
-use std::process::{ChildStdin, Stdio};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::process::{Child, ChildStdin, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
+use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::Media::Audio::{
-    AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, AUDCLNT_STREAMFLAGS_LOOPBACK,
-    DEVICE_STATE_ACTIVE, IAudioCaptureClient,
-    IAudioClient, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator, eCapture, eConsole, eRender,
+    AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR, AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_E_RESOURCES_INVALIDATED,
+    AUDCLNT_E_SERVICE_NOT_RUNNING, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+    AUDCLNT_STREAMFLAGS_LOOPBACK, AUDIOCLIENT_ACTIVATION_PARAMS, AUDIOCLIENT_ACTIVATION_PARAMS_0, AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
+    AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS, ActivateAudioInterfaceAsync, DEVICE_STATE_ACTIVE, IActivateAudioInterfaceAsyncOperation,
+    IActivateAudioInterfaceCompletionHandler, IActivateAudioInterfaceCompletionHandler_Impl, IAudioCaptureClient, IAudioClient, IMMDevice,
+    IMMDeviceEnumerator, MMDeviceEnumerator, PROCESS_LOOPBACK_MODE, PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE,
+    PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE, VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK, WAVE_FORMAT_PCM, WAVEFORMATEX, eCapture, eConsole,
+    eRender,
 };
-use windows::Win32::System::Com::STGM_READ;
-use windows::Win32::System::Variant::VT_LPWSTR;
+use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
+use windows::Win32::System::Com::{BLOB, CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree, IAgileObject, IAgileObject_Impl, STGM_READ};
 use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
-use windows::Win32::System::Com::{CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree};
-
-type Blad = Box<dyn std::error::Error + Send + Sync>;
+use windows::Win32::System::Variant::{VT_BLOB, VT_LPWSTR};
+use windows::core::{HRESULT, IUnknown, Interface, implement};
 
 /// Próbek na ramkę AAC
 const RAMKA_AAC: i64 = 1024;
+/// Tyle czasu spokojnie czekamy, aż urządzenie dźwięku wróci po zmianie w systemie (bez błędu, żółta
+/// kropka); dopiero potem to jest błąd
+const PRZELACZANIE_NAJDLUZEJ: Duration = Duration::from_secs(10);
+/// Co tyle próbujemy otworzyć urządzenie w trakcie przełączania
+const PROBA_PRZELACZENIA_CO: Duration = Duration::from_millis(250);
+/// Format ścieżek „Gra” i „Discord i reszta”. Loopback procesu nie ma formatu miksera — podajemy własny,
+/// a Windows sam przelicza (AUTOCONVERTPCM). Ten sam format w każdej sesji = enkoder przeżywa zmianę gry.
+const FORMAT_PROCESU: Format = Format { czestotliwosc: 48_000, kanaly: 2, bity: 16 };
+/// Tyle nieudanych prób loopbacku procesu z rzędu (nie licząc zmian urządzenia) i Clipeon przestaje
+/// go używać do końca uruchomienia: „Gra” nagrywa wtedy cały dźwięk komputera, a „Discord i reszta” ciszę
+const PROCES_PROB: u32 = 3;
+/// Loopback procesu nie działa na tym komputerze (patrz PROCES_PROB)
+static PROCES_ZEPSUTY: AtomicBool = AtomicBool::new(false);
 
-#[derive(Clone, Copy, PartialEq)]
+/// Skąd nagrywamy dźwięk.
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Zrodlo {
     /// Dźwięk systemowy (loopback domyślnego wyjścia)
     System,
     /// Domyślny mikrofon
     Mikrofon,
+    /// Sama gra z procesami potomnymi; gdy gry nie widać — cały dźwięk komputera poza Clipeonem
+    Gra,
+    /// Wszystko poza grą (Discord, muzyka, przeglądarka); gdy gry nie widać — cisza (wszystko jest w „Gra”)
+    Reszta,
 }
 
 impl Zrodlo {
@@ -36,8 +61,91 @@ impl Zrodlo {
         match self {
             Zrodlo::System => "dźwięk systemowy",
             Zrodlo::Mikrofon => "mikrofon",
+            Zrodlo::Gra => "dźwięk gry",
+            Zrodlo::Reszta => "Discord i reszta",
         }
     }
+
+    fn proces(self) -> bool {
+        matches!(self, Zrodlo::Gra | Zrodlo::Reszta)
+    }
+}
+
+/// Numer procesu gry dla ścieżek „Gra” i „Discord i reszta” (0 = gry nie widać). Ustawia go rdzeń;
+/// wątki dźwięku same zauważają zmianę i otwierają przechwytywanie od nowa.
+pub type CelDzwieku = Arc<AtomicU32>;
+
+/// Czy Windows umie nagrywać dźwięk jednego procesu (Windows 10 2004, kompilacja 19041, i nowsze).
+pub fn dzwiek_procesu_dostepny() -> bool {
+    static WYNIK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *WYNIK.get_or_init(|| {
+        windows_registry::LOCAL_MACHINE
+            .open(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion")
+            .and_then(|k| k.get_string("CurrentBuild"))
+            .ok()
+            .and_then(|b| b.parse::<u32>().ok())
+            .is_some_and(|b| b >= 19041)
+    })
+}
+
+/// Co nagrywanie dźwięku zgłasza rdzeniowi.
+pub enum Zgloszenie {
+    /// Nagrywa (po starcie albo po udanym przełączeniu urządzenia)
+    Dziala,
+    /// Windows zmienił albo przebudował urządzenie dźwięku (zamknięta gra, inne słuchawki, zmiana trybu
+    /// ekranu przy dźwięku przez monitor) — otwieramy je od nowa. To nie błąd: obraz nagrywa się dalej
+    Przelaczanie,
+    /// Nie da się nagrywać dźwięku (opis dla użytkownika)
+    Blad(String),
+}
+
+/// Dlaczego sesja przechwytywania się skończyła bez błędu.
+#[derive(Debug, PartialEq)]
+enum Koniec {
+    /// Nagrywanie się kończy albo trzeba otworzyć urządzenie od nowa (inne domyślne, wybrane wróciło) —
+    /// z żółtą kropką
+    Zmiana,
+    /// Zmieniła się gra: otwieramy przechwytywanie od nowa po cichu (to nie zmiana urządzenia)
+    NowaGra,
+}
+
+/// Dlaczego sesja przechwytywania się skończyła.
+enum Blad {
+    /// Błąd WASAPI: urządzenie albo usługa dźwięku Windows
+    Urzadzenie(windows::core::Error),
+    /// Reszta: enkoder (ffmpeg), nieobsługiwany format
+    Inny(String),
+}
+
+impl From<windows::core::Error> for Blad {
+    fn from(e: windows::core::Error) -> Self {
+        Blad::Urzadzenie(e)
+    }
+}
+
+impl From<std::io::Error> for Blad {
+    fn from(e: std::io::Error) -> Self {
+        Blad::Inny(format!("enkoder dźwięku (ffmpeg) przestał działać: {e}"))
+    }
+}
+
+impl std::fmt::Display for Blad {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Blad::Urzadzenie(e) if zmiana_urzadzenia(e) => {
+                write!(f, "urządzenie dźwięku zostało odłączone albo zmienione ({e})")
+            }
+            Blad::Urzadzenie(e) => write!(f, "{e}"),
+            Blad::Inny(e) => f.write_str(e),
+        }
+    }
+}
+
+/// Błędy, którymi WASAPI mówi „to urządzenie przestało istnieć w tej postaci”: odłączone, zmieniony
+/// format, sterownik przebudował wyjście (np. gra przełączyła tryb ekranu, a dźwięk idzie przez monitor),
+/// usługa dźwięku się restartuje. Wystarczy otworzyć urządzenie od nowa.
+fn zmiana_urzadzenia(e: &windows::core::Error) -> bool {
+    [AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_E_RESOURCES_INVALIDATED, AUDCLNT_E_SERVICE_NOT_RUNNING].contains(&e.code())
 }
 
 /// Działające nagrywanie dźwięku; zniszczenie go kończy nagrywanie.
@@ -51,100 +159,150 @@ impl Drop for Audio {
     }
 }
 
-/// Uruchamia nagrywanie dźwięku w tle. Po błędzie (np. zmiana urządzenia) startuje od nowa;
-/// `zglos` dostaje opis błędu albo None, gdy wszystko znów działa.
+/// W jakim stanie jest wątek nagrywania między sesjami przechwytywania.
+enum Faza {
+    /// Nagrywa albo dopiero startuje
+    Spokoj,
+    /// Urządzenie się zmieniło — otwieramy je od nowa (od kiedy)
+    Przelaczanie(Instant),
+    /// Zgłoszony błąd; ponawiamy co sekundę
+    Blad,
+}
+
+/// Uruchamia nagrywanie dźwięku w tle. Gdy Windows zmieni urządzenie (zamknięta gra, inne słuchawki),
+/// wątek otwiera je od nowa i nagrywa dalej tym samym enkoderem — przerwa w dźwięku jest wypełniana ciszą,
+/// więc dźwięk dalej zgadza się z obrazem. `zglos` dostaje `Przelaczanie`, potem `Dziala`; `Blad` dopiero
+/// wtedy, gdy urządzenia nie da się otworzyć przez PRZELACZANIE_NAJDLUZEJ albo zawiodło coś innego.
 /// `wybrane` to identyfikator urządzenia wybranego w ustawieniach (pusty = domyślne systemowe).
+/// `cel` to proces gry dla źródeł `Gra` i `Reszta` (dla pozostałych bez znaczenia).
 pub fn uruchom(
     zrodlo: Zrodlo,
     wybrane: String,
     bitrate_kbps: u32,
     bufor: WspolnyBufor,
-    zglos: impl Fn(Option<String>) + Send + 'static,
+    cel: CelDzwieku,
+    zglos: impl Fn(Zgloszenie) + Send + 'static,
 ) -> Audio {
     let stop = Arc::new(AtomicBool::new(false));
     let stop_watku = stop.clone();
     std::thread::spawn(move || {
         if let Err(e) = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.ok() {
-            zglos(Some(format!("Dźwięk ({}): CoInitializeEx nie powiodło się: {e}", zrodlo.nazwa())));
+            zglos(Zgloszenie::Blad(format!("Dźwięk ({}): CoInitializeEx nie powiodło się: {e}", zrodlo.nazwa())));
             return;
         }
+        // Enkoder żyje dłużej niż jedno otwarcie urządzenia (dopóki format dźwięku się nie zmieni)
+        let mut koder: Option<Koder> = None;
+        let mut faza = Faza::Spokoj;
+        let mut nieudane_procesu = 0;
         while !stop_watku.load(Ordering::SeqCst) {
-            if let Err(e) = sesja(zrodlo, &wybrane, bitrate_kbps, &bufor, &stop_watku, &zglos)
-                && !stop_watku.load(Ordering::SeqCst) {
-                    crate::dziennik::blad(&format!("Dźwięk ({}): {e} — ponawiam za 1 s", zrodlo.nazwa()));
-                    zglos(Some(format!("Nie można nagrywać ({}): {e}", zrodlo.nazwa())));
+            let mut ruszylo = || {
+                if matches!(faza, Faza::Przelaczanie(_)) {
+                    crate::dziennik::info(&format!("Dźwięk ({}): przełączone, nagrywam dalej", zrodlo.nazwa()));
                 }
-            std::thread::sleep(Duration::from_secs(1));
+                faza = Faza::Spokoj;
+                zglos(Zgloszenie::Dziala);
+            };
+            let wynik = match zrodlo {
+                // Loopback procesu nie działa na tym komputerze: „Gra” = cały dźwięk, „Reszta” = cisza
+                Zrodlo::Gra if PROCES_ZEPSUTY.load(Ordering::SeqCst) => {
+                    sesja(Zrodlo::System, "", bitrate_kbps, &bufor, &stop_watku, &mut koder, &mut ruszylo)
+                }
+                Zrodlo::Reszta if PROCES_ZEPSUTY.load(Ordering::SeqCst) => {
+                    sesja_ciszy(zrodlo, &cel, None, bitrate_kbps, &bufor, &stop_watku, &mut koder, &mut ruszylo)
+                }
+                z if z.proces() => sesja_procesu(z, &cel, bitrate_kbps, &bufor, &stop_watku, &mut koder, &mut ruszylo),
+                z => sesja(z, &wybrane, bitrate_kbps, &bufor, &stop_watku, &mut koder, &mut ruszylo),
+            };
+            if stop_watku.load(Ordering::SeqCst) {
+                break;
+            }
+            let przerwa = match wynik {
+                Ok(Koniec::NowaGra) => {
+                    nieudane_procesu = 0;
+                    Duration::ZERO
+                }
+                // Sesja sama zauważyła zmianę (inne domyślne urządzenie, wybrane wróciło): otwieramy od razu
+                Ok(Koniec::Zmiana) => {
+                    faza = Faza::Przelaczanie(Instant::now());
+                    zglos(Zgloszenie::Przelaczanie);
+                    Duration::ZERO
+                }
+                Err(e) => {
+                    let spokojnie = match (&faza, &e) {
+                        (Faza::Spokoj, Blad::Urzadzenie(w)) => zmiana_urzadzenia(w),
+                        // W trakcie przełączania urządzenie może jeszcze chwilę nie dać się otworzyć
+                        (Faza::Przelaczanie(od), Blad::Urzadzenie(_)) => od.elapsed() < PRZELACZANIE_NAJDLUZEJ,
+                        _ => false,
+                    };
+                    if spokojnie {
+                        if matches!(faza, Faza::Spokoj) {
+                            crate::dziennik::info(&format!("Dźwięk ({}): {e} — przełączam", zrodlo.nazwa()));
+                            faza = Faza::Przelaczanie(Instant::now());
+                            zglos(Zgloszenie::Przelaczanie);
+                        }
+                        // Oś czasu dźwięku idzie dalej (cisza), żeby po przełączeniu zgadzała się z obrazem
+                        if koder.as_mut().is_some_and(|k| k.cisza().is_err()) {
+                            koder = None;
+                        }
+                        PROBA_PRZELACZENIA_CO
+                    } else if zrodlo.proces() && matches!(e, Blad::Urzadzenie(_)) && !PROCES_ZEPSUTY.load(Ordering::SeqCst) {
+                        // Loopback procesu nie ruszył: po kilku próbach przechodzimy na stary sposób, bez błędu
+                        nieudane_procesu += 1;
+                        if nieudane_procesu >= PROCES_PROB {
+                            crate::dziennik::info(&format!(
+                                "Dźwięk ({}): nagrywanie dźwięku samej gry nie działa na tym komputerze ({e}) — \
+                                 cały dźwięk komputera idzie do ścieżki „Gra”",
+                                zrodlo.nazwa()
+                            ));
+                            PROCES_ZEPSUTY.store(true, Ordering::SeqCst);
+                        }
+                        if koder.as_mut().is_some_and(|k| k.cisza().is_err()) {
+                            koder = None;
+                        }
+                        PROBA_PRZELACZENIA_CO
+                    } else {
+                        // Rdzeń zapisuje błąd w dzienniku (raz, dopóki opis się nie zmieni)
+                        koder = None;
+                        faza = Faza::Blad;
+                        zglos(Zgloszenie::Blad(format!("Nie można nagrywać ({}): {e}", zrodlo.nazwa())));
+                        Duration::from_secs(1)
+                    }
+                }
+            };
+            std::thread::sleep(przerwa);
         }
     });
     Audio { stop }
 }
 
-/// Jedna sesja przechwytywania: na wybranym urządzeniu albo na bieżącym domyślnym.
-fn sesja(
-    zrodlo: Zrodlo,
-    wybrane: &str,
-    bitrate_kbps: u32,
-    bufor: &WspolnyBufor,
-    stop: &AtomicBool,
-    zglos: &impl Fn(Option<String>),
-) -> Result<(), Blad> {
-    unsafe {
-        let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
-        let (kierunek, flagi) = match zrodlo {
-            Zrodlo::System => (eRender, AUDCLNT_STREAMFLAGS_LOOPBACK),
-            Zrodlo::Mikrofon => (eCapture, 0),
-        };
-        // Wybrane urządzenie z ustawień; gdy jest odłączone, bierzemy domyślne i pilnujemy,
-        // czy wybrane nie wróciło (wtedy sesja startuje od nowa na nim)
-        let wybrane_urzadzenie = (!wybrane.is_empty())
-            .then(|| urzadzenie_po_id(&enumerator, wybrane))
-            .flatten();
-        let zapasowe = !wybrane.is_empty() && wybrane_urzadzenie.is_none();
-        if zapasowe {
-            crate::dziennik::info(&format!(
-                "Dźwięk ({}): wybrane urządzenie jest niedostępne — nagrywam z domyślnego",
-                zrodlo.nazwa()
-            ));
-        }
-        let urzadzenie = match wybrane_urzadzenie {
-            Some(u) => u,
-            None => enumerator.GetDefaultAudioEndpoint(kierunek, eConsole)?,
-        };
-        // Identyfikator urządzenia: gdy użytkownik zmieni domyślne (np. na słuchawki), zaczynamy od nowa
-        let id_start = id_urzadzenia(&urzadzenie);
-        let mut klient: IAudioClient = urzadzenie.Activate(CLSCTX_ALL, None)?;
+/// Format próbek z miksera Windows.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct Format {
+    czestotliwosc: u32,
+    kanaly: u32,
+    bity: u16,
+}
 
-        let wsk = klient.GetMixFormat()?;
-        let f = *wsk;
-        let (czestotliwosc, kanaly, bity) = (f.nSamplesPerSec, f.nChannels as u32, f.wBitsPerSample);
-        // Bufor 200 ms po stronie systemu. Najpierw z powiadamianiem zdarzeniem (wątek śpi, aż przyjdą dane,
-        // zamiast budzić się co 10 ms); gdy system tego nie przyjmie — zwykłe odpytywanie
-        let zdarzenie = CreateEventW(None, false, false, None).ok();
-        let mut wynik = Err(windows::core::Error::empty());
-        if zdarzenie.is_some() {
-            wynik = klient.Initialize(AUDCLNT_SHAREMODE_SHARED, flagi | AUDCLNT_STREAMFLAGS_EVENTCALLBACK, 2_000_000, 0, wsk, None);
-        }
-        let mut ze_zdarzeniem = wynik.is_ok();
-        if !ze_zdarzeniem {
-            // Nieudany Initialize zostawia klienta w nieokreślonym stanie — bierzemy nowego
-            klient = urzadzenie.Activate(CLSCTX_ALL, None)?;
-            wynik = klient.Initialize(AUDCLNT_SHAREMODE_SHARED, flagi, 2_000_000, 0, wsk, None);
-        }
-        CoTaskMemFree(Some(wsk as *const _));
-        wynik?;
-        if let (true, Some(z)) = (ze_zdarzeniem, zdarzenie) {
-            ze_zdarzeniem = klient.SetEventHandle(z).is_ok();
-        }
+/// Enkoder AAC (ffmpeg) z zegarem próbek i wątkiem, który odkłada gotowe ramki do bufora.
+/// Zniszczenie go zamyka ffmpeg.
+struct Koder {
+    format: Format,
+    ffmpeg: Child,
+    wejscie: ChildStdin,
+    czytnik: Option<std::thread::JoinHandle<()>>,
+    zegar: Zegar,
+}
 
+impl Koder {
+    fn uruchom(zrodlo: Zrodlo, format: Format, bitrate_kbps: u32, bufor: &WspolnyBufor) -> Result<Koder, Blad> {
+        let Format { czestotliwosc, kanaly, bity } = format;
         // Format miksera to prawie zawsze float32; 16/24-bit PCM też obsługujemy
         let format_ff = match bity {
             32 => "f32le",
             16 => "s16le",
             24 => "s24le",
-            b => return Err(format!("nieobsługiwany format miksera: {b} bitów").into()),
+            b => return Err(Blad::Inny(format!("nieobsługiwany format miksera: {b} bitów"))),
         };
-        let bajtow_na_probke = (bity as usize / 8) * kanaly as usize;
         println!("Dźwięk ({}): {czestotliwosc} Hz, {kanaly} kan., {bity} bit -> AAC {bitrate_kbps} kb/s", zrodlo.nazwa());
 
         let mut ffmpeg = crate::ffmpeg::uruchom_nagrywanie(
@@ -154,16 +312,16 @@ fn sesja(
                 .args(["-c:a", "aac", "-b:a", &format!("{bitrate_kbps}k"), "-ac", "2", "-f", "adts", "-"])
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped()),
-            if zrodlo == Zrodlo::System { "dźwięk gry" } else { "mikrofon" },
+            match zrodlo {
+                Zrodlo::Mikrofon => "mikrofon",
+                Zrodlo::Reszta => "Discord i reszta",
+                _ => "dźwięk gry",
+            },
         )
-        .map_err(|e| format!("nie udało się uruchomić ffmpeg: {e}"))?;
-        let mut wejscie = ffmpeg.stdin.take().unwrap();
+        .map_err(|e| Blad::Inny(format!("nie udało się uruchomić ffmpeg: {e}")))?;
+        let wejscie = ffmpeg.stdin.take().unwrap();
         let mut wyjscie = ffmpeg.stdout.take().unwrap();
-
-        let przechwyt: IAudioCaptureClient = klient.GetService()?;
         let t0 = teraz_100ns();
-        klient.Start()?;
-        zglos(None);
 
         // Wątek czytający ramki ADTS. Ramka k zaczyna się w próbce k*1024, ale enkoder AAC
         // dokleja na początku 1024 próbki rozbiegu, więc odejmujemy jedną ramkę.
@@ -199,68 +357,322 @@ fn sesja(
             }
         });
 
-        let mut zegar = Zegar { t0, czestotliwosc: czestotliwosc as i64, wyslane: 0, bajtow_na_probke };
-        let wynik = (|| -> Result<(), Blad> {
-            let mut sprawdzone = std::time::Instant::now();
-            while !stop.load(Ordering::SeqCst) {
-                match (ze_zdarzeniem, zdarzenie) {
-                    // Czekamy na dane najwyżej 100 ms (przy ciszy loopback nie budzi nas wcale)
-                    (true, Some(z)) => {
-                        WaitForSingleObject(z, 100);
-                    }
-                    _ => std::thread::sleep(Duration::from_millis(10)),
+        let bajtow_na_probke = (bity as usize / 8) * kanaly as usize;
+        let zegar = Zegar { t0, czestotliwosc: czestotliwosc as i64, wyslane: 0, bajtow_na_probke };
+        Ok(Koder { format, ffmpeg, wejscie, czytnik: Some(czytnik), zegar })
+    }
+
+    /// Enkoder z poprzedniej sesji, jeśli ma ten sam format; inaczej nowy.
+    fn dla<'a>(koder: &'a mut Option<Koder>, zrodlo: Zrodlo, format: Format, bitrate_kbps: u32, bufor: &WspolnyBufor) -> Result<&'a mut Koder, Blad> {
+        Ok(match koder.take().filter(|k| k.format == format) {
+            Some(k) => koder.insert(k),
+            None => koder.insert(Koder::uruchom(zrodlo, format, bitrate_kbps, bufor)?),
+        })
+    }
+
+    /// Gdy nic nie przychodzi (cisza w głośnikach albo przełączanie urządzenia), dopycha ciszę do
+    /// „teraz − 50 ms” (zapas na spóźnione pakiety), żeby oś czasu dźwięku nie stanęła.
+    fn cisza(&mut self) -> std::io::Result<()> {
+        self.zegar.cisza_do(&mut self.wejscie, teraz_100ns() - 500_000)
+    }
+}
+
+impl Drop for Koder {
+    fn drop(&mut self) {
+        let _ = self.ffmpeg.kill();
+        let _ = self.ffmpeg.wait();
+        if let Some(c) = self.czytnik.take() {
+            let _ = c.join();
+        }
+    }
+}
+
+/// Uchwyt zdarzenia Windows zamykany razem ze zmienną.
+struct Zdarzenie(HANDLE);
+
+impl Drop for Zdarzenie {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = CloseHandle(self.0);
+        }
+    }
+}
+
+/// Jedna sesja przechwytywania: na wybranym urządzeniu albo na bieżącym domyślnym. Próbki idą do
+/// `koder` — zostaje ten z poprzedniej sesji, jeśli nowe urządzenie ma ten sam format (wtedy przerwę
+/// między sesjami zegar wypełnia ciszą). `ruszylo` jest wołane, gdy przechwytywanie wystartowało.
+fn sesja(
+    zrodlo: Zrodlo,
+    wybrane: &str,
+    bitrate_kbps: u32,
+    bufor: &WspolnyBufor,
+    stop: &AtomicBool,
+    koder: &mut Option<Koder>,
+    ruszylo: &mut dyn FnMut(),
+) -> Result<Koniec, Blad> {
+    unsafe {
+        let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
+        let (kierunek, flagi) = match zrodlo {
+            Zrodlo::Mikrofon => (eCapture, 0),
+            _ => (eRender, AUDCLNT_STREAMFLAGS_LOOPBACK),
+        };
+        // Wybrane urządzenie z ustawień; gdy jest odłączone, bierzemy domyślne i pilnujemy,
+        // czy wybrane nie wróciło (wtedy sesja startuje od nowa na nim)
+        let wybrane_urzadzenie = (!wybrane.is_empty())
+            .then(|| urzadzenie_po_id(&enumerator, wybrane))
+            .flatten();
+        let zapasowe = !wybrane.is_empty() && wybrane_urzadzenie.is_none();
+        if zapasowe {
+            crate::dziennik::info(&format!(
+                "Dźwięk ({}): wybrane urządzenie jest niedostępne — nagrywam z domyślnego",
+                zrodlo.nazwa()
+            ));
+        }
+        let urzadzenie = match wybrane_urzadzenie {
+            Some(u) => u,
+            None => enumerator.GetDefaultAudioEndpoint(kierunek, eConsole)?,
+        };
+        // Identyfikator urządzenia: gdy użytkownik zmieni domyślne (np. na słuchawki), zaczynamy od nowa
+        let id_start = id_urzadzenia(&urzadzenie);
+        let mut klient: IAudioClient = urzadzenie.Activate(CLSCTX_ALL, None)?;
+
+        let wsk = klient.GetMixFormat()?;
+        let f = *wsk;
+        let format = Format { czestotliwosc: f.nSamplesPerSec, kanaly: f.nChannels as u32, bity: f.wBitsPerSample };
+        // Bufor 200 ms po stronie systemu. Najpierw z powiadamianiem zdarzeniem (wątek śpi, aż przyjdą dane,
+        // zamiast budzić się co 10 ms); gdy system tego nie przyjmie — zwykłe odpytywanie
+        let zdarzenie = CreateEventW(None, false, false, None).ok().map(Zdarzenie);
+        let mut wynik = Err(windows::core::Error::empty());
+        if zdarzenie.is_some() {
+            wynik = klient.Initialize(AUDCLNT_SHAREMODE_SHARED, flagi | AUDCLNT_STREAMFLAGS_EVENTCALLBACK, 2_000_000, 0, wsk, None);
+        }
+        let mut ze_zdarzeniem = wynik.is_ok();
+        if !ze_zdarzeniem {
+            // Nieudany Initialize zostawia klienta w nieokreślonym stanie — bierzemy nowego
+            match urzadzenie.Activate(CLSCTX_ALL, None) {
+                Ok(k) => {
+                    klient = k;
+                    wynik = klient.Initialize(AUDCLNT_SHAREMODE_SHARED, flagi, 2_000_000, 0, wsk, None);
                 }
-                // Co ~2 s: czy urządzenie, z którego nagrywamy, dalej jest tym właściwym
-                if sprawdzone.elapsed() >= Duration::from_secs(2) {
-                    sprawdzone = std::time::Instant::now();
-                    if zapasowe {
-                        // Nagrywamy z domyślnego, bo wybrane było odłączone — wróciło?
-                        if urzadzenie_po_id(&enumerator, wybrane).is_some() {
-                            crate::dziennik::info(&format!(
-                                "Dźwięk ({}): wybrane urządzenie wróciło, przełączam",
-                                zrodlo.nazwa()
-                            ));
-                            return Ok(());
-                        }
-                    } else if wybrane.is_empty() {
-                        let teraz = enumerator.GetDefaultAudioEndpoint(kierunek, eConsole).ok().and_then(|u| id_urzadzenia(&u));
-                        if teraz.is_some() && teraz != id_start {
-                            crate::dziennik::info(&format!("Dźwięk ({}): zmiana domyślnego urządzenia, przełączam", zrodlo.nazwa()));
-                            return Ok(());
-                        }
-                    }
+                Err(e) => wynik = Err(e),
+            }
+        }
+        CoTaskMemFree(Some(wsk as *const _));
+        wynik?;
+        if let (true, Some(z)) = (ze_zdarzeniem, &zdarzenie) {
+            ze_zdarzeniem = klient.SetEventHandle(z.0).is_ok();
+        }
+        let k = Koder::dla(koder, zrodlo, format, bitrate_kbps, bufor)?;
+
+        // Co ~2 s: czy urządzenie, z którego nagrywamy, dalej jest tym właściwym
+        let mut sprawdz = || -> Option<Koniec> {
+            if zapasowe {
+                // Nagrywamy z domyślnego, bo wybrane było odłączone — wróciło?
+                if urzadzenie_po_id(&enumerator, wybrane).is_some() {
+                    crate::dziennik::info(&format!("Dźwięk ({}): wybrane urządzenie wróciło, przełączam", zrodlo.nazwa()));
+                    return Some(Koniec::Zmiana);
                 }
-                let mut byly_dane = false;
-                while przechwyt.GetNextPacketSize()? > 0 {
-                    let (mut wsk_danych, mut ramek, mut flagi, mut qpc) = (std::ptr::null_mut(), 0u32, 0u32, 0u64);
-                    przechwyt.GetBuffer(&mut wsk_danych, &mut ramek, &mut flagi, None, Some(&mut qpc))?;
-                    let rozmiar = ramek as usize * bajtow_na_probke;
-                    let probki = if flagi & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0 {
-                        None
-                    } else {
-                        Some(std::slice::from_raw_parts(wsk_danych, rozmiar))
-                    };
-                    let w = zegar.pakiet(&mut wejscie, qpc as i64, ramek as i64, probki);
-                    przechwyt.ReleaseBuffer(ramek)?;
-                    w?;
-                    byly_dane = true;
-                }
-                // Gdy nic nie gra, loopback nie daje pakietów — dopychamy ciszę (z zapasem 50 ms
-                // na spóźnione pakiety), żeby oś czasu dźwięku nie stanęła; przy zdarzeniach co ~100 ms
-                if !byly_dane {
-                    zegar.cisza_do(&mut wejscie, teraz_100ns() - 500_000)?;
+            } else if wybrane.is_empty() {
+                let teraz = enumerator.GetDefaultAudioEndpoint(kierunek, eConsole).ok().and_then(|u| id_urzadzenia(&u));
+                if teraz.is_some() && teraz != id_start {
+                    crate::dziennik::info(&format!("Dźwięk ({}): zmiana domyślnego urządzenia, przełączam", zrodlo.nazwa()));
+                    return Some(Koniec::Zmiana);
                 }
             }
-            Ok(())
-        })();
+            None
+        };
+        let przechwyt: IAudioCaptureClient = klient.GetService()?;
+        klient.Start()?;
+        ruszylo();
+        let wynik = przechwytuj(&przechwyt, k, zdarzenie.as_ref().filter(|_| ze_zdarzeniem), stop, Duration::from_secs(2), &mut sprawdz);
         let _ = klient.Stop();
-        if let Some(z) = zdarzenie {
-            let _ = windows::Win32::Foundation::CloseHandle(z);
-        }
-        drop(wejscie);
-        let _ = ffmpeg.kill();
-        let _ = czytnik.join();
         wynik
+    }
+}
+
+/// Pętla odbioru próbek, wspólna dla wszystkich sesji: pakiety z WASAPI do enkodera, a gdy nic nie
+/// przychodzi — cisza. Co `co` woła `sprawdz`, który może zakończyć sesję (zmiana urządzenia albo gry).
+fn przechwytuj(
+    przechwyt: &IAudioCaptureClient,
+    k: &mut Koder,
+    zdarzenie: Option<&Zdarzenie>,
+    stop: &AtomicBool,
+    co: Duration,
+    sprawdz: &mut dyn FnMut() -> Option<Koniec>,
+) -> Result<Koniec, Blad> {
+    let mut sprawdzone = Instant::now();
+    while !stop.load(Ordering::SeqCst) {
+        match zdarzenie {
+            // Czekamy na dane najwyżej 100 ms (przy ciszy loopback nie budzi nas wcale)
+            Some(z) => unsafe {
+                WaitForSingleObject(z.0, 100);
+            },
+            None => std::thread::sleep(Duration::from_millis(10)),
+        }
+        if sprawdzone.elapsed() >= co {
+            sprawdzone = Instant::now();
+            if let Some(koniec) = sprawdz() {
+                return Ok(koniec);
+            }
+        }
+        let mut byly_dane = false;
+        while unsafe { przechwyt.GetNextPacketSize()? } > 0 {
+            let (mut wsk_danych, mut ramek, mut flagi, mut qpc) = (std::ptr::null_mut(), 0u32, 0u32, 0u64);
+            unsafe { przechwyt.GetBuffer(&mut wsk_danych, &mut ramek, &mut flagi, None, Some(&mut qpc))? };
+            let rozmiar = ramek as usize * k.zegar.bajtow_na_probke;
+            let probki = if flagi & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0 || wsk_danych.is_null() {
+                None
+            } else {
+                Some(unsafe { std::slice::from_raw_parts(wsk_danych, rozmiar) })
+            };
+            // Bez wiarygodnego znacznika czasu (loopback procesu bywa bez niego) próbki idą zaraz za poprzednimi
+            let czas = (qpc != 0 && flagi & AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR.0 as u32 == 0).then_some(qpc as i64);
+            let w = k.zegar.pakiet(&mut k.wejscie, czas, ramek as i64, probki);
+            unsafe { przechwyt.ReleaseBuffer(ramek)? };
+            w?;
+            byly_dane = true;
+        }
+        // Gdy nic nie gra, loopback nie daje pakietów — dopychamy ciszę; przy zdarzeniach co ~100 ms
+        if !byly_dane {
+            k.cisza()?;
+        }
+    }
+    Ok(Koniec::Zmiana)
+}
+
+/// Sesja ścieżki „Gra” albo „Discord i reszta”: loopback procesu gry (z procesami potomnymi).
+/// „Gra” bierze proces gry, a gdy gry nie widać — wszystko poza Clipeonem; „Reszta” bierze wszystko poza
+/// grą, a bez gry nagrywa ciszę. Zmiana gry kończy sesję (po cichu) i otwiera nową z nowym procesem.
+fn sesja_procesu(
+    zrodlo: Zrodlo,
+    cel: &CelDzwieku,
+    bitrate_kbps: u32,
+    bufor: &WspolnyBufor,
+    stop: &AtomicBool,
+    koder: &mut Option<Koder>,
+    ruszylo: &mut dyn FnMut(),
+) -> Result<Koniec, Blad> {
+    let gra = cel.load(Ordering::SeqCst);
+    let (pid, tryb) = match (zrodlo, gra) {
+        (Zrodlo::Reszta, 0) => return sesja_ciszy(zrodlo, cel, Some(gra), bitrate_kbps, bufor, stop, koder, ruszylo),
+        (Zrodlo::Reszta, p) => (p, PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE),
+        (_, 0) => (std::process::id(), PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE),
+        (_, p) => (p, PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE),
+    };
+    unsafe {
+        let klient = petla_procesu(pid, tryb)?;
+        let wf = FORMAT_PROCESU.waveformat();
+        let zdarzenie = CreateEventW(None, false, false, None).ok().map(Zdarzenie);
+        let mut flagi = AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM;
+        if zdarzenie.is_some() {
+            flagi |= AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
+        }
+        klient.Initialize(AUDCLNT_SHAREMODE_SHARED, flagi, 2_000_000, 0, &wf, None)?;
+        let ze_zdarzeniem = matches!(&zdarzenie, Some(z) if klient.SetEventHandle(z.0).is_ok());
+        let k = Koder::dla(koder, zrodlo, FORMAT_PROCESU, bitrate_kbps, bufor)?;
+        let przechwyt: IAudioCaptureClient = klient.GetService()?;
+        klient.Start()?;
+        ruszylo();
+        let mut sprawdz = || (cel.load(Ordering::SeqCst) != gra).then_some(Koniec::NowaGra);
+        let wynik = przechwytuj(&przechwyt, k, zdarzenie.as_ref().filter(|_| ze_zdarzeniem), stop, Duration::from_millis(250), &mut sprawdz);
+        let _ = klient.Stop();
+        wynik
+    }
+}
+
+/// Ścieżka bez źródła (np. „Discord i reszta”, gdy gry nie widać): sama cisza, żeby oś czasu szła równo
+/// z obrazem. `gra` = przy jakim procesie gry zaczęliśmy (zmiana kończy sesję); None = do końca.
+#[allow(clippy::too_many_arguments)]
+fn sesja_ciszy(
+    zrodlo: Zrodlo,
+    cel: &CelDzwieku,
+    gra: Option<u32>,
+    bitrate_kbps: u32,
+    bufor: &WspolnyBufor,
+    stop: &AtomicBool,
+    koder: &mut Option<Koder>,
+    ruszylo: &mut dyn FnMut(),
+) -> Result<Koniec, Blad> {
+    let k = Koder::dla(koder, zrodlo, FORMAT_PROCESU, bitrate_kbps, bufor)?;
+    ruszylo();
+    while !stop.load(Ordering::SeqCst) {
+        std::thread::sleep(Duration::from_millis(100));
+        k.cisza()?;
+        if gra.is_some_and(|g| cel.load(Ordering::SeqCst) != g) {
+            return Ok(Koniec::NowaGra);
+        }
+    }
+    Ok(Koniec::Zmiana)
+}
+
+impl Format {
+    fn waveformat(self) -> WAVEFORMATEX {
+        let blok = (self.kanaly * self.bity as u32 / 8) as u16;
+        WAVEFORMATEX {
+            wFormatTag: WAVE_FORMAT_PCM as u16,
+            nChannels: self.kanaly as u16,
+            nSamplesPerSec: self.czestotliwosc,
+            nAvgBytesPerSec: self.czestotliwosc * blok as u32,
+            nBlockAlign: blok,
+            wBitsPerSample: self.bity,
+            cbSize: 0,
+        }
+    }
+}
+
+/// Odbiera wynik asynchronicznej aktywacji (ActivateAudioInterfaceAsync woła go z innego wątku).
+#[implement(IActivateAudioInterfaceCompletionHandler, IAgileObject)]
+struct Aktywacja {
+    gotowe: Mutex<Option<std::sync::mpsc::Sender<()>>>,
+}
+
+impl IActivateAudioInterfaceCompletionHandler_Impl for Aktywacja_Impl {
+    fn ActivateCompleted(&self, _operacja: windows::core::Ref<IActivateAudioInterfaceAsyncOperation>) -> windows::core::Result<()> {
+        if let Some(tx) = self.gotowe.zablokuj().take() {
+            let _ = tx.send(());
+        }
+        Ok(())
+    }
+}
+
+impl IAgileObject_Impl for Aktywacja_Impl {}
+
+/// Klient WASAPI nagrywający dźwięk procesu `pid` z procesami potomnymi (`tryb` INCLUDE) albo wszystko
+/// poza nimi (EXCLUDE). Windows 10 2004 i nowsze.
+unsafe fn petla_procesu(pid: u32, tryb: PROCESS_LOOPBACK_MODE) -> windows::core::Result<IAudioClient> {
+    unsafe {
+        let mut parametry = AUDIOCLIENT_ACTIVATION_PARAMS {
+            ActivationType: AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
+            Anonymous: AUDIOCLIENT_ACTIVATION_PARAMS_0 {
+                ProcessLoopbackParams: AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS { TargetProcessId: pid, ProcessLoopbackMode: tryb },
+            },
+        };
+        // PROPVARIANT typu BLOB wskazuje na parametry na stosie — nie wolno go „czyścić” (stąd ManuallyDrop)
+        let mut wariant = std::mem::ManuallyDrop::new(PROPVARIANT::default());
+        {
+            let w = &mut *wariant.Anonymous.Anonymous;
+            w.vt = VT_BLOB;
+            w.Anonymous.blob = BLOB {
+                cbSize: std::mem::size_of::<AUDIOCLIENT_ACTIVATION_PARAMS>() as u32,
+                pBlobData: &mut parametry as *mut _ as *mut u8,
+            };
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let obsluga: IActivateAudioInterfaceCompletionHandler = Aktywacja { gotowe: Mutex::new(Some(tx)) }.into();
+        let operacja = ActivateAudioInterfaceAsync(
+            VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
+            &IAudioClient::IID,
+            Some(&*wariant as *const PROPVARIANT),
+            &obsluga,
+        )?;
+        if rx.recv_timeout(Duration::from_secs(5)).is_err() {
+            return Err(windows::core::Error::new(windows::Win32::Foundation::E_FAIL, "Windows nie odpowiedział na włączenie nagrywania dźwięku gry"));
+        }
+        let mut wynik = HRESULT(0);
+        let mut interfejs: Option<IUnknown> = None;
+        operacja.GetActivateResult(&mut wynik, &mut interfejs)?;
+        wynik.ok()?;
+        interfejs.ok_or_else(|| windows::core::Error::from(windows::Win32::Foundation::E_NOINTERFACE))?.cast()
     }
 }
 
@@ -278,7 +690,7 @@ impl Zegar {
         (czas - self.t0) * self.czestotliwosc / 10_000_000
     }
 
-    fn zera(&mut self, wejscie: &mut ChildStdin, ile: i64) -> std::io::Result<()> {
+    fn zera(&mut self, wejscie: &mut impl Write, ile: i64) -> std::io::Result<()> {
         // Cisza idzie co ~100 ms — kawałkami ze stałego bufora zamiast nowej tablicy za każdym razem
         static ZERA: [u8; 16 * 1024] = [0; 16 * 1024];
         if ile > 0 {
@@ -293,14 +705,15 @@ impl Zegar {
         Ok(())
     }
 
-    fn cisza_do(&mut self, wejscie: &mut ChildStdin, czas: i64) -> std::io::Result<()> {
+    fn cisza_do(&mut self, wejscie: &mut impl Write, czas: i64) -> std::io::Result<()> {
         let ile = self.probka_dla(czas) - self.wyslane;
         self.zera(wejscie, ile)
     }
 
     /// Pakiet z WASAPI: luka przed nim -> cisza, nakładka na już wysłane próbki -> obcinamy początek.
-    fn pakiet(&mut self, wejscie: &mut ChildStdin, qpc: i64, ramek: i64, probki: Option<&[u8]>) -> std::io::Result<()> {
-        let poczatek = self.probka_dla(qpc);
+    /// Bez znacznika czasu (`qpc` = None) pakiet idzie zaraz za poprzednimi.
+    fn pakiet(&mut self, wejscie: &mut impl Write, qpc: Option<i64>, ramek: i64, probki: Option<&[u8]>) -> std::io::Result<()> {
+        let poczatek = qpc.map_or(self.wyslane, |q| self.probka_dla(q));
         // Drobne drgania znaczników (< 5 ms) ignorujemy, żeby nie wstawiać trzasków
         let tolerancja = self.czestotliwosc / 200;
         let mut pomin = 0;
@@ -414,5 +827,100 @@ fn nazwa_urzadzenia(urzadzenie: &IMMDevice) -> Option<String> {
         let wartosc = magazyn.GetValue(&PKEY_Device_FriendlyName).ok()?;
         let pole = &wartosc.Anonymous.Anonymous;
         (pole.vt == VT_LPWSTR).then(|| pole.Anonymous.pwszVal.to_string().unwrap_or_default()).filter(|n| !n.is_empty())
+    }
+}
+
+#[cfg(test)]
+mod testy {
+    use super::{Blad, FORMAT_PROCESU, Zegar, dlugosc_adts, zmiana_urzadzenia};
+    use windows::core::{Error, HRESULT};
+
+    /// Zegar 48 kHz, stereo 16 bit (4 bajty na próbkę), start w zerze
+    fn zegar() -> Zegar {
+        Zegar { t0: 0, czestotliwosc: 48_000, wyslane: 0, bajtow_na_probke: 4 }
+    }
+
+    /// Czas QPC (100 ns) dla milisekundy
+    const fn ms(ms: i64) -> Option<i64> {
+        Some(ms * 10_000)
+    }
+
+    #[test]
+    fn zegar_wypelnia_luki_cisza_i_obcina_nakladki() {
+        let (mut z, mut wyj) = (zegar(), Vec::new());
+        // 10 ms dźwięku od zera
+        z.pakiet(&mut wyj, ms(0), 480, Some(&[1; 480 * 4])).unwrap();
+        assert_eq!((z.wyslane, wyj.len()), (480, 480 * 4));
+        // Następny pakiet dopiero w 20 ms: 10 ms ciszy, potem próbki
+        z.pakiet(&mut wyj, ms(20), 480, Some(&[2; 480 * 4])).unwrap();
+        assert_eq!(z.wyslane, 1440);
+        assert!(wyj[480 * 4..960 * 4].iter().all(|b| *b == 0));
+        assert!(wyj[960 * 4..].iter().all(|b| *b == 2));
+        // Pakiet zachodzący na już wysłane próbki (6 ms wstecz): wysyłamy tylko nową końcówkę
+        z.pakiet(&mut wyj, ms(24), 480, Some(&[3; 480 * 4])).unwrap();
+        assert_eq!(z.wyslane, 1152 + 480);
+        assert_eq!(wyj.len(), 1632 * 4);
+        assert!(wyj[1440 * 4..].iter().all(|b| *b == 3));
+        // Drganie znacznika poniżej 5 ms nie wstawia ciszy (trzaski) ani nie obcina próbek
+        z.pakiet(&mut wyj, ms(35), 48, Some(&[4; 48 * 4])).unwrap();
+        assert_eq!(z.wyslane, 1632 + 48);
+        // Pakiet ciszy (flaga SILENT) to zera, a cisza_do dopycha oś czasu do zadanej chwili
+        z.pakiet(&mut wyj, None, 100, None).unwrap();
+        assert_eq!(z.wyslane, 1780);
+        z.cisza_do(&mut wyj, 100 * 10_000).unwrap();
+        assert_eq!(z.wyslane, 4800);
+        assert_eq!(wyj.len(), 4800 * 4);
+    }
+
+    #[test]
+    fn zegar_bez_znacznika_czasu_dokleja_za_poprzednimi() {
+        // Loopback procesu potrafi oddać pakiet bez znacznika czasu — nie może zrobić luki ani nakładki
+        let (mut z, mut wyj) = (zegar(), Vec::new());
+        for _ in 0..3 {
+            z.pakiet(&mut wyj, None, 480, Some(&[7; 480 * 4])).unwrap();
+        }
+        assert_eq!(z.wyslane, 1440);
+        assert!(wyj.iter().all(|b| *b == 7));
+    }
+
+    #[test]
+    fn format_dzwieku_gry() {
+        let f = FORMAT_PROCESU.waveformat();
+        assert_eq!((f.nSamplesPerSec, f.nChannels, f.wBitsPerSample), (48_000, 2, 16));
+        assert_eq!((f.nBlockAlign, f.nAvgBytesPerSec), (4, 192_000));
+    }
+
+    #[test]
+    fn ramka_adts() {
+        // Nagłówek ADTS z długością ramki 10 bajtów (pole 13-bitowe w bajtach 3–5)
+        let mut ramka = vec![0xFF, 0xF1, 0x4C, 0x80, 0x01, 0x40, 0xFC, 9, 9, 9];
+        assert_eq!(dlugosc_adts(&ramka), Some(10));
+        // Niepełna ramka i brak znacznika synchronizacji
+        assert_eq!(dlugosc_adts(&ramka[..8]), None);
+        ramka[0] = 0;
+        assert_eq!(dlugosc_adts(&ramka), None);
+    }
+
+    fn blad(kod: u32) -> Error {
+        Error::from_hresult(HRESULT(kod as i32))
+    }
+
+    #[test]
+    fn zamkniecie_gry_to_zmiana_urzadzenia_a_nie_blad() {
+        // AUDCLNT_E_DEVICE_INVALIDATED — to zgłasza WASAPI, gdy Windows przebuduje wyjście dźwięku
+        assert!(zmiana_urzadzenia(&blad(0x8889_0004)));
+        // AUDCLNT_E_SERVICE_NOT_RUNNING, AUDCLNT_E_RESOURCES_INVALIDATED
+        assert!(zmiana_urzadzenia(&blad(0x8889_0010)));
+        assert!(zmiana_urzadzenia(&blad(0x8889_0026)));
+        // Brak dostępu (E_ACCESSDENIED) i zajęte urządzenie (AUDCLNT_E_DEVICE_IN_USE) to prawdziwe błędy
+        assert!(!zmiana_urzadzenia(&blad(0x8007_0005)));
+        assert!(!zmiana_urzadzenia(&blad(0x8889_000A)));
+    }
+
+    #[test]
+    fn opis_zmiany_urzadzenia_jest_po_ludzku() {
+        let opis = Blad::Urzadzenie(blad(0x8889_0004)).to_string();
+        assert!(opis.starts_with("urządzenie dźwięku zostało odłączone albo zmienione"), "{opis}");
+        assert!(opis.contains("0x88890004"), "{opis}");
     }
 }

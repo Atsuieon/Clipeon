@@ -142,6 +142,8 @@ fn pokaz_stan(app: &AppHandle, stan: &Stan) {
         (ikona::CZERWONY, b.clone())
     } else if let Some(p) = &stan.wznawianie {
         (ikona::ZOLTY, format!("Wznawiam nagrywanie ({p})…"))
+    } else if let Some(p) = &stan.przelaczanie {
+        (ikona::ZOLTY, format!("Przełączam {p} na nowe urządzenie…"))
     } else if stan.pauza {
         (ikona::SZARY, "Nagrywanie wstrzymane".to_string())
     } else if stan.czeka_na_gre {
@@ -220,11 +222,14 @@ fn obsluz_zdarzenie(app: &AppHandle, z: Zdarzenie) {
             if cfg.dzwiek_zapisu {
                 crate::dzwiek::zagraj();
             }
-            let opis = if cfg.skrot_filmu.is_empty() {
+            let mut opis = if cfg.skrot_filmu.is_empty() {
                 "Zakończysz go w oknie Clipeona albo w menu przy zegarze".to_string()
             } else {
                 format!("{} kończy nagrywanie", cfg.skrot_filmu)
             };
+            if !cfg.skrot_znacznika.is_empty() {
+                opis.push_str(&format!(", {} dodaje znacznik", cfg.skrot_znacznika));
+            }
             pokaz_dymek(app, "Nagrywam film", &opis, true, false);
         }
         Zdarzenie::FilmKoniec(powod) => {
@@ -242,6 +247,23 @@ fn obsluz_zdarzenie(app: &AppHandle, z: Zdarzenie) {
             let opis = if czesci > 1 { format!("{nazwa} (i {} kolejne części)", czesci - 1) } else { nazwa };
             pokaz_dymek(app, &format!("Film zapisany ({})", dlugosc_slowami(sekundy)), &opis, false, false);
             let _ = app.emit("film-zapisany", plik);
+        }
+        Zdarzenie::FilmOdzyskany { plik, sekundy, czesci } => {
+            let nazwa = plik.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            let opis = if czesci > 1 { format!("{nazwa} (i {} kolejne części)", czesci - 1) } else { nazwa };
+            pokaz_dymek(app, &format!("Odzyskano przerwany film ({})", dlugosc_slowami(sekundy)), &opis, false, true);
+            let _ = app.emit("film-zapisany", plik);
+        }
+        Zdarzenie::Znacznik(Some((nr, sekundy))) => {
+            pokaz_dymek(app, &format!("Znacznik {nr}"), &format!("{}:{:02} filmu — skoczysz do niego w edytorze", sekundy / 60, sekundy % 60), false, false);
+        }
+        Zdarzenie::Znacznik(None) => {
+            let opis = if cfg.skrot_filmu.is_empty() {
+                "Znaczniki działają w trakcie filmu — zacznij go w oknie Clipeona".to_string()
+            } else {
+                format!("Znaczniki działają w trakcie filmu — zacznij go skrótem {}", cfg.skrot_filmu)
+            };
+            pokaz_dymek(app, "Nie nagrywasz filmu", &opis, false, false);
         }
         Zdarzenie::FilmZmniejszony { plik, przed, po } => {
             let gb = |b: u64| format!("{:.1} GB", b as f64 / 1e9).replace('.', ",");
@@ -488,6 +510,13 @@ fn pokaz_w_folderze(rdzen: State<'_, Rdzen>, sciezka: PathBuf) -> Result<(), Str
     Ok(())
 }
 
+/// Klip do schowka jako plik: Ctrl+V w Discordzie (albo w Eksploratorze) wkleja sam plik.
+#[tauri::command]
+fn kopiuj_klip(rdzen: State<'_, Rdzen>, sciezka: PathBuf) -> Result<(), String> {
+    let klip = klipy::sprawdz_wynik(&rdzen.config().folder_klipow, &sciezka)?;
+    crate::schowek::kopiuj_plik(&klip)
+}
+
 #[tauri::command]
 fn usun_klip(rdzen: State<'_, Rdzen>, sciezka: PathBuf) -> Result<(), String> {
     let klip = klipy::sprawdz_sciezke(&rdzen.config().folder_klipow, &sciezka)?;
@@ -715,6 +744,7 @@ pub fn uruchom() {
             klipy,
             miniatura,
             pokaz_w_folderze,
+            kopiuj_klip,
             usun_klip,
             otworz_folder,
             eksportuj,
@@ -863,17 +893,22 @@ pub fn uruchom() {
             if c.ikona_przy_zegarze && !c.ikona_ustawiona {
                 ustaw_ikone(app.handle(), &rdzen, true);
             }
+            // Filmy przerwane awarią: lista teraz (zanim zacznie się nowy film), składanie w tle
+            let przerwane = crate::film::przerwane(&c.folder_klipow);
             // Sprzątanie folderu przy starcie i potem co godzinę (jeśli włączone w ustawieniach)
             let r = rdzen.clone();
-            std::thread::spawn(move || loop {
-                let c = r.config();
-                // Pliki tymczasowe filmów przerwanych awarią (nie trwającego: te są świeże)
-                crate::film::usun_resztki(&c.folder_klipow);
-                // Pliki przygotowane do przeciągnięcia z edytora (starsze niż doba)
-                klipy::sprzataj_przeciagane();
-                crate::sprzatanie::usun_resztki(&c.folder_klipow);
-                crate::sprzatanie::sprzataj(&c.folder_klipow, c.sprzatanie_dni, c.sprzatanie_gb);
-                std::thread::sleep(std::time::Duration::from_secs(3600));
+            std::thread::spawn(move || {
+                r.odzyskaj_filmy(przerwane);
+                loop {
+                    let c = r.config();
+                    // Pliki tymczasowe filmów, których nie dało się złożyć ani odzyskać (starsze niż 3 dni)
+                    crate::film::usun_resztki(&c.folder_klipow);
+                    // Pliki przygotowane do przeciągnięcia z edytora (starsze niż doba)
+                    klipy::sprzataj_przeciagane();
+                    crate::sprzatanie::usun_resztki(&c.folder_klipow);
+                    crate::sprzatanie::sprzataj(&c.folder_klipow, c.sprzatanie_dni, c.sprzatanie_gb);
+                    std::thread::sleep(std::time::Duration::from_secs(3600));
+                }
             });
             if let Some(e) = blad_cfg {
                 rdzen.blad_configu(e);

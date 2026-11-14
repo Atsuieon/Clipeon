@@ -174,8 +174,14 @@ fn dzwiek_do_obrazu<'a>(czasy: &[i64], okres: i64, audio: Vec<&'a Pakiet>, ramka
 }
 
 /// Ścieżki dźwięku pliku wynikowego. Wejścia ffmpeg nr 1.. to kolejne ścieżki z `nazwy` (0 = obraz).
-/// Jedna ścieżka jest kopiowana; przy dwóch plik dostaje trzy: miks (pierwsza — odtwarzacze zwykle
-/// grają tylko ją) i obie oryginalne bez ponownego kodowania (do zmiany głośności w edytorze).
+/// Nazwa pierwszej ścieżki pliku z kilkoma ścieżkami dźwięku: wszystkie zmiksowane (tę słychać
+/// w zwykłym odtwarzaczu i na Discordzie).
+pub fn tytul_miksu(nazwy: &[&str]) -> &'static str {
+    if nazwy.len() > 2 { "Wszystko razem" } else { "Gra + mikrofon" }
+}
+
+/// Jedna ścieżka jest kopiowana; przy kilku plik dostaje miks (pierwsza — odtwarzacze zwykle grają
+/// tylko ją) i wszystkie oryginalne bez ponownego kodowania (do zmiany głośności w edytorze).
 pub fn mapuj_dzwiek(cmd: &mut std::process::Command, nazwy: &[&str]) {
     match nazwy.len() {
         0 => {}
@@ -186,7 +192,8 @@ pub fn mapuj_dzwiek(cmd: &mut std::process::Command, nazwy: &[&str]) {
             let wejscia: String = (1..=n).map(|i| format!("[{i}:a]")).collect();
             cmd.args(["-filter_complex", &format!("{wejscia}amix=inputs={n}:duration=longest:normalize=0[a]")])
                 .args(["-map", "[a]", "-c:a:0", "aac", "-b:a:0", "160k"])
-                .args(["-metadata:s:a:0", "title=Gra + mikrofon", "-metadata:s:a:0", "handler_name=Gra + mikrofon"])
+                .args(["-metadata:s:a:0".to_string(), format!("title={}", tytul_miksu(nazwy))])
+                .args(["-metadata:s:a:0".to_string(), format!("handler_name={}", tytul_miksu(nazwy))])
                 .args(["-disposition:a:0", "default"]);
             for (i, nazwa) in nazwy.iter().enumerate() {
                 let wyj = i + 1;
@@ -255,7 +262,33 @@ pub fn nowa_nazwa(folder: &Path, przedrostek: &str, znacznik: &str) -> PathBuf {
 
 #[cfg(test)]
 mod testy {
-    use super::{Pakiet, dlugosc_ramki_aac, dzwiek_do_obrazu, miesiac, przerwy_w_obrazie};
+    use super::{Pakiet, dlugosc_ramki_aac, dzwiek_do_obrazu, mapuj_dzwiek, miesiac, przerwy_w_obrazie, tytul_miksu};
+
+    fn argumenty(nazwy: &[&str]) -> String {
+        let mut cmd = std::process::Command::new("ffmpeg");
+        mapuj_dzwiek(&mut cmd, nazwy);
+        cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect::<Vec<_>>().join(" ")
+    }
+
+    #[test]
+    fn sciezki_dzwieku_w_klipie() {
+        assert_eq!(argumenty(&[]), "");
+        // Jedna ścieżka: kopia bez kodowania
+        assert_eq!(argumenty(&["Gra"]), "-map 1:a -c:a copy");
+        // Dwie: miks „Gra + mikrofon” na początku i obie oryginały
+        let dwie = argumenty(&["Gra", "Mikrofon"]);
+        assert!(dwie.contains("[1:a][2:a]amix=inputs=2"), "{dwie}");
+        assert!(dwie.contains("title=Gra + mikrofon") && dwie.contains("-c:a:1 copy") && dwie.contains("-c:a:2 copy"), "{dwie}");
+        // Trzy (gra osobno od Discorda): miks wszystkich i każda ścieżka po kolei, z nazwą
+        let trzy = argumenty(&["Gra", "Discord i reszta", "Mikrofon"]);
+        assert!(trzy.contains("[1:a][2:a][3:a]amix=inputs=3"), "{trzy}");
+        assert!(trzy.contains("title=Wszystko razem"), "{trzy}");
+        for (i, n) in ["Gra", "Discord i reszta", "Mikrofon"].iter().enumerate() {
+            let wyj = i + 1;
+            assert!(trzy.contains(&format!("-map {wyj}:a -c:a:{wyj} copy -metadata:s:a:{wyj} title={n}")), "{trzy}");
+        }
+        assert_eq!(tytul_miksu(&["Gra", "Mikrofon"]), "Gra + mikrofon");
+    }
 
     fn pakiet(czas: i64) -> Pakiet {
         Pakiet { czas, klucz: true, dane: std::sync::Arc::from(vec![0xFFu8, 0xF1, 0x4C, 0x80]) }

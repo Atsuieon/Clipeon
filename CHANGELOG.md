@@ -1,8 +1,43 @@
 # Zmiany
 
-## 1.4.4
+## 1.4.5
 
-Poprawki zgłoszone przez testerów.
+- **Dźwięk gry osobno od Discorda.** Klip i film mają teraz trzy ścieżki: „Gra” (sama gra), „Discord i reszta”
+  (rozmowa, muzyka, przeglądarka) i „Mikrofon”. W edytorze każdą wyciszysz albo ściszysz osobno, np. zapiszesz
+  klip z grą, ale bez Discorda („Zapisz bez Discorda i reszty”). Gra to wybrana gra albo ostatnia gra na wierzchu;
+  przełączenie się na chwilę na Discorda jej nie zmienia. Gdy żadnej gry nie widać, ścieżka „Gra” nagrywa cały
+  dźwięk komputera. Zwykły odtwarzacz i Discord słyszą pierwszą ścieżkę „Wszystko razem”. Działa od Windows 10
+  2004; można to wyłączyć w Ustawieniach („Gra osobno od Discorda”) i wrócić do jednej ścieżki.
+- **Kopiuj klip i wklej na Discordzie.** Przycisk „Kopiuj” w podglądzie, po zapisie w edytorze i w menu klipu
+  (albo Ctrl+C w podglądzie) wkłada plik do schowka — na Discordzie wystarczy Ctrl+V.
+- **Znaczniki w filmach.** W trakcie filmu Alt+F8 (do zmiany w Ustawieniach) zaznacza ważną chwilę. Znaczniki
+  są w pliku jako rozdziały, a w edytorze jako kreski na osi czasu: kliknięcie albo klawisze [ i ] skaczą do
+  poprzedniego i następnego.
+- **Film przetrwa awarię.** Gdy Clipeon albo komputer padnie w trakcie filmu, przy następnym starcie film jest
+  składany z tego, co zdążyło się zapisać (do ostatnich 2 sekund), i pojawia się w bibliotece z dymkiem
+  „Odzyskano przerwany film”.
+- Nowe testy automatyczne: bufor powtórki, dzielenie strumienia na klatki, zegar dźwięku, ścieżki dźwięku przy
+  zapisie i w edytorze, znaczniki i odzyskiwanie filmu.
+- **Zamknięcie albo uruchomienie gry nie pokazuje już błędu dźwięku.** Gdy Windows zmienia albo przebudowuje
+  urządzenie dźwięku (gra się zamyka lub startuje, podłączasz inne słuchawki, usługa dźwięku się restartuje),
+  nagrywanie dźwięku musi otworzyć urządzenie od nowa. Dawniej Clipeon pokazywał wtedy czerwony błąd
+  „Nie można nagrywać (dźwięk systemowy): 0x88890004” i wpisywał `[BŁĄD]` do dziennika, choć po sekundzie
+  nagrywał dalej. Teraz kropka robi się na chwilę żółta z napisem „Przełączam…”, a w dzienniku zostaje
+  zwykła informacja. Obraz nagrywa się przez cały czas. Błąd pojawia się
+  dopiero wtedy, gdy urządzenia nie da się otworzyć przez 10 sekund.
+- **Dźwięk po przełączeniu dalej zgadza się z obrazem.** Dawniej sekundowa dziura w dźwięku znikała z klipu,
+  więc wszystko po niej było słychać o sekundę za wcześnie (w klipie zapisanym tuż po zamknięciu lub starcie
+  gry). Teraz przełączenie trwa ułamek sekundy, a przerwa jest wypełniana ciszą.
+- Przełączenie na inne domyślne urządzenie (np. słuchawki) też jest natychmiastowe i bez dziury w klipie.
+- **Edytor: linia głośności nie przeskakuje.** Gdy złapało się ścieżkę „Gra” albo „Mikrofon” w innym miejscu
+  niż linia, linia od razu skakała pod kursor (np. z 100% na prawie 200%). Teraz rusza z miejsca, w którym
+  stoi, i przesuwa się o tyle, o ile ruszy się myszka. Etykieta z procentem przy 0% i 200% zsuwa się płynnie
+  zamiast przeskakiwać nad linię i pod nią.
+- **Edytor: wykres dźwięku stoi w miejscu.** Dawniej słupki rosły i malały razem z linią głośności. Teraz
+  głośność zmienia ich jasność (0% blade, 200% najjaśniejsze), a wysokość tylko odrobinę.
+
+Poprawki zgłoszone przez testerów (przygotowane jako 1.4.4, wydane razem w 1.4.5):
+
 
 - **Jakość nagrywania w trzech kartach obok siebie: Gra, Pulpit i Filmy.** Klatki i Mb/s pulpitu były schowane
   w zwijanym wierszu „Tryb pulpitu”, więc tester ustawiał 60 kl./s w polu gry i pulpit dalej nagrywał w 30.

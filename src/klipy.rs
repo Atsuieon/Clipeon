@@ -297,8 +297,12 @@ pub fn obraz_przeciagania(klip: &Path) -> Option<PathBuf> {
 #[derive(Serialize)]
 pub struct Info {
     pub dlugosc: f64,
-    /// Liczba ścieżek dźwięku (3 = miks, gra, mikrofon)
+    /// Liczba ścieżek dźwięku (3 = miks, gra, mikrofon; 4 = miks, gra, Discord i reszta, mikrofon)
     pub sciezki_audio: u32,
+    /// Nazwy ścieżek dźwięku z pliku, po kolei (puste, gdy plik ich nie ma)
+    pub nazwy_sciezek: Vec<String>,
+    /// Znaczniki filmu (początki rozdziałów MP4) w sekundach
+    pub znaczniki: Vec<f64>,
     /// Klatki na sekundę (do przewijania o jedną klatkę); 0 = nieznane
     pub fps: f64,
     /// Rozmiar obrazu w pikselach (do kadrowania); 0 = nieznany
@@ -319,7 +323,54 @@ pub fn info(klip: &Path) -> Result<Info, String> {
     let dlugosc = dlugosc_z_opisu(&opis).ok_or("Nie udało się odczytać długości klipu")?;
     let sciezki_audio = opis.lines().filter(|l| l.contains("Stream #") && l.contains("Audio:")).count() as u32;
     let (fps, szerokosc, wysokosc) = obraz_z_opisu(&opis);
-    Ok(Info { dlugosc, sciezki_audio, fps, szerokosc, wysokosc, webp: crate::ffmpeg::ma_enkoder("libwebp_anim") })
+    let nazwy_sciezek = nazwy_sciezek_z_opisu(&opis);
+    let znaczniki = znaczniki_z_opisu(&opis);
+    Ok(Info { dlugosc, sciezki_audio, nazwy_sciezek, znaczniki, fps, szerokosc, wysokosc, webp: crate::ffmpeg::ma_enkoder("libwebp_anim") })
+}
+
+/// Znaczniki z opisu ffmpeg: linie „Chapter #0:1: start 12.345000, end 20.000000”. Rozdział od zera to
+/// „Początek” (MP4 zawsze ma rozdział od początku filmu), a nie znacznik.
+fn znaczniki_z_opisu(opis: &str) -> Vec<f64> {
+    opis.lines()
+        .filter_map(|l| {
+            let (_, reszta) = l.trim().strip_prefix("Chapter #")?.split_once("start ")?;
+            reszta.split(',').next()?.trim().parse::<f64>().ok().filter(|s| s.is_finite() && *s > 0.001)
+        })
+        .collect()
+}
+
+/// Nazwy ścieżek dźwięku z opisu ffmpeg: pole „title”, a w MP4 „handler_name” z bloku Metadata pod
+/// linią „Stream #0:N…: Audio:”. Ścieżka bez nazwy daje pusty napis.
+fn nazwy_sciezek_z_opisu(opis: &str) -> Vec<String> {
+    let mut nazwy: Vec<(Option<String>, Option<String>)> = Vec::new();
+    let mut w_audio = false;
+    for linia in opis.lines() {
+        let t = linia.trim();
+        if t.starts_with("Stream #") {
+            w_audio = t.contains("Audio:");
+            if w_audio {
+                nazwy.push((None, None));
+            }
+            continue;
+        }
+        // Koniec opisu strumienia: rozdział albo inne wejście (Metadata strumienia jest wcięte o 4 spacje
+        // w ffmpeg 6, a głębiej w nowszych)
+        if !linia.starts_with("    ") || t.starts_with("Chapter #") {
+            w_audio = false;
+        }
+        let (Some(ostatnia), true) = (nazwy.last_mut(), w_audio) else { continue };
+        if let Some((klucz, wartosc)) = t.split_once(':') {
+            let wartosc = wartosc.trim().to_string();
+            match klucz.trim() {
+                "title" => ostatnia.0 = Some(wartosc),
+                "handler_name" => ostatnia.1 = Some(wartosc),
+                _ => {}
+            }
+        }
+    }
+    // ffmpeg nadaje domyślne nazwy handlerów — to nie są nazwy ścieżek
+    let domyslna = |n: &String| n.is_empty() || n == "SoundHandler" || n.starts_with("Core Media");
+    nazwy.into_iter().map(|(t, h)| t.or(h.filter(|h| !domyslna(h))).unwrap_or_default()).collect()
 }
 
 /// FPS i rozmiar z linii "Stream #0:0: Video: h264 (Main), yuv420p(tv, bt709), 1920x1080, 20000 kb/s, 60 fps, ...".
@@ -401,7 +452,81 @@ fn dlugosc_z_opisu(opis: &str) -> Option<f64> {
 
 #[cfg(test)]
 mod testy {
-    use super::{lista, nazwa_gry_z_opisu, obraz_z_opisu, sprawdz_sciezke, sprawdz_wynik_w, szczyty, usun_starsze};
+    use super::{
+        lista, nazwa_gry_z_opisu, nazwy_sciezek_z_opisu, obraz_z_opisu, sprawdz_sciezke, sprawdz_wynik_w, szczyty, usun_starsze,
+        znaczniki_z_opisu,
+    };
+
+    /// Opis z prawdziwego ffmpeg 6 (wcięcia jak w oryginale): rozdziały, potem strumienie
+    const OPIS_FFMPEG6: &str = "Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'wynik.mp4':
+  Metadata:
+    major_brand     : isom
+  Duration: 00:00:10.03, start: 0.000000, bitrate: 333 kb/s
+  Chapters:
+    Chapter #0:0: start 0.000000, end 3.000000
+      Metadata:
+        title           : Początek
+    Chapter #0:1: start 3.000000, end 7.000000
+      Metadata:
+        title           : Znacznik 1
+    Chapter #0:2: start 7.250000, end 10.000000
+      Metadata:
+        title           : Znacznik 2
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 320x240, 30 fps (default)
+    Metadata:
+      handler_name    : VideoHandler
+  Stream #0:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, mono, fltp, 69 kb/s (default)
+    Metadata:
+      handler_name    : Gra + mikrofon
+  Stream #0:2[0x3](und): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, mono, fltp, 69 kb/s
+    Metadata:
+      handler_name    : Gra
+  Stream #0:3[0x4](und): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, mono, fltp, 69 kb/s
+    Metadata:
+      handler_name    : Mikrofon
+  Stream #0:4[0x5](eng): Data: bin_data (text / 0x74786574), 0 kb/s
+    Metadata:
+      handler_name    : SubtitleHandler
+";
+
+    #[test]
+    fn znaczniki_i_nazwy_z_ffmpeg6() {
+        assert_eq!(znaczniki_z_opisu(OPIS_FFMPEG6), [3.0, 7.25]);
+        assert!(znaczniki_z_opisu("Duration: 00:00:01.00").is_empty());
+        // Ścieżka rozdziałów (Data) nie jest ścieżką dźwięku, a tytuł rozdziału nie jest nazwą ścieżki
+        assert_eq!(nazwy_sciezek_z_opisu(OPIS_FFMPEG6), ["Gra + mikrofon", "Gra", "Mikrofon"]);
+    }
+
+    #[test]
+    fn nazwy_sciezek_z_opisu_ffmpeg() {
+        let opis = "Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'klip.mp4':
+  Metadata:
+    title           : Cyberpunk 2077
+  Duration: 00:00:30.02, start: 0.000000, bitrate: 20311 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(tv), 1920x1080, 60 fps
+      Metadata:
+        handler_name    : VideoHandler
+  Stream #0:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706D), 48000 Hz, stereo, fltp, 160 kb/s (default)
+      Metadata:
+        handler_name    : Wszystko razem
+        vendor_id       : [0][0][0][0]
+  Stream #0:2[0x3](und): Audio: aac (LC) (mp4a / 0x6134706D), 48000 Hz, stereo, fltp, 160 kb/s
+      Metadata:
+        handler_name    : Gra
+  Stream #0:3[0x4](und): Audio: aac (LC), 48000 Hz, stereo, fltp, 160 kb/s
+      Metadata:
+        handler_name    : Discord i reszta
+  Stream #0:4[0x5](und): Audio: aac (LC), 48000 Hz, stereo, fltp, 160 kb/s
+      Metadata:
+        title           : Mikrofon
+        handler_name    : SoundHandler
+  Stream #0:5[0x6](und): Audio: aac (LC), 48000 Hz, stereo, fltp, 160 kb/s
+      Metadata:
+        handler_name    : SoundHandler
+";
+        assert_eq!(nazwy_sciezek_z_opisu(opis), ["Wszystko razem", "Gra", "Discord i reszta", "Mikrofon", ""]);
+        assert!(nazwy_sciezek_z_opisu("Duration: 00:00:01.00").is_empty());
+    }
 
     #[test]
     fn szczyty_fali() {

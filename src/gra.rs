@@ -68,30 +68,52 @@ pub fn na_pierwszym_planie(monitor: &str) -> Option<Gra> {
     z_okna(okno)
 }
 
-/// Czy wybrany program jest uruchomiony. Sprawdzamy listę procesów, nie okien: gra (np. emulator)
-/// przy przełączaniu pełnego ekranu albo po zminimalizowaniu na chwilę chowa okno, a to nie znaczy,
-/// że się zamknęła.
-pub fn dziala(proces: &str) -> bool {
+/// Numer procesu programu (dla nagrywania dźwięku samej gry). Gdy program ma kilka procesów o tej samej
+/// nazwie (np. przeglądarkowy silnik gry), bierzemy główny — ten, którego rodzic nie jest tym samym
+/// programem; dźwięk procesów potomnych Windows i tak dołącza.
+pub fn pid(proces: &str) -> Option<u32> {
+    let procesy = procesy()?;
+    let pasujace: Vec<(u32, u32)> =
+        procesy.iter().filter(|(_, _, nazwa)| ten_sam(nazwa, proces)).map(|(pid, rodzic, _)| (*pid, *rodzic)).collect();
+    glowny(&pasujace)
+}
+
+/// Z par (proces, rodzic) tego samego programu: proces, którego rodzic nie jest na liście.
+fn glowny(pasujace: &[(u32, u32)]) -> Option<u32> {
+    pasujace
+        .iter()
+        .find(|(_, rodzic)| !pasujace.iter().any(|(p, _)| p == rodzic))
+        .or(pasujace.first())
+        .map(|(p, _)| *p)
+}
+
+/// Lista procesów: (numer, numer rodzica, nazwa pliku). None, gdy Windows nie dał listy.
+fn procesy() -> Option<Vec<(u32, u32, String)>> {
     use windows::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
     };
     unsafe {
-        let Ok(migawka) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else {
-            // Bez listy procesów zostaje stary sposób: widoczne okna
-            return lista().iter().any(|g| ten_sam(&g.proces, proces));
-        };
+        let migawka = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0).ok()?;
         let mut wpis = PROCESSENTRY32W { dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32, ..Default::default() };
-        let mut jest = false;
+        let mut lista = Vec::new();
         let mut dalej = Process32FirstW(migawka, &mut wpis).is_ok();
         while dalej {
-            if ten_sam(&crate::tekst_utf16(&wpis.szExeFile), proces) {
-                jest = true;
-                break;
-            }
+            lista.push((wpis.th32ProcessID, wpis.th32ParentProcessID, crate::tekst_utf16(&wpis.szExeFile)));
             dalej = Process32NextW(migawka, &mut wpis).is_ok();
         }
         let _ = CloseHandle(migawka);
-        jest
+        Some(lista)
+    }
+}
+
+/// Czy wybrany program jest uruchomiony. Sprawdzamy listę procesów, nie okien: gra (np. emulator)
+/// przy przełączaniu pełnego ekranu albo po zminimalizowaniu na chwilę chowa okno, a to nie znaczy,
+/// że się zamknęła.
+pub fn dziala(proces: &str) -> bool {
+    match procesy() {
+        Some(lista) => lista.iter().any(|(_, _, nazwa)| ten_sam(nazwa, proces)),
+        // Bez listy procesów zostaje stary sposób: widoczne okna
+        None => lista().iter().any(|g| ten_sam(&g.proces, proces)),
     }
 }
 
@@ -230,7 +252,17 @@ fn na_monitorze(okno: HWND, monitor: &str) -> bool {
 
 #[cfg(test)]
 mod testy {
-    use super::{mozliwa_gra, ten_sam};
+    use super::{glowny, mozliwa_gra, ten_sam};
+
+    #[test]
+    fn dzwiek_gry_bierze_glowny_proces_programu() {
+        // 300 i 400 to procesy potomne 200 (ten sam .exe); 200 ma rodzica spoza programu (launcher)
+        assert_eq!(glowny(&[(300, 200), (200, 50), (400, 200)]), Some(200));
+        assert_eq!(glowny(&[(7, 1)]), Some(7));
+        assert_eq!(glowny(&[]), None);
+        // Pętla rodziców (numery procesów wracają do użytku) — bierzemy cokolwiek, byle nie nic
+        assert_eq!(glowny(&[(1, 2), (2, 1)]), Some(1));
+    }
 
     #[test]
     fn powloka_i_przegladarki_nie_sa_gra() {
