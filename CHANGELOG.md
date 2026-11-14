@@ -1,5 +1,16 @@
 # Zmiany
 
+## 1.4.6
+
+Odświeżony wygląd i pasek górny, który mieści się przy każdej szerokości okna.
+
+- Nowy wygląd „mleczne szkło”: karty, menu i okienka są półprzezroczyste i rozmywają animowane tło ze znaków, które jest teraz jaśniejsze i przebija przez nie. Kolory i czarny motyw bez zmian. Kafelki klipów zostają pełne, żeby nie obciążać karty graficznej.
+- Pasek górny nie rozjeżdża się, gdy pojawia się przycisk „Aktualizuj do X”: napisy na przyciskach chowają się wtedy odpowiednio wcześniej, a długi numer wersji jest ucinany wielokropkiem.
+- Przy bardzo wąskim oknie (np. kafelek w menedżerze okien) pasek łamie się na dwa rzędy zamiast ucinać przyciski, a tytuły stron zmniejszają się razem z oknem.
+- W przeglądarce bez rozmywania tła powierzchnie wracają do prawie pełnej czerni, więc wszystko zostaje czytelne.
+- **Proste ustawienia.** Jakość gry i pulpitu to trzy przyciski (Lekka, Standard, Najwyższa / Płynna), a rozmiar filmów to Oryginał, Mniejszy albo Najmniejszy — bez liczb i opisów. Wybór ekranu widać tylko przy więcej niż jednym monitorze.
+- **„Dla nerdów”**: przełącznik w prawym górnym rogu Ustawień. Po włączeniu wracają wszystkie opisy, klatki/s i Mb/s do wpisania, szacunek RAM i sekcja Zaawansowane. Działa od razu, bez zapisywania. Gdy klatki/s albo Mb/s nie pasują do żadnego przycisku, w prostym widoku podświetla się „Własne”.
+
 ## 1.4.5
 
 - **Dźwięk gry osobno od Discorda.** Klip i film mają teraz trzy ścieżki: „Gra” (sama gra), „Discord i reszta”

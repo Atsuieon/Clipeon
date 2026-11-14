@@ -142,6 +142,7 @@ await zrzut("0-przelaczanie-dzwieku");
 await strona.evaluate(() => pokazStan({ ...stan, przelaczanie: null }));
 sprawdz((await strona.textContent("#status-tekst")) === "Nagrywa: Gra testowa · 60 kl./s", "po przełączeniu dźwięku status nie wraca do „Nagrywa”");
 
+
 // ---------- Tło ze znaków i płyn pod myszką ----------
 // Jasne znaki (przezroczystość ≥ 0,4) rysuje tylko smuga — liczymy je wokół podanego punktu
 const jasneZnaki = (x, y) =>
@@ -256,6 +257,17 @@ await strona.click('[data-zakladka="klipy"]');
 await strona.waitForTimeout(200);
 sprawdz((await strona.textContent("#biblioteka-tytul")) === "Klipy" && (await strona.locator(".klip").count()) === 2, "zakładka Klipy pokazuje filmy albo gubi klipy");
 sprawdz((await strona.textContent("#podsumowanie")).startsWith("2 klipy "), `podsumowanie klipów: „${await strona.textContent("#podsumowanie")}”`);
+
+// Mleczne szkło: karty rozmywają tło, ale kafelki klipów zostają pełne (koszt karty graficznej)
+{
+  const szklo = await strona.evaluate(() => {
+    const filtr = (sel) => { const el = document.querySelector(sel); return el ? getComputedStyle(el).backdropFilter : "brak elementu " + sel; };
+    return { karta: filtr(".karta:not(.klip)"), klip: filtr(".karta.klip"), gora: filtr(".gora") };
+  });
+  sprawdz(szklo.karta.includes("blur"), `karta nie rozmywa tła: ${szklo.karta}`);
+  sprawdz(szklo.klip === "none", `kafelek klipu rozmywa tło (koszt GPU): ${szklo.klip}`);
+  sprawdz(szklo.gora.includes("blur"), `pasek górny nie rozmywa tła: ${szklo.gora}`);
+}
 await strona.evaluate(() => (window.__klipy = []));
 await strona.click('[data-zakladka="filmy"]');
 await strona.waitForTimeout(200);
@@ -289,14 +301,55 @@ sprawdz((await strona.locator("#gra").count()) === 0, "pole „Gra” zostało w
 // „Edytor zaczyna od” zniknęło z ustawień
 sprawdz(!/Edytor zaczyna od|Bez głosu/.test(await strona.textContent("#formularz")), "w ustawieniach zostało „Edytor zaczyna od”");
 
-// „Zaawansowane” leżą zaraz pod Systemem (ta sama kolumna) i widać je bez rozwijania
-sprawdz(await strona.isVisible("#enkoder"), "„Zaawansowane” nie są widoczne od razu");
+// Prosty widok (domyślny): same nazwy presetów, bez opisów, liczb i Zaawansowanych
+sprawdz(!(await strona.isChecked("#dla-nerdow")), "„Dla nerdów” jest domyślnie włączone");
+{
+  const proste = await strona.evaluate(() => {
+    const widac = (el) => el && el.offsetParent !== null && getComputedStyle(el).display !== "none";
+    return {
+      opisy: [...document.querySelectorAll("#formularz .ust .opis .pomoc:not(.uwaga):not(.sciezka)")].filter(widac).map((el) => el.id || el.textContent.slice(0, 30)),
+      pola: ["fps", "bitrate", "fps-pulpitu", "bitrate-pulpitu", "enkoder", "metoda", "ram", "jakosc-filmu"].filter((id) => widac($(id))),
+      liczby: [...document.querySelectorAll(".presety small")].filter(widac).length,
+      ekran: widac($("monitor")),
+      nazwy: [...document.querySelectorAll("#presety .segment:not([hidden]) span")].map((el) => el.textContent),
+      filmy: [...document.querySelectorAll("#presety-filmu .segment span")].map((el) => el.textContent),
+      folder: widac($("folder")),
+    };
+  });
+  sprawdz(proste.opisy.length === 0, `w prostym widoku widać opisy: ${proste.opisy.join(" | ")}`);
+  sprawdz(proste.pola.length === 0, `w prostym widoku widać pola dla nerdów: ${proste.pola.join(", ")}`);
+  sprawdz(proste.liczby === 0, "w prostym widoku przyciski jakości pokazują klatki i Mb/s");
+  sprawdz(!proste.ekran, "przy jednym monitorze widać wybór ekranu");
+  sprawdz(proste.nazwy.join(",") === "Lekka,Standard,Najwyższa", `przyciski jakości gry: ${proste.nazwy}`);
+  sprawdz(proste.filmy.join(",") === "Oryginał,Mniejszy,Najmniejszy", `przyciski rozmiaru filmów: ${proste.filmy}`);
+  sprawdz(proste.folder, "w prostym widoku nie widać folderu klipów");
+}
+await zrzut("2b-ustawienia-proste");
+// Rozmiar filmów przyciskiem: zmienia ukryte pole i daje niezapisaną zmianę
+await strona.click('#presety-filmu .segment[data-format="av1"]');
+sprawdz((await strona.inputValue("#format-filmu")) === "av1" && (await strona.locator('#presety-filmu .segment.wybrany[data-format="av1"]').count()) === 1, "przycisk rozmiaru filmów nie zmienia wyboru");
+sprawdz((await strona.evaluate(() => zmienioneUstawienia())).includes("format_filmu"), "zmiana rozmiaru filmów nie jest niezapisaną zmianą");
+await strona.click('#presety-filmu .segment[data-format="bez_zmian"]');
+// Wartości spoza presetów: widać „Własne” zamiast pustego wyboru
+await strona.evaluate(() => { $("fps").value = 45; $("fps").dispatchEvent(new Event("input", { bubbles: true })); });
+sprawdz(await strona.isVisible("#presety .segment.wlasne"), "własne klatki/s nie pokazują „Własne”");
+await strona.evaluate(() => { $("fps").value = 60; $("fps").dispatchEvent(new Event("input", { bubbles: true })); });
+sprawdz(await strona.isHidden("#presety .segment.wlasne"), "„Własne” nie znika po powrocie do presetu");
+// „Dla nerdów” działa od razu, bez paska zapisu, i jest pamiętane
+const zmianyPrzed = await strona.evaluate(() => zmienioneUstawienia().join());
+await strona.click('label[for="dla-nerdow"]');
+sprawdz(await strona.isVisible("#fps") && await strona.isVisible("#enkoder") && await strona.isVisible("#ram"), "„Dla nerdów” nie pokazuje pól i Zaawansowanych");
+sprawdz((await strona.evaluate(() => zmienioneUstawienia().join())) === zmianyPrzed, "„Dla nerdów” udaje niezapisaną zmianę ustawień");
+sprawdz((await strona.evaluate(() => localStorage.getItem("clipeon.dlaNerdow"))) === "1", "„Dla nerdów” nie jest zapamiętane");
+
+// „Zaawansowane” leżą zaraz pod Systemem (ta sama kolumna) i widać je w trybie „Dla nerdów”
+sprawdz(await strona.isVisible("#enkoder"), "„Zaawansowane” nie są widoczne w trybie „Dla nerdów”");
 await zrzut("3-zaawansowane");
 sprawdz(await strona.evaluate(() => document.querySelector(".karta.zaawansowane").closest(".grupa") === document.getElementById("autostart").closest(".grupa")), "„Zaawansowane” nie są pod Systemem");
 
 // ---------- Jakość nagrywania: karty Gra / Pulpit / Filmy ----------
 // Klatki pulpitu widać od razu (w 1.4.3 były w zwiniętym wierszu i tester zmieniał klatki gry)
-for (const id of ["fps", "bitrate", "fps-pulpitu", "bitrate-pulpitu", "monitor", "monitor-pulpitu", "format-filmu"]) {
+for (const id of ["fps", "bitrate", "fps-pulpitu", "bitrate-pulpitu", "monitor", "monitor-pulpitu", "presety-filmu"]) {
   sprawdz(await strona.isVisible(`#${id}`), `pole #${id} nie jest widoczne bez rozwijania`);
 }
 sprawdz((await strona.locator("details").count()) === 0, "w ustawieniach zostały zwijane wiersze");
@@ -460,9 +513,9 @@ await strona.waitForTimeout(100);
 const zeSkrotami = await strona.evaluate(() => window.__zapisane.cfg);
 sprawdz(zeSkrotami.skrot === "Ctrl+F8" && zeSkrotami.skrot_filmu === "", `zapis skrótów: ${JSON.stringify([zeSkrotami.skrot, zeSkrotami.skrot_filmu])}`);
 // Rozmiar filmów: wybór trafia do ustawień, a podpowiedź mówi, ile zajmie godzina nagrania
-sprawdz((await strona.locator("#format-filmu option").count()) === 3, "lista „Rozmiar filmów” nie ma formatów z rdzenia");
+sprawdz((await strona.locator("#format-filmu option").count()) === 3 && (await strona.locator("#presety-filmu .segment").count()) === 3, "„Rozmiar filmów” nie ma formatów z rdzenia");
 sprawdz((await strona.textContent("#format-filmu-uwaga")).includes("9.2 GB"), `podpowiedź rozmiaru filmu: „${await strona.textContent("#format-filmu-uwaga")}”`);
-await strona.selectOption("#format-filmu", "hevc");
+await strona.click('#presety-filmu .segment[data-format="hevc"]');
 sprawdz((await strona.textContent("#format-filmu-uwaga")).includes("4.3 GB"), `podpowiedź rozmiaru filmu HEVC: „${await strona.textContent("#format-filmu-uwaga")}”`);
 await strona.click("#zapisz-ustawienia");
 await strona.waitForTimeout(100);
@@ -798,6 +851,30 @@ await strona.waitForTimeout(300);
 sprawdz((await strona.locator("#os .os-znacznik").count()) === 0, "kreski znaczników zostały po poprzednim filmie");
 await v(() => zamknijOdtwarzacz());
 sprawdz((await v(() => $("skrot-znacznika").dataset.wartosc)) === "Alt+F8", "w ustawieniach nie ma domyślnego skrótu znacznika Alt+F8");
+
+
+// Pasek górny mieści się przy każdej szerokości, także z widocznym przyciskiem „Aktualizuj do X”
+for (const aktualizacja of [true, false]) {
+  await strona.evaluate((a) => pokazAktualizacje(a ? { wersja: "10.11.12" } : null), aktualizacja);
+  for (const szerokosc of [1680, 1600, 1366, 1200, 1100, 1024, 980, 900, 860, 780, 640]) {
+    await strona.setViewportSize({ width: szerokosc, height: 800 });
+    await strona.waitForTimeout(30);
+    const wynik = await strona.evaluate(() => {
+      const g = document.querySelector(".gora");
+      const poza = [...g.querySelectorAll("button, .status, .tryb, .marka")].filter((el) => {
+        if (el.hidden || el.offsetParent === null) return false;
+        const r = el.getBoundingClientRect();
+        return r.right > window.innerWidth + 1 || r.left < -1;
+      });
+      return { przelew: g.scrollWidth - g.clientWidth, poza: poza.map((el) => el.id || el.className) };
+    });
+    const opis = aktualizacja ? "z przyciskiem aktualizacji" : "bez przycisku aktualizacji";
+    sprawdz(wynik.przelew <= 1, `pasek górny nie mieści się (${opis}, ${szerokosc} px): wystaje ${wynik.przelew} px`);
+    sprawdz(wynik.poza.length === 0, `elementy paska poza oknem (${opis}, ${szerokosc} px): ${wynik.poza.join(", ")}`);
+  }
+}
+await strona.evaluate(() => pokazAktualizacje(null));
+await strona.setViewportSize({ width: 1100, height: 800 });
 
 await przegladarka.close();
 if (bledy.length) {
