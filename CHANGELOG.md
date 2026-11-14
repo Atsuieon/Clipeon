@@ -1,6 +1,6 @@
 # Zmiany
 
-## 1.5.0
+## 1.4.5
 
 - **Dźwięk gry osobno od Discorda.** Klip i film mają teraz trzy ścieżki: „Gra” (sama gra), „Discord i reszta”
   (rozmowa, muzyka, przeglądarka) i „Mikrofon”. W edytorze każdą wyciszysz albo ściszysz osobno, np. zapiszesz
@@ -35,6 +35,30 @@
   zamiast przeskakiwać nad linię i pod nią.
 - **Edytor: wykres dźwięku stoi w miejscu.** Dawniej słupki rosły i malały razem z linią głośności. Teraz
   głośność zmienia ich jasność (0% blade, 200% najjaśniejsze), a wysokość tylko odrobinę.
+
+Poprawki zgłoszone przez testerów (przygotowane jako 1.4.4, wydane razem w 1.4.5):
+
+
+- **Jakość nagrywania w trzech kartach obok siebie: Gra, Pulpit i Filmy.** Klatki i Mb/s pulpitu były schowane
+  w zwijanym wierszu „Tryb pulpitu”, więc tester ustawiał 60 kl./s w polu gry i pulpit dalej nagrywał w 30.
+  Teraz każda karta ma własne gotowe ustawienia (z liczbami pod nazwą), pola podpisane „gry” / „pulpitu”
+  i własny ekran, a karta trybu, który nagrywa, ma plakietkę „Nagrywa teraz”. Karta Filmy mówi, w jakiej
+  jakości nagra się film, i ma wybór „Rozmiar filmów”.
+- Pasek stanu u góry pokazuje, ile klatek naprawdę nagrywa („Nagrywa pulpit · 30 kl./s”), a przełączenie
+  Gra/Pulpit mówi w dymku, z jaką jakością nagrywa nowy tryb.
+- Uwaga, gdy ustawiono więcej klatek, niż ekran pokazuje (np. 200 kl./s na ekranie 144 Hz).
+- **Duży przycisk „Zapisz zmiany” na środku dołu okna.** Pokazuje się, gdy coś zmienisz, razem z liczbą
+  zmian i przyciskiem „Cofnij”; zmienione pola są zaznaczone.
+- **Pytanie o niezapisane zmiany** przy przejściu do innej zakładki, otwarciu okna z ikony przy zegarze
+  i zamknięciu okna: Zapisz / Nie zapisuj / Wróć do ustawień, z listą tego, co zmieniono.
+- Poprawka: ponowne kliknięcie zakładki „Ustawienia” wczytywało formularz od nowa i kasowało niezapisane
+  zmiany (wyglądało to tak, jakby mikrofon sam wracał do poprzedniego).
+- **Przeciąganie z podglądu (np. na Discorda) nie zapisuje już klipu w bibliotece.** Przycięta wersja powstaje
+  w folderze tymczasowym Clipeona i znika po dobie; Discord zdąży ją wysłać.
+- **Mniej zgubionych klatek przy nagrywaniu pulpitu.** Przy 60 kl./s ok. 1% klatek było powtórzonych:
+  przechwytywanie odrzucało klatki, które przyszły odrobinę za wcześnie, a zegar zapisu nie czekał na
+  spóźnioną klatkę. Teraz próg to pół okresu klatki, a zapis czeka na nową klatkę do ćwierci okresu.
+- Poprawka: przy ponownym uruchomieniu Clipeona mogły otworzyć się dwa okna, z czego jedno niedziałające.
 
 ## 1.4.3
 

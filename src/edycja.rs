@@ -1,7 +1,8 @@
 // Edycja klipów: przycinanie (szybkie bez kodowania albo dokładne z kodowaniem), kadrowanie,
 // kompresja do docelowego rozmiaru pliku (np. 10 MB na Discorda) i zapis jako zapętlony GIF/WebP.
 // Wynik trafia do nowego pliku albo (gdy użytkownik nie zaznaczy „Zachowaj oryginał”) zastępuje
-// oryginał, który idzie do Kosza. GIF i WebP nigdy nie zastępują klipu.
+// oryginał, który idzie do Kosza. GIF i WebP nigdy nie zastępują klipu. Wersja przygotowana tylko
+// do przeciągnięcia (np. na Discorda) idzie do osobnego folderu i nie trafia do biblioteki.
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -30,6 +31,10 @@ pub struct Zlecenie {
     /// "mp4" (domyślnie), "gif" albo "webp"
     #[serde(default)]
     pub format: String,
+    /// Wersja tylko do przeciągnięcia (np. na Discorda): trafia do `klipy::folder_przeciagania`,
+    /// a nie do folderu klipów, i nigdy nie zastępuje oryginału
+    #[serde(default)]
+    pub do_przeciagniecia: bool,
 }
 
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -109,7 +114,8 @@ fn plik_tymczasowy(wynik: &Path) -> PathBuf {
 }
 
 /// Wolna nazwa: klip_cut.mp4, klip_10MB.mp4, klip_cut_kadr.mp4, klip_cut.gif (z numerem, jeśli zajęta).
-fn nazwa_wyniku(zrodlo: &Path, z: &Zlecenie) -> PathBuf {
+/// Plik do przeciągnięcia ląduje w `folder`, zwykły wynik obok źródła.
+fn nazwa_wyniku(zrodlo: &Path, z: &Zlecenie, folder_przeciagania: &Path) -> PathBuf {
     let mut baza = zrodlo.file_stem().unwrap_or_default().to_string_lossy().into_owned();
     if z.przyciete {
         baza.push_str("_cut");
@@ -124,7 +130,7 @@ fn nazwa_wyniku(zrodlo: &Path, z: &Zlecenie) -> PathBuf {
         baza.push_str("_audio");
     }
     let rozszerzenie = if z.animacja() { z.format.as_str() } else { "mp4" };
-    let folder = zrodlo.parent().unwrap();
+    let folder = if z.do_przeciagniecia { folder_przeciagania } else { zrodlo.parent().unwrap() };
     let mut plik = folder.join(format!("{baza}.{rozszerzenie}"));
     let mut i = 2;
     // Zajęta jest też nazwa, pod którą właśnie trwa inny eksport (jego plik tymczasowy)
@@ -212,7 +218,11 @@ fn eksportuj_plik(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dy
     let kadr = z.kadr.map(|k| filtr_kadru(&k, info.szerokosc, info.wysokosc));
     // Do końca eksportu porządki i usuwanie nie ruszą źródła
     let _uzywany = crate::klipy::uzywaj(zrodlo);
-    let wynik = nazwa_wyniku(zrodlo, z);
+    let przeciaganie = crate::klipy::folder_przeciagania();
+    if z.do_przeciagniecia {
+        std::fs::create_dir_all(&przeciaganie).map_err(|e| format!("Nie mogę utworzyć folderu na plik do przeciągnięcia: {e}"))?;
+    }
+    let wynik = nazwa_wyniku(zrodlo, z, &przeciaganie);
     // Wynik nie będzie większy niż źródło (×2 na faststart) — sprawdzamy, zanim zaczniemy kodować
     if let Some(folder) = wynik.parent() {
         let zrodlowy = std::fs::metadata(zrodlo).map(|m| m.len()).unwrap_or(0);
@@ -303,7 +313,7 @@ fn eksportuj_plik(zrodlo: &Path, z: &Zlecenie, nazwa_enkodera: &str, postep: &dy
         return Err(e);
     }
 
-    if z.zastap && !z.animacja() {
+    if z.zastap && !z.animacja() && !z.do_przeciagniecia {
         // Najpierw odsuwamy oryginał pod inną nazwę, potem nowa wersja dostaje jego nazwę, a dopiero
         // na końcu oryginał idzie do Kosza — przy każdym błędzie po drodze nic nie ginie
         let odsuniety = zrodlo.with_extension("mp4.oryginal");
@@ -386,7 +396,7 @@ fn argumenty_animacji(
 }
 
 /// Argumenty dźwięku. Klip z osobnymi ścieżkami ma: 0 = miks, potem każda ścieżka osobno (gra, mikrofon;
-/// od 1.5.0 też „Discord i reszta”). Zmiana głośności składa nowy miks z osobnych ścieżek (jedna w wyniku).
+/// od 1.4.5 też „Discord i reszta”). Zmiana głośności składa nowy miks z osobnych ścieżek (jedna w wyniku).
 fn argumenty_audio(z: &Zlecenie, sciezki: u32, kopiuj: bool, tylko_pierwsza: bool, kbps: u32) -> Vec<String> {
     let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
     if sciezki == 0 {

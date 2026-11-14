@@ -821,7 +821,7 @@ fn uruchom_przechwyt(
         SecondaryWindowSettings::Default,
         // Nie potrzebujemy klatek częściej niż nasze FPS (Windows 11 24H2+; wcześniej odrzucamy je sami)
         if mozliwosci.odstep_klatek {
-            MinimumUpdateIntervalSettings::Custom(Duration::from_secs_f64(1.0 / fps as f64))
+            MinimumUpdateIntervalSettings::Custom(najkrotszy_odstep(fps))
         } else {
             MinimumUpdateIntervalSettings::Default
         },
@@ -832,12 +832,26 @@ fn uruchom_przechwyt(
             rozmiar,
             problem.clone(),
             statystyki.clone(),
-            (!mozliwosci.odstep_klatek).then(|| Duration::from_secs_f64(0.9 / fps as f64)),
+            (!mozliwosci.odstep_klatek).then(|| najkrotszy_odstep(fps)),
         ),
     );
     let sterowanie = Przechwyt::start_free_threaded(ustawienia)?;
     Ok((sterowanie, wspolna))
 }
+
+/// Najkrótszy odstęp między klatkami przyjmowanymi z ekranu: pół okresu nagrania. Ekran nie podaje klatek
+/// idealnie równo, więc próg równy całemu okresowi (tak było do 1.4.3) odrzucał klatkę, która przyszła
+/// odrobinę za wcześnie po spóźnionej poprzedniej — w nagraniu w jej miejscu była powtórka (ok. 1% klatek
+/// przy 60 FPS). Przy pół okresie przechodzi każda klatka ekranu 60 Hz, a przy ekranach 120 Hz i szybszych
+/// kopiujemy najwyżej dwa razy więcej klatek, niż nagrywamy.
+pub(crate) fn najkrotszy_odstep(fps: u32) -> Duration {
+    Duration::from_secs_f64(0.5 / fps.max(1) as f64)
+}
+
+/// Gdy w chwili taktu nie ma nowej klatki, wątek taktujący czeka na nią najwyżej tę część okresu
+/// (zamiast od razu powtarzać poprzednią). Zegar ekranu i nasz chodzą osobno: klatka, która przyszła
+/// milisekundę po takcie, wcześniej przepadała (następna ją nadpisywała), a w nagraniu była powtórka.
+const CZEKANIE_NA_KLATKE: f64 = 0.25;
 
 /// Wątek taktujący: co 1/fps wysyła do ffmpeg najnowszą klatkę (albo powtarza poprzednią).
 #[allow(clippy::too_many_arguments)]
@@ -860,15 +874,22 @@ fn watek_taktujacy(
             let mut n: u32 = 0;
             // Okno 1 s: ile taktów się spóźniło; 5 s z rzędu ponad 10% = enkoder nie nadąża
             let (mut spoznione_w_oknie, mut zle_sekundy) = (0u32, 0u32);
+            let czekanie = okres.mul_f64(CZEKANIE_NA_KLATKE);
             while !stop.load(Ordering::SeqCst) {
-                {
+                let czekaj_do = Instant::now() + czekanie;
+                loop {
                     let mut w = wspolna.zablokuj();
                     if w.nowa {
                         std::mem::swap(&mut w.piksele, &mut moja);
                         w.nowa = false;
-                    } else {
-                        dolicz(&statystyki.powtorzone, 1);
+                        break;
                     }
+                    drop(w);
+                    if Instant::now() >= czekaj_do || stop.load(Ordering::SeqCst) {
+                        dolicz(&statystyki.powtorzone, 1);
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(1));
                 }
                 if wejscie.write_all(&moja).is_err() {
                     return; // ffmpeg nie żyje; wątek czytający zgłosi błąd

@@ -73,7 +73,7 @@ Na czas ustawiania skróty Clipeona są wyłączone, więc nic się przy tym nie
 <summary><b>Jak nagrać pulpit zamiast gry?</b></summary>
 
 Na pasku u góry okna kliknij **Pulpit** (albo w menu ikony na pasku zadań „Tryb: Pulpit”). Obok wybierzesz ekran.
-Pulpit ma osobne ustawienia w Ustawieniach → Tryb pulpitu, więc przełączanie nie zmienia ustawień gry.
+Pulpit ma osobną kartę w Ustawieniach → Jakość nagrywania (obok karty Gra), więc przełączanie nie zmienia ustawień gry.
 Klipy z pulpitu mają nazwy `Clipeon_Pulpit_…` i znaczek „Pulpit” w bibliotece.
 </details>
 

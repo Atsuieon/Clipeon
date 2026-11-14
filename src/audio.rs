@@ -1,6 +1,6 @@
 // Dźwięk: WASAPI (loopback = to, co słychać w głośnikach, albo mikrofon) -> ffmpeg AAC -> ramki ADTS w buforze RAM.
 // Czas ramek liczony z zegara QPC, tak samo jak dla obrazu, więc synchronizacja wychodzi sama.
-// Od 1.5.0 dźwięk komputera może iść dwiema ścieżkami: sama gra (z procesami potomnymi) i cała reszta
+// Od 1.4.5 dźwięk komputera może iść dwiema ścieżkami: sama gra (z procesami potomnymi) i cała reszta
 // (Discord, muzyka, przeglądarka) — przez „loopback procesu” z Windows 10 2004.
 use crate::Zablokuj;
 use crate::bufor::{Pakiet, WspolnyBufor, teraz_100ns};

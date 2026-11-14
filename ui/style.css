@@ -219,14 +219,15 @@ h2.sekcja { font-size: 26px; margin: 34px 0 16px; }
   color: var(--pomoc); margin: 0 0 10px 4px;
 }
 .grupa > .karta + h2 { margin-top: 22px; }
+/* Karta ustawień zawsze na całą szerokość kolumny — inaczej krótka karta (sam suwak) zmieniałaby szerokość z napisem */
+section.grupa > .karta { flex: 1 1 100%; }
 .ustawienia-lista { display: flex; flex-direction: column; overflow: hidden; }
 
 .ust {
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, auto); gap: 18px; align-items: center;
   padding: 13px 20px; border-top: 1px solid var(--ramka-karty);
 }
-.ustawienia-lista > .ust:first-child, .ust-rozwijane .ust:first-of-type { border-top-width: 0; }
-.ust-rozwijane .ust { border-top: 1px solid var(--ramka-karty); }
+.ustawienia-lista > .ust:first-child { border-top-width: 0; }
 .ust .opis { min-width: 0; }
 /* Wiersz z listą wyboru, skrótem albo kilkoma przyciskami: pole pod opisem, nie obok.
    Obok siebie opis dostawał wąską kolumnę i łamał się co dwa słowa, a lista zajmowała pół karty. */
@@ -257,25 +258,6 @@ h2.sekcja { font-size: 26px; margin: 34px 0 16px; }
 .ust .pole.pola label { display: flex; flex-direction: row; align-items: center; gap: 8px; color: var(--pomoc); font-size: 12.5px; }
 .ust .pole .przycisk { white-space: nowrap; }
 .jednostka { color: var(--pomoc); font-size: 13px; }
-
-/* Rozwijane wiersze w karcie: tryb pulpitu i „Zaawansowane” */
-.ust-rozwijane > summary {
-  display: flex; align-items: baseline; gap: 10px; cursor: pointer; list-style: none;
-  padding: 13px 20px; border-top: 1px solid var(--ramka-karty);
-  color: var(--tytul); transition: background var(--czas);
-}
-.ustawienia-lista > .ust-rozwijane:first-child > summary { border-top-width: 0; }
-.ust-rozwijane > summary::-webkit-details-marker { display: none; }
-.ust-rozwijane > summary:hover { background: var(--hover); }
-.ust-rozwijane > summary::before {
-  content: ""; width: 7px; height: 7px; flex: none; align-self: center;
-  border-right: 1.5px solid var(--pomoc); border-bottom: 1.5px solid var(--pomoc);
-  transform: rotate(-45deg); transition: transform var(--czas);
-}
-.ust-rozwijane[open] > summary::before { transform: rotate(45deg); }
-/* Dopisek w nagłówku rozwijanego wiersza schodzi pod nazwę, gdy się obok niej nie mieści */
-.ust-rozwijane > summary { flex-wrap: wrap; row-gap: 2px; }
-.ust-rozwijane > summary .pomoc { font-size: 12.5px; }
 
 .wiersz { display: flex; align-items: center; gap: 16px; }
 .wartosc { min-width: 56px; text-align: right; font-size: 18px; color: var(--tytul); font-variant-numeric: tabular-nums; }
@@ -340,11 +322,6 @@ select option { background: #0a0a0a; }
 .sciezka { word-break: break-all; color: var(--tytul) !important; }
 .karta .przycisk { align-self: flex-start; }
 
-.stopka {
-  position: sticky; bottom: -28px; margin: 22px -32px -28px; padding: 18px 32px;
-  display: flex; align-items: center; justify-content: flex-end; gap: 16px;
-  background: linear-gradient(180deg, transparent, #000 35%);
-}
 
 /* Pełny ekran w podglądzie: obraz na całą wysokość, sterowanie na wierzchu */
 .okno-odtwarzacza.pelny {
@@ -596,7 +573,7 @@ input[type="number"]:focus-visible, select:focus-visible { outline: none; border
 }
 #ile-zaznaczonych { margin-right: 6px; color: var(--tytul); white-space: nowrap; }
 
-/* ---------- Aktualizacja i stopka ---------- */
+/* ---------- Aktualizacja i „o programie” ---------- */
 .przycisk.aktualizacja { border-color: rgba(34, 197, 94, 0.4); background: rgba(34, 197, 94, 0.07); font-size: 13px; padding: 7px 14px; }
 .przycisk.aktualizacja:hover { background: rgba(34, 197, 94, 0.14); }
 .przycisk.aktualizacja:disabled { opacity: 0.85; }
@@ -823,3 +800,71 @@ input[type="number"]:focus-visible, select:focus-visible { outline: none; border
   #pauza span { display: none; }
   #pauza { padding: 9px; }
 }
+
+/* ---------- Jakość nagrywania: karty Gra / Pulpit / Filmy obok siebie ---------- */
+/* Ogólne .grupa układa dzieci w rzędzie (flex) — tu nagłówek, opis i karty idą jedno pod drugim */
+.jakosc-grupa { display: block; margin-bottom: 22px; }
+.wstep-jakosci { font-size: 13px; margin: -4px 0 12px 4px; max-width: 760px; }
+.jakosci { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; align-items: stretch; }
+.jakosc { display: flex; flex-direction: column; gap: 12px; padding: 18px 20px 20px; }
+.jakosc .pomoc { font-size: 12.5px; line-height: 1.35; }
+.jakosc .pomoc:empty { display: none; }
+.jakosc-naglowek { display: flex; align-items: center; gap: 12px; }
+.jakosc-ikona {
+  display: grid; place-items: center; width: 38px; height: 38px; flex: none;
+  border: 1px solid var(--ramka-pola); border-radius: 12px; color: var(--pomoc);
+}
+.jakosc-tytul { min-width: 0; flex: 1; }
+.jakosc-tytul h3 { margin: 0; font-size: 20px; }
+/* Karta trybu, który teraz nagrywa: jaśniejsza ramka i plakietka */
+.plakietka {
+  display: none; align-items: center; gap: 6px; flex: none; padding: 4px 10px; border-radius: 999px;
+  border: 1px solid rgba(34, 197, 94, 0.45); color: #86efac; font-size: 12px; white-space: nowrap;
+}
+.plakietka::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--zielony); }
+.jakosc.aktywna { border-color: #3d3d3d; }
+.jakosc.aktywna .plakietka { display: inline-flex; }
+.jakosc.aktywna .jakosc-ikona { color: var(--tytul); border-color: #3d3d3d; }
+/* Gotowe ustawienia: nazwa i pod nią liczby, więc od razu widać, co ustawiają */
+.presety { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.presety .segment { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 7px 6px; border-radius: 14px; min-width: 0; }
+.presety .segment small { font-size: 11px; opacity: 0.75; white-space: nowrap; }
+.jakosc .pola label { font-size: 12.5px; }
+.pole-ekranu { display: flex; flex-direction: column; gap: 6px; color: var(--pomoc); font-size: 12.5px; }
+.jakosc-filmu { margin: 0; color: var(--tytul); line-height: 1.45; }
+.jakosc-filmu b { font-weight: 500; }
+
+/* Zmienione, a jeszcze niezapisane pole: biała kreska z lewej strony */
+.ust.zmienione { box-shadow: inset 3px 0 0 #fff; }
+.zmienione-pole { color: var(--tytul) !important; }
+.zmienione-pole input, .zmienione-pole select { border-color: #8a8a8a; }
+
+/* ---------- Pasek zapisu: duży, na środku dołu okna ---------- */
+#widok-ustawienia { padding-bottom: 110px; }
+.pasek-zapisu {
+  position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 20;
+  display: flex; align-items: center; gap: 14px; max-width: calc(100vw - 32px);
+  padding: 12px 12px 12px 22px; border: 1px solid #3a3a3a; border-radius: 999px;
+  background: #0b0b0b; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.85), 0 0 0 6px rgba(0, 0, 0, 0.6);
+  animation: pasek-wjazd 180ms ease-out;
+}
+@keyframes pasek-wjazd { from { opacity: 0; transform: translate(-50%, 14px); } }
+.pasek-zapisu-tekst { color: var(--tytul); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.kropka-zmian { width: 8px; height: 8px; border-radius: 50%; background: #fff; flex: none; }
+.pasek-zapisu.zapisano .kropka-zmian { background: var(--zielony); box-shadow: 0 0 10px rgba(34, 197, 94, 0.55); }
+.pasek-zapisu.zapisano #cofnij-zmiany, .pasek-zapisu.zapisano #zapisz-ustawienia { display: none; }
+.pasek-zapisu.blad .kropka-zmian { background: var(--czerwony); }
+.przycisk.duzy { padding: 12px 30px; font-size: 16px; }
+@media (max-width: 620px) {
+  .pasek-zapisu { left: 16px; right: 16px; transform: none; padding-left: 16px; gap: 10px; animation: none; }
+  .pasek-zapisu-tekst { flex: 1; }
+  .przycisk.duzy { padding: 11px 18px; font-size: 15px; }
+}
+
+/* ---------- Pytanie o niezapisane zmiany ---------- */
+.nakladka.pytanie { z-index: 40; background: rgba(0, 0, 0, 0.7); padding: 24px 16px; }
+.okienko { width: min(480px, 100%); padding: 26px 26px 22px; background: #070707; }
+.okienko h2 { margin: 0 0 8px; }
+.pytanie-lista { margin: 14px 0 0; padding-left: 18px; color: var(--tytul); line-height: 1.6; }
+.pytanie-lista:empty { display: none; }
+.pytanie-przyciski { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 22px; }

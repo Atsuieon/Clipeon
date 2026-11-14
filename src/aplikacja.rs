@@ -54,8 +54,14 @@ fn dlugosc_slowami(sekundy: f64) -> String {
     }
 }
 
+/// Okno właśnie powstaje (w osobnym wątku, trwa to około sekundy). Bez tego drugie „pokaż okno” w tym
+/// czasie — podwójne kliknięcie ikony przy zegarze albo druga kopia programu — tworzyło drugie okno,
+/// z którego jedno było zepsute.
+static TWORZE_OKNO: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Pokazuje okno na danej zakładce ("klipy" / "ustawienia"); tworzy je, jeśli zostało zamknięte.
 fn pokaz_okno(app: &AppHandle, zakladka: &str) {
+    use std::sync::atomic::Ordering;
     if let Some(okno) = app.get_webview_window("main") {
         let _ = okno.emit("zakladka", zakladka);
         let _ = okno.unminimize();
@@ -63,9 +69,21 @@ fn pokaz_okno(app: &AppHandle, zakladka: &str) {
         let _ = okno.set_focus();
         return;
     }
+    if TWORZE_OKNO.swap(true, Ordering::SeqCst) {
+        // Okno już powstaje i za chwilę się pokaże
+        return;
+    }
     // Tworzenie okna z obsługi zdarzenia potrafi zakleszczyć się na Windows — robimy to z innego wątku
     let (app, url) = (app.clone(), format!("index.html#{zakladka}"));
     std::thread::spawn(move || {
+        // Zdejmujemy znacznik także wtedy, gdy tworzenie się wywróci
+        struct Koniec;
+        impl Drop for Koniec {
+            fn drop(&mut self) {
+                TWORZE_OKNO.store(false, Ordering::SeqCst);
+            }
+        }
+        let _koniec = Koniec;
         let wynik = WebviewWindowBuilder::new(&app, "main", WebviewUrl::App(url.into()))
             .title("Clipeon")
             .inner_size(1200.0, 760.0)
@@ -885,6 +903,8 @@ pub fn uruchom() {
                     let c = r.config();
                     // Pliki tymczasowe filmów, których nie dało się złożyć ani odzyskać (starsze niż 3 dni)
                     crate::film::usun_resztki(&c.folder_klipow);
+                    // Pliki przygotowane do przeciągnięcia z edytora (starsze niż doba)
+                    klipy::sprzataj_przeciagane();
                     crate::sprzatanie::usun_resztki(&c.folder_klipow);
                     crate::sprzatanie::sprzataj(&c.folder_klipow, c.sprzatanie_dni, c.sprzatanie_gb);
                     std::thread::sleep(std::time::Duration::from_secs(3600));
