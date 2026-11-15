@@ -1,5 +1,13 @@
 # Zmiany
 
+## 1.4.8
+
+Nowe powiadomienie po zapisie klipu.
+
+- **Dymek z kadrem.** Po zapisie klipu albo filmu w rogu ekranu pojawia się kadr z końcówki nagrania z jego prawdziwą długością („0:30”), napis „Klip zapisany” i nazwa gry (w trybie pulpitu „Pulpit”). Nazwa pliku zniknęła.
+- Wszystkie dymki są teraz lekko przezroczyste i mają na dole cienki pasek, który pokazuje, ile czasu zostało do zniknięcia. Dymki, które wiszą do kliknięcia (alarm, nowa wersja), paska nie mają.
+- Gdy kadru nie da się wyciągnąć z pliku, dymek pokazuje sam tekst, jak dawniej.
+
 ## 1.4.6
 
 Odświeżony wygląd i pasek górny, który mieści się przy każdej szerokości okna.

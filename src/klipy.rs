@@ -166,6 +166,32 @@ pub fn miniatura(klip: &Path) -> Result<Miniatura, String> {
     Ok(Miniatura { obraz, dlugosc, gra })
 }
 
+/// Kadr do dymka po zapisie: obrazek `szer`×`wys` (0x00RRGGBB, przycięty do tych proporcji), długość
+/// klipu w sekundach i nazwa gry z metadanych — wszystko jednym wywołaniem ffmpeg. Bierzemy ostatnią
+/// klatkę kluczową (są co sekundę), bo końcówka klipu to chwila, dla której go zapisano, a jedna
+/// klatka kluczowa dekoduje się od ręki i nie zabiera procesora grze.
+pub fn kadr_dymka(klip: &Path, szer: i32, wys: i32) -> Option<(Vec<u32>, f64, String)> {
+    let filtr = format!("scale={szer}:{wys}:force_original_aspect_ratio=increase,crop={szer}:{wys}");
+    let wynik = crate::ffmpeg::komenda()
+        .args(["-hide_banner", "-skip_frame", "nokey", "-sseof", "-2", "-i"])
+        .arg(klip)
+        .args(["-frames:v", "1", "-an", "-vf", &filtr, "-f", "rawvideo", "-pix_fmt", "bgra", "-"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    let piksele = piksele_kadru(&wynik.stdout, szer, wys)?;
+    let opis = String::from_utf8_lossy(&wynik.stderr);
+    Some((piksele, dlugosc_z_opisu(&opis).unwrap_or(0.0), nazwa_gry_z_opisu(&opis).unwrap_or_default()))
+}
+
+/// Surowa klatka BGRA z ffmpeg → piksele 0x00RRGGBB; `None`, gdy klatka ma inny rozmiar, niż zamówiono.
+fn piksele_kadru(bajty: &[u8], szer: i32, wys: i32) -> Option<Vec<u32>> {
+    if szer <= 0 || wys <= 0 || bajty.len() != (szer * wys * 4) as usize {
+        return None;
+    }
+    Some(bajty.chunks_exact(4).map(|p| u32::from_le_bytes([p[0], p[1], p[2], 0])).collect())
+}
+
 /// Nazwa gry z metadanych klipu: pole `title` opisane przed linią „Duration:”.
 /// Dalsze pola `title` należą już do ścieżek dźwięku („Gra + mikrofon”), więc ich nie bierzemy.
 fn nazwa_gry_z_opisu(opis: &str) -> Option<String> {
@@ -453,9 +479,20 @@ fn dlugosc_z_opisu(opis: &str) -> Option<f64> {
 #[cfg(test)]
 mod testy {
     use super::{
-        lista, nazwa_gry_z_opisu, nazwy_sciezek_z_opisu, obraz_z_opisu, sprawdz_sciezke, sprawdz_wynik_w, szczyty, usun_starsze,
-        znaczniki_z_opisu,
+        lista, nazwa_gry_z_opisu, nazwy_sciezek_z_opisu, obraz_z_opisu, piksele_kadru, sprawdz_sciezke, sprawdz_wynik_w, szczyty,
+        usun_starsze, znaczniki_z_opisu,
     };
+
+    #[test]
+    fn kadr_dymka_z_surowej_klatki() {
+        // Dwa piksele BGRA: niebieski i czerwony; kanał alfa z ffmpeg jest pomijany
+        let bajty = [0xF0, 0x80, 0x10, 0xFF, 0x00, 0x00, 0xFF, 0xFF];
+        assert_eq!(piksele_kadru(&bajty, 2, 1), Some(vec![0x0010_80F0, 0x00FF_0000]));
+        // Ucięta klatka (ffmpeg przerwał) albo zły rozmiar = brak kadru, a nie krzywy obrazek
+        assert_eq!(piksele_kadru(&bajty[..7], 2, 1), None);
+        assert_eq!(piksele_kadru(&bajty, 1, 1), None);
+        assert_eq!(piksele_kadru(&[], 0, 0), None);
+    }
 
     /// Opis z prawdziwego ffmpeg 6 (wcięcia jak w oryginale): rozdziały, potem strumienie
     const OPIS_FFMPEG6: &str = "Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'wynik.mp4':
