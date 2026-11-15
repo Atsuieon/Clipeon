@@ -11,6 +11,8 @@ use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
 pub const REPOZYTORIUM: &str = "https://github.com/Atsuieon/Clipeon";
+/// Strona wsparcia na Ko-fi (przycisk „Wesprzyj” na dole Ustawień).
+pub const WSPARCIE: &str = "https://ko-fi.com/L4Q62AQ99P";
 
 /// Wersja tego programu (z Cargo.toml).
 pub const WERSJA: &str = env!("CARGO_PKG_VERSION");
@@ -107,9 +109,9 @@ async fn pobierz_i_zainstaluj(app: &AppHandle) -> Result<(), String> {
     aktualizacja.install(bajty).map_err(|e| format!("Nie udało się zainstalować aktualizacji: {e}"))
 }
 
-/// Otwiera stronę w domyślnej przeglądarce (tylko adresy repozytorium Clipeona).
+/// Otwiera stronę w domyślnej przeglądarce (tylko adresy repozytorium Clipeona i strona wsparcia).
 pub fn otworz(adres: &str) {
-    if adres.starts_with(REPOZYTORIUM) {
+    if adres.starts_with(REPOZYTORIUM) || adres == WSPARCIE {
         let _ = std::process::Command::new("explorer").arg(adres).spawn();
     }
 }

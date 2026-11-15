@@ -11,6 +11,8 @@
   <a href="https://github.com/Atsuieon/Clipeon/releases/latest"><img alt="Wersja" src="https://img.shields.io/github/v/release/Atsuieon/Clipeon?style=for-the-badge&label=wersja&labelColor=000000&color=1f1f1f"></a>
 </p>
 
+<p align="center"><a href="https://ko-fi.com/L4Q62AQ99P"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Wesprzyj Clipeona na Ko-fi"></a></p>
+
 <p align="center"><img src="docs/screenshots/biblioteka.png" width="860" alt="Biblioteka klipów Clipeona"></p>
 
 <table>
@@ -107,6 +109,12 @@ Clipeon keeps the last seconds of your gameplay in memory and saves them as an M
 GPU capture and encoding (AMD / NVIDIA / Intel), a desktop recording mode, separate game / Discord / mic tracks, film markers, crash recovery for long recordings, trimming, shrink-to-size for Discord,
 drag-and-drop or copy-paste clips into other apps. Windows 10 2004+ / 11. [Download the latest release](https://github.com/Atsuieon/Clipeon/releases/latest)
 — the installer is unsigned, so SmartScreen may warn: *More info → Run anyway*. The interface is in Polish.
+
+## Wsparcie
+
+Clipeon jest darmowy i taki zostanie — bez reklam i bez płatnych funkcji. Jeśli Ci się przydaje i chcesz pomóc, możesz postawić kawę na Ko-fi (przycisk jest też na dole Ustawień w aplikacji):
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/L4Q62AQ99P)
 
 ## Licencja
 

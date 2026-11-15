@@ -1,8 +1,17 @@
 # Zmiany
 
-## 1.4.11
+## 1.5.0
 
-Mikrofon, który „znika” z nagrań: Clipeon sam to wykrywa, naprawia i mówi, co jest nie tak.
+Znikający mikrofon wykrywany i naprawiany, napis „Clipeon” z cząsteczek i wsparcie przez Ko-fi. (Wersje 1.4.10–1.4.12 nie były wydawane osobno — wszystko jest tutaj.)
+
+### Wsparcie przez Ko-fi
+
+- Na dole Ustawień, pod „Clipeon · by Atsuieon”, jest mała pigułka „Keep Clipeon free · Ko-fi”. Otwiera stronę Ko-fi w zwykłej przeglądarce; w oknie Clipeona nic z Ko-fi się nie ładuje (żadnych zewnętrznych skryptów ani połączeń).
+- Na GitHubie: przycisk Ko-fi w README i przycisk „Sponsor” w repozytorium (`.github/FUNDING.yml`).
+
+### Mikrofon, który „znika” z nagrań
+
+Clipeon sam to wykrywa, naprawia i mówi, co jest nie tak.
 
 - **Zamarznięty mikrofon otwiera się od nowa.** Niektóre sterowniki (zwłaszcza USB i Bluetooth, też po uśpieniu komputera) potrafią przestać przysyłać dźwięk bez żadnego błędu. Clipeon brał to za ciszę i do końca nagrywał w ścieżce „Mikrofon” same zera. Teraz, gdy mikrofon przez 2 s nic nie przyśle, Clipeon otwiera go od nowa (żółta kropka „Przełączam…”), a oś czasu dźwięku dalej zgadza się z obrazem.
 - **Żółty mikrofon przy statusie**, gdy mikrofon nagrywa, ale chyba nie głos. Najedź na niego, żeby zobaczyć powód:
@@ -15,9 +24,7 @@ Mikrofon, który „znika” z nagrań: Clipeon sam to wykrywa, naprawia i mówi
 - **Dymek „Problem z mikrofonem” i nowy dźwięk ostrzeżenia** (dwa krótkie „dzyń”, inne niż dźwięk zapisu i błędu) przy każdym z tych problemów. Ten sam problem najwyżej raz na pół godziny, żeby nie przeszkadzać w grze. Dźwięk wyłącza ten sam przełącznik co dźwięk po zapisaniu.
 - **Dziennik**: nazwa mikrofonu, z którego Clipeon nagrywa, i co minutę jego głośność (szczyt w dB, liczba pakietów, ile z nich to same zera). Po pliku `clipeon.log` od razu widać, kiedy i dlaczego głos zniknął.
 
-## 1.4.10
-
-Napis „Clipeon” z cząsteczek.
+### Napis „Clipeon” z cząsteczek
 
 - **Napis w rogu okna jest teraz złożony z drobnych kropek.** Przy starcie i za każdym razem, gdy okno wraca z zasobnika, kropki zlatują się z rozsypki w litery. Kursor rozsuwa je na boki, a kliknięcie w napis rozpryskuje je; po chwili wracają na miejsce.
 - Kolorowa zorza na napisie zniknęła. Przełącznik „Kolorowy napis” w Ustawieniach nazywa się teraz „Napis „Clipeon” z cząsteczek”; po wyłączeniu napis jest zwykły, biały.

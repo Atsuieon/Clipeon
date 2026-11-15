@@ -77,6 +77,9 @@ function udawanyTauri() {
       window.__zlecenia = [...(window.__zlecenia || []), a.zlecenie];
       return { sciezka: a.zlecenie.format === "gif" ? "C:\\Klipy\\klip_cut.gif" : a.sciezka, rozmiar: 1234567 };
     },
+    otworz_wsparcie: () => {
+      window.__wsparcie = (window.__wsparcie || 0) + 1;
+    },
     ustaw_gre: (a) => {
       stan.gra_proces = a.proces;
       stan.wybrana_gra = a.nazwa;
@@ -917,6 +920,18 @@ for (const aktualizacja of [true, false]) {
 }
 await strona.evaluate(() => pokazAktualizacje(null));
 await strona.setViewportSize({ width: 1100, height: 800 });
+
+// Wsparcie (Ko-fi): własny przycisk na dole Ustawień, otwiera przeglądarkę przez rdzeń; żadnego skryptu ani obrazka z Ko-fi w oknie
+sprawdz(!/ko-fi\.com|storage\.ko-fi/i.test(html.replace(/title="[^"]*"/g, "")), "index.html ładuje coś z Ko-fi (ma być tylko własny przycisk)");
+await strona.click('.zakladka[data-zakladka="ustawienia"]');
+await strona.waitForTimeout(100);
+await strona.locator("#wesprzyj").scrollIntoViewIfNeeded();
+sprawdz(await strona.isVisible("#wesprzyj"), "nie widać przycisku wsparcia na dole Ustawień");
+await zrzut("wsparcie");
+await strona.click("#wesprzyj");
+await strona.waitForTimeout(50);
+sprawdz((await strona.evaluate(() => window.__wsparcie)) === 1, "przycisk wsparcia nie woła otworz_wsparcie");
+sprawdz(!(await strona.isVisible("#pasek-zapisu")), "kliknięcie wsparcia pokazało pasek niezapisanych zmian");
 
 await przegladarka.close();
 if (bledy.length) {

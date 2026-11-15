@@ -581,6 +581,17 @@ input[type="number"]:focus-visible, select:focus-visible { outline: none; border
 .o-programie { margin: 32px 0 8px; text-align: center; color: #5c5c5c; font-size: 12px; letter-spacing: 0.01em; }
 .o-programie a { color: #7a7a7a; text-decoration: none; border-bottom: 1px solid #333; transition: color var(--czas); }
 .o-programie a:hover { color: var(--tytul); }
+/* Wsparcie (Ko-fi): mała, cicha pigułka pod stopką — własny przycisk, bez skryptu Ko-fi */
+.wsparcie { margin: 0 0 24px; text-align: center; font-size: 12px; }
+.wsparcie a {
+  display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px 5px 10px;
+  border: 1px solid var(--ramka-karty); border-radius: 999px; background: rgba(8, 8, 8, 0.82);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  color: #6a6a6a; text-decoration: none; letter-spacing: 0.01em;
+  transition: color var(--czas), border-color var(--czas), background var(--czas);
+}
+.wsparcie a:hover { color: var(--tytul); border-color: var(--ramka-pola); background: var(--hover); }
+.wsparcie svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }

@@ -726,6 +726,12 @@ fn otworz_repozytorium() {
     crate::aktualizacje::otworz(crate::aktualizacje::REPOZYTORIUM);
 }
 
+/// Przycisk „Wesprzyj na Ko-fi”: strona Ko-fi w domyślnej przeglądarce (nic z Ko-fi nie ładuje się w oknie).
+#[tauri::command]
+fn otworz_wsparcie() {
+    crate::aktualizacje::otworz(crate::aktualizacje::WSPARCIE);
+}
+
 /// Uruchamia nagrywanie od nowa (przycisk „Spróbuj ponownie”).
 #[tauri::command]
 fn uruchom_ponownie(rdzen: State<'_, Rdzen>) {
@@ -806,7 +812,8 @@ pub fn uruchom() {
             aktualizacja,
             sprawdz_aktualizacje,
             zainstaluj_aktualizacje,
-            otworz_repozytorium
+            otworz_repozytorium,
+            otworz_wsparcie
         ])
         .setup(move |app| {
             let (cfg, blad_cfg) = match Config::wczytaj() {
