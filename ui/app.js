@@ -207,9 +207,13 @@ function pokazStan(s) {
   // Przy nagrywaniu widać klatki zapisanego trybu — od razu wiadomo, czy pulpit idzie w 30, czy w 60
   const fps = cfg && (pulpit ? cfg.fps_pulpitu : cfg.fps);
   $("status-tekst").textContent = s.nagrywa && !s.pauza && !s.bledy.length && !s.wznawianie && !s.przelaczanie && fps ? `${tekst} · ${fps} kl./s` : tekst;
-  // Przekreślony mikrofon, gdy Clipeon nagrywa bez mikrofonu
-  $("status-mik").innerHTML = ikona("mikrofonWyl");
-  $("status-mik").hidden = s.mikrofon !== false;
+  // Przekreślony mikrofon, gdy Clipeon nagrywa bez mikrofonu; żółty, gdy mikrofon nagrywa, ale chyba nie głos
+  // (cisza cyfrowa, zamarzł, zapasowe urządzenie, blokada w prywatności Windows) — wyjaśnienie w podpowiedzi
+  const uwagaMik = s.mikrofon !== false && s.uwaga_mikrofonu;
+  $("status-mik").innerHTML = ikona(uwagaMik ? "mikrofon" : "mikrofonWyl");
+  $("status-mik").hidden = s.mikrofon !== false && !uwagaMik;
+  $("status-mik").classList.toggle("uwaga", !!uwagaMik);
+  $("status-mik").title = uwagaMik || "Mikrofon nie jest nagrywany — włączysz go w Ustawieniach → Dźwięk";
   $("status").title = s.bledy.length
     ? s.bledy.join("\n")
     : s.przelaczanie && !s.wznawianie

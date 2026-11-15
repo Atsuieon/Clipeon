@@ -131,6 +131,15 @@ await strona.evaluate(() => pokazStan({ ...stan, mikrofon: false }));
 sprawdz((await strona.isVisible("#status-mik")) && (await strona.locator("#status-mik svg").count()) === 1, "brak ikony przekreślonego mikrofonu przy wyłączonym mikrofonie");
 await zrzut("0-mikrofon-wylaczony");
 await strona.evaluate(() => pokazStan({ ...stan, mikrofon: true }));
+// Żółty mikrofon z wyjaśnieniem, gdy mikrofon nagrywa ciszę albo zamarzł
+await strona.evaluate(() => pokazStan({ ...stan, mikrofon: true, uwaga_mikrofonu: "Mikrofon od dłuższej chwili nagrywa idealną ciszę." }));
+sprawdz(
+  (await strona.isVisible("#status-mik.uwaga")) && (await strona.getAttribute("#status-mik", "title")).includes("ciszę"),
+  "brak żółtego mikrofonu z wyjaśnieniem przy uwadze o mikrofonie",
+);
+await zrzut("0-mikrofon-uwaga");
+await strona.evaluate(() => pokazStan({ ...stan, uwaga_mikrofonu: null }));
+sprawdz(await strona.isHidden("#status-mik"), "żółty mikrofon został po zniknięciu uwagi");
 await strona.evaluate(() => pokazStan({ ...stan, tryb: "gra", pauza: false, czeka_na_gre: false, bledy: [], wznawianie: null, nagrywa: true, film: null, film_zapis: false, droga: "dda", ramka: false, skrot_filmu_blad: null }));
 
 // Windows zmienił urządzenie dźwięku (np. po zamknięciu gry): żółta kropka z napisem, bez paska z błędem

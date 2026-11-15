@@ -1,5 +1,20 @@
 # Zmiany
 
+## 1.4.11
+
+Mikrofon, który „znika” z nagrań: Clipeon sam to wykrywa, naprawia i mówi, co jest nie tak.
+
+- **Zamarznięty mikrofon otwiera się od nowa.** Niektóre sterowniki (zwłaszcza USB i Bluetooth, też po uśpieniu komputera) potrafią przestać przysyłać dźwięk bez żadnego błędu. Clipeon brał to za ciszę i do końca nagrywał w ścieżce „Mikrofon” same zera. Teraz, gdy mikrofon przez 2 s nic nie przyśle, Clipeon otwiera go od nowa (żółta kropka „Przełączam…”), a oś czasu dźwięku dalej zgadza się z obrazem.
+- **Żółty mikrofon przy statusie**, gdy mikrofon nagrywa, ale chyba nie głos. Najedź na niego, żeby zobaczyć powód:
+  - mikrofon jest wyciszony w Windows albo ma głośność 0 (część słuchawek wycisza go tak przyciskiem),
+  - Windows nie pozwala programom używać mikrofonu (Prywatność i zabezpieczenia → Mikrofon), z instrukcją, co włączyć,
+  - mikrofon dalej nic nie przysyła mimo kilku prób,
+  - wybrany mikrofon jest odłączony i Clipeon nagrywa z innego (z jego nazwą),
+  - od 2 minut idealna cisza cyfrowa (np. wyciszenie przyciskiem, którego Windows nie widzi; mikrofony z bramką szumów, np. NVIDIA Broadcast, też tak mają, gdy nikt nie mówi).
+  Uwaga znika sama, gdy mikrofon znowu nagrywa.
+- **Dymek „Problem z mikrofonem” i nowy dźwięk ostrzeżenia** (dwa krótkie „dzyń”, inne niż dźwięk zapisu i błędu) przy każdym z tych problemów. Ten sam problem najwyżej raz na pół godziny, żeby nie przeszkadzać w grze. Dźwięk wyłącza ten sam przełącznik co dźwięk po zapisaniu.
+- **Dziennik**: nazwa mikrofonu, z którego Clipeon nagrywa, i co minutę jego głośność (szczyt w dB, liczba pakietów, ile z nich to same zera). Po pliku `clipeon.log` od razu widać, kiedy i dlaczego głos zniknął.
+
 ## 1.4.10
 
 Napis „Clipeon” z cząsteczek.
