@@ -1,5 +1,17 @@
 # Zmiany
 
+## 1.4.8
+
+Nowe powiadomienie po zapisie klipu.
+
+- **Dymek z kadrem.** Po zapisie klipu albo filmu w rogu ekranu pojawia się kadr z końcówki nagrania z jego prawdziwą długością („0:30”), napis „Klip zapisany” i nazwa gry (w trybie pulpitu „Pulpit”). Nazwa pliku zniknęła.
+- Wszystkie dymki są teraz lekko przezroczyste i mają na dole cienki pasek, który pokazuje, ile czasu zostało do zniknięcia. Dymki, które wiszą do kliknięcia (alarm, nowa wersja), paska nie mają.
+- Gdy kadru nie da się wyciągnąć z pliku, dymek pokazuje sam tekst, jak dawniej. Na wolnym albo zajętym komputerze dymek czeka na kadr najwyżej 2,5 s, a ffmpeg do kadru ma niski priorytet, żeby nie zabierać procesora grze.
+- Kadr działa z każdym formatem wideo (H.264, HEVC, AV1, 10 bit) i z plikami, w których klatki kluczowe są rzadziej niż co sekundę (wtedy bierze pierwszą klatkę).
+- Spóźniony dymek nie zasłania nowszego: gdy w czasie wyciągania kadru przyjdzie kolejny zapis albo błąd, starszy dymek się nie pokazuje.
+- Film w kilku częściach pokazuje długość całego filmu, a nie pierwszej części.
+- Na Windows 10 (bez kroju „Segoe UI Variable”) dymki piszą zwykłym „Segoe UI” zamiast przypadkowego zastępczego kroju.
+
 ## 1.4.6
 
 Odświeżony wygląd i pasek górny, który mieści się przy każdej szerokości okna.

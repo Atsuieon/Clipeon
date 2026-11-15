@@ -1,15 +1,18 @@
-// Dymek „Klip zapisany” w prawym górnym rogu monitora z grą: natywne okno warstwowe
-// (UpdateLayeredWindow) rysowane w pamięci. Bez WebView — lekkie i niezawodne nad grą:
+// Dymek w prawym górnym rogu monitora z grą: natywne okno warstwowe (UpdateLayeredWindow) rysowane
+// w pamięci. Po zapisie klipu pokazuje kadr z niego, jego długość i nazwę gry; pozostałe dymki
+// (błędy, alarm, aktualizacja) to tytuł z opisem i kropką stanu. Wygląd liczy rysunek_dymka.rs. Bez WebView — lekkie i niezawodne nad grą:
 // zawsze na wierzchu, bez aktywacji (gra nie traci fokusu), przezroczyste dla myszy,
 // pomijane przez menedżery okien kafelkowych (styl okna-narzędzia).
+pub use crate::rysunek_dymka::{Kadr, czas, rozmiar_kadru};
+use crate::rysunek_dymka::{Prostokat, Uklad, rysuj, rysuj_pasek};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     AC_SRC_ALPHA, AC_SRC_OVER, ANTIALIASED_QUALITY, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION,
     CLIP_DEFAULT_PRECIS, CreateCompatibleDC, CreateDIBSection, CreateFontW, DEFAULT_CHARSET, DIB_RGB_COLORS,
-    DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DeleteDC, DeleteObject, DrawTextW, GetDC,
-    HGDIOBJ, OUT_DEFAULT_PRECIS, ReleaseDC, SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
+    DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DeleteDC, DeleteObject, DrawTextW,
+    GetDC, GetTextExtentPoint32W, GetTextFaceW, HDC, HGDIOBJ, OUT_DEFAULT_PRECIS, ReleaseDC, SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -24,9 +27,43 @@ static NUMER: AtomicU64 = AtomicU64::new(0);
 /// Numer klikniętego dymka (0 = żaden)
 static KLIKNIETY: AtomicU64 = AtomicU64::new(0);
 
+/// Ostatnio zamówiony dymek. Dymek po zapisie czeka na kadr z klipu (ffmpeg), więc w tym czasie może
+/// przyjść nowszy (kolejny zapis, błąd) — wtedy spóźniony nie wyskakuje już nad nim.
+static ZAMOWIONY: AtomicU64 = AtomicU64::new(0);
+
 /// Chowa bieżący dymek (np. alarm, gdy problem minął).
 pub fn ukryj() {
+    ZAMOWIONY.fetch_add(1, Ordering::SeqCst);
     NUMER.fetch_add(1, Ordering::SeqCst);
+}
+
+/// Rezerwuje miejsce w kolejce dymków; wywołać od razu przy zdarzeniu, zanim zacznie się coś długiego.
+pub fn zamow() -> u64 {
+    ZAMOWIONY.fetch_add(1, Ordering::SeqCst) + 1
+}
+
+/// Czy zamówiony dymek jest wciąż najnowszy (nic po nim nie zamówiono ani nie schowano)?
+pub fn aktualny(zamowienie: u64) -> bool {
+    ZAMOWIONY.load(Ordering::SeqCst) == zamowienie
+}
+
+/// Krój napisów: „Segoe UI Variable Text” z Windows 11, a gdzie go nie ma (Windows 10) — zwykłe
+/// „Segoe UI”. Bez tego GDI podstawia jakiś inny krój i napisy wychodzą krzywe albo za szerokie.
+fn kroj(dc: HDC) -> windows::core::PCWSTR {
+    static WINDOWS_11: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let jest = *WINDOWS_11.get_or_init(|| unsafe {
+        let f = CreateFontW(
+            -12, 0, 0, 0, 400, 0, 0, 0, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, 0,
+            w!("Segoe UI Variable Text"),
+        );
+        let stara = SelectObject(dc, HGDIOBJ(f.0));
+        let mut nazwa = [0u16; 64];
+        let n = GetTextFaceW(dc, Some(&mut nazwa)).max(0) as usize;
+        SelectObject(dc, stara);
+        let _ = DeleteObject(HGDIOBJ(f.0));
+        String::from_utf16_lossy(&nazwa[..n.min(nazwa.len())]).trim_end_matches('\0').eq_ignore_ascii_case("Segoe UI Variable Text")
+    });
+    if jest { w!("Segoe UI Variable Text") } else { w!("Segoe UI") }
 }
 
 /// Prawy górny róg monitora (piksele fizyczne) i skala DPI.
@@ -55,12 +92,23 @@ fn szeroki(t: &str) -> Vec<u16> {
 
 /// Pokazuje dymek (blokuje bieżący wątek do jego zniknięcia — wywoływać z osobnego wątku).
 /// `trwale` = wisi, dopóki nie zastąpi go inny dymek, `ukryj()` albo kliknięcie;
-/// `klik` = co zrobić po kliknięciu (wtedy dymek przyjmuje kliknięcia zamiast przepuszczać je do gry).
-pub fn pokaz(miejsce: Miejsce, tytul: &str, opis: &str, blad: bool, trwale: bool, klik: Option<Box<dyn FnOnce() + Send>>) {
+/// `klik` = co zrobić po kliknięciu (wtedy dymek przyjmuje kliknięcia zamiast przepuszczać je do gry);
+/// `kadr` = obrazek z zapisanego klipu po lewej stronie (o rozmiarze `rozmiar_kadru(miejsce.skala)`).
+pub fn pokaz(
+    miejsce: Miejsce,
+    tytul: &str,
+    opis: &str,
+    blad: bool,
+    trwale: bool,
+    klik: Option<Box<dyn FnOnce() + Send>>,
+    kadr: Option<Kadr>,
+) {
     let numer = NUMER.fetch_add(1, Ordering::SeqCst) + 1;
     let s = miejsce.skala;
     let px = |v: f32| (v * s).round() as i32;
-    let (szer, wys) = (px(360.0), px(68.0));
+    let mut uklad = Uklad::nowy(s, kadr.is_some(), !opis.is_empty());
+    let (szer, wys) = (uklad.szer, uklad.wys);
+    let akcent = if blad { crate::ikona::CZERWONY } else { crate::ikona::ZIELONY };
     let x_cel = miejsce.prawa - szer - px(14.0);
     let y = miejsce.gora + px(14.0);
 
@@ -114,36 +162,61 @@ pub fn pokaz(miejsce: Miejsce, tytul: &str, opis: &str, blad: bool, trwale: bool
         };
         let stara = SelectObject(dc, HGDIOBJ(bitmapa.0));
         let piksele = std::slice::from_raw_parts_mut(bity as *mut u32, (szer * wys) as usize);
-        let pokrycie = rysuj_tlo(piksele, szer, wys, s, blad);
 
         // Tekst (GDI, wygładzanie w odcieniach szarości — ClearType nie pasuje do przezroczystości)
         SetBkMode(dc, TRANSPARENT);
-        let czcionka = |rozmiar: f32| {
+        let nazwa_kroju = kroj(dc);
+        let czcionka = |rozmiar: f32, waga: i32| {
             CreateFontW(
-                -px(rozmiar), 0, 0, 0, 400, 0, 0, 0, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                ANTIALIASED_QUALITY, 0, w!("Segoe UI Variable Text"),
+                -px(rozmiar), 0, 0, 0, waga, 0, 0, 0, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                ANTIALIASED_QUALITY, 0, nazwa_kroju,
             )
         };
-        let (f_tytul, f_opis) = (czcionka(15.0), czcionka(12.5));
-        let lewa = px(40.0);
-        let prawa = szer - px(16.0);
-        let tekst = |f, kolor: u32, tekst: &str, gora: i32, dol: i32| {
+        // Z kadrem tytuł jest krótki („Klip zapisany”), więc może być grubszy; długie tytuły zostają lekkie
+        let (f_tytul, f_opis, f_dlugosc) =
+            (czcionka(if kadr.is_some() { 14.5 } else { 15.0 }, if kadr.is_some() { 600 } else { 400 }), czcionka(12.5, 400), czcionka(11.0, 600));
+        // Plakietka z długością klipu ma szerokość swojego napisu
+        let dlugosc = kadr.as_ref().map(|k| szeroki(&k.dlugosc)).filter(|d| !d.is_empty());
+        if let Some(d) = &dlugosc {
+            SelectObject(dc, HGDIOBJ(f_dlugosc.0));
+            let mut rozmiar = SIZE::default();
+            if GetTextExtentPoint32W(dc, d, &mut rozmiar).as_bool() {
+                uklad.plakietka(rozmiar.cx as f32);
+            }
+        }
+        let pokrycie = rysuj(piksele, &uklad, akcent, kadr.as_ref());
+
+        let tekst = |f, kolor: u32, tekst: &str, gdzie: Prostokat, wyrownanie| {
             SelectObject(dc, HGDIOBJ(f));
             SetTextColor(dc, COLORREF(kolor));
             let mut t = szeroki(tekst);
-            let mut r = RECT { left: lewa, top: gora, right: prawa, bottom: dol };
-            DrawTextW(dc, &mut t, &mut r, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+            let mut r = RECT {
+                left: gdzie.x as i32,
+                top: gdzie.y as i32,
+                right: (gdzie.x + gdzie.w) as i32,
+                bottom: (gdzie.y + gdzie.h) as i32,
+            };
+            DrawTextW(dc, &mut t, &mut r, wyrownanie | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
         };
-        tekst(f_tytul.0, 0x00ED_EDED, tytul, px(10.0), px(36.0));
-        tekst(f_opis.0, 0x009A_9A9A, opis, px(34.0), px(58.0));
+        tekst(f_tytul.0, 0x00ED_EDED, tytul, uklad.tytul, DT_LEFT);
+        if !opis.is_empty() {
+            tekst(f_opis.0, 0x009A_9A9A, opis, uklad.opis, DT_LEFT);
+        }
+        if let (Some(k), Some(p)) = (&kadr, uklad.plakietka) {
+            tekst(f_dlugosc.0, 0x00F2_F2F2, &k.dlugosc, p, DT_CENTER);
+        }
 
         // GDI zeruje kanał alfa tam, gdzie pisze — ustawiamy go z kształtu i mnożymy kolory (premultiplied)
         for (p, c) in piksele.iter_mut().zip(&pokrycie) {
-            let a = (c * 245.0) as u32;
+            let a = (c * 255.0) as u32;
             let skaluj = |v: u32| v * a / 255;
             let (r, g, b) = ((*p >> 16) & 0xff, (*p >> 8) & 0xff, *p & 0xff);
             *p = (a << 24) | (skaluj(r) << 16) | (skaluj(g) << 8) | skaluj(b);
         }
+
+        // Pasek czasu rysujemy co klatkę na czystej kopii jego wierszy
+        let wiersze_paska = (uklad.pasek().2 * szer) as usize..(uklad.pasek().3 * szer) as usize;
+        let pod_paskiem = piksele[wiersze_paska].to_vec();
 
         // Animacja: wjazd z prawej z pojawieniem się, ~2 s postoju, płynne zniknięcie
         let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
@@ -178,6 +251,11 @@ pub fn pokaz(miejsce: Miejsce, tytul: &str, opis: &str, blad: bool, trwale: bool
                 let k = (t - wejscie - postoj) / wyjscie;
                 (1.0 - k, k * k * 12.0)
             };
+            // Dymek, który sam zniknie, pokazuje paskiem, ile mu zostało
+            if postoj.is_finite() {
+                let zostalo = 1.0 - ((t - wejscie) / postoj.max(0.01)).clamp(0.0, 1.0);
+                rysuj_pasek(piksele, &pod_paskiem, &uklad, akcent, zostalo);
+            }
             let poz = POINT { x: x_cel + px(przesuniecie), y };
             let rozmiar = SIZE { cx: szer, cy: wys };
             let zrodlo = POINT { x: 0, y: 0 };
@@ -203,39 +281,8 @@ pub fn pokaz(miejsce: Miejsce, tytul: &str, opis: &str, blad: bool, trwale: bool
         let _ = DeleteObject(HGDIOBJ(bitmapa.0));
         let _ = DeleteObject(HGDIOBJ(f_tytul.0));
         let _ = DeleteObject(HGDIOBJ(f_opis.0));
+        let _ = DeleteObject(HGDIOBJ(f_dlugosc.0));
         let _ = DeleteDC(dc);
         ReleaseDC(None, ekran);
     }
-}
-
-/// Tło dymka: zaokrąglony prostokąt #0A0A0A z obwódką #262626 i kropką stanu.
-/// Zwraca pokrycie kształtu (0..1) dla każdego piksela — potrzebne do kanału alfa.
-fn rysuj_tlo(piksele: &mut [u32], szer: i32, wys: i32, s: f32, blad: bool) -> Vec<f32> {
-    let (w, h) = (szer as f32, wys as f32);
-    let r = 18.0 * s;
-    let kropka = (if blad { crate::ikona::CZERWONY } else { crate::ikona::ZIELONY }).map(f32::from);
-    let (kx, ky, kr) = (22.0 * s, h / 2.0, 4.5 * s);
-    let mut pokrycie = vec![0.0f32; piksele.len()];
-    for y in 0..wys {
-        for x in 0..szer {
-            let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
-            // Odległość od krawędzi zaokrąglonego prostokąta (ujemna w środku)
-            let qx = (px - w / 2.0).abs() - (w / 2.0 - r);
-            let qy = (py - h / 2.0).abs() - (h / 2.0 - r);
-            let d = qx.max(0.0).hypot(qy.max(0.0)) + qx.max(qy).min(0.0) - r;
-            let c = (0.5 - d).clamp(0.0, 1.0);
-            // Obwódka 1 px przy krawędzi
-            let ramka = (0.5 - (d + s).abs() + 0.5 * s).clamp(0.0, 1.0);
-            let mut kol = [10.0f32 + ramka * 28.0; 3];
-            let dk = ((px - kx).powi(2) + (py - ky).powi(2)).sqrt() - kr;
-            let k = (0.5 - dk).clamp(0.0, 1.0);
-            for (c, kr) in kol.iter_mut().zip(kropka) {
-                *c = *c * (1.0 - k) + kr * k;
-            }
-            let i = (y * szer + x) as usize;
-            piksele[i] = ((kol[0] as u32) << 16) | ((kol[1] as u32) << 8) | kol[2] as u32;
-            pokrycie[i] = c;
-        }
-    }
-    pokrycie
 }

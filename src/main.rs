@@ -23,6 +23,7 @@ mod pamiec;
 mod pomiar;
 mod powiadomienie;
 mod rdzen;
+mod rysunek_dymka;
 mod schowek;
 mod skrot;
 mod sprzatanie;

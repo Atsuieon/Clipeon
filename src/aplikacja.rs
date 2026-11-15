@@ -191,8 +191,7 @@ fn obsluz_zdarzenie(app: &AppHandle, z: Zdarzenie) {
                 crate::dzwiek::zagraj();
             }
             if cfg.powiadomienie_zapisu {
-                let nazwa = plik.file_name().unwrap_or_default().to_string_lossy().into_owned();
-                pokaz_dymek(app, &format!("Zapisano ostatnie {} s", cfg.bufor_sekundy), &nazwa, false, false);
+                pokaz_dymek_klipu(app, &plik, "Klip zapisany", &format!("Ostatnie {}", dlugosc_slowami(f64::from(cfg.bufor_sekundy))), None);
             }
             let _ = app.emit("klip-zapisany", plik);
             // Po zapisie pilnujemy limitów folderu (jeśli sprzątanie jest włączone)
@@ -243,9 +242,9 @@ fn obsluz_zdarzenie(app: &AppHandle, z: Zdarzenie) {
             if cfg.dzwiek_zapisu {
                 crate::dzwiek::zagraj();
             }
-            let nazwa = plik.file_name().unwrap_or_default().to_string_lossy().into_owned();
-            let opis = if czesci > 1 { format!("{nazwa} (i {} kolejne części)", czesci - 1) } else { nazwa };
-            pokaz_dymek(app, &format!("Film zapisany ({})", dlugosc_slowami(sekundy)), &opis, false, false);
+            let opis = if czesci > 1 { format!("{}, części: {czesci}", dlugosc_slowami(sekundy)) } else { dlugosc_slowami(sekundy) };
+            // Plik to pierwsza część filmu — długość na kadrze bierzemy z całości
+            pokaz_dymek_klipu(app, &plik, "Film zapisany", &opis, Some((sekundy, czesci > 1)));
             let _ = app.emit("film-zapisany", plik);
         }
         Zdarzenie::FilmOdzyskany { plik, sekundy, czesci } => {
@@ -299,21 +298,60 @@ fn pokaz_dymek(app: &AppHandle, tytul: &str, opis: &str, blad: bool, trwaly: boo
 
 /// Dymek z własną akcją po kliknięciu (`klik` = None: kliknięcia przechodzą do gry).
 fn pokaz_dymek_z_klikiem(app: &AppHandle, tytul: &str, opis: &str, blad: bool, trwaly: bool, klik: Option<Box<dyn FnOnce() + Send>>) {
+    crate::powiadomienie::zamow();
+    let Some(miejsce) = miejsce_dymka(app) else { return };
+    let (tytul, opis) = (tytul.to_string(), opis.to_string());
+    std::thread::spawn(move || crate::powiadomienie::pokaz(miejsce, &tytul, &opis, blad, trwaly, klik, None));
+}
+
+/// Najdłużej, ile dymek po zapisie czeka na kadr z klipu; potem pokazuje się bez niego.
+const CZEKANIE_NA_KADR: std::time::Duration = std::time::Duration::from_millis(2500);
+
+/// Dymek po zapisie klipu albo filmu: kadr z pliku z jego długością, tytuł i nazwa gry (w trybie
+/// pulpitu „Pulpit”). `zapas` to opis na wypadek, gdyby kadru nie dało się wyciągnąć — wtedy dymek
+/// jest samym tekstem. `film` = (długość całego filmu, czy ma kilka części): plik to wtedy tylko
+/// pierwsza część, więc długość bierzemy stąd, a przy kilku częściach `zapas` stoi też pod kadrem.
+fn pokaz_dymek_klipu(app: &AppHandle, plik: &std::path::Path, tytul: &str, zapas: &str, film: Option<(f64, bool)>) {
+    let zamowienie = crate::powiadomienie::zamow();
+    let Some(miejsce) = miejsce_dymka(app) else { return };
+    let (plik, tytul, zapas) = (plik.to_path_buf(), tytul.to_string(), zapas.to_string());
+    std::thread::spawn(move || {
+        let (szer, wys) = crate::powiadomienie::rozmiar_kadru(miejsce.skala);
+        let kadr = klipy::kadr_dymka(&plik, szer, wys, CZEKANIE_NA_KADR);
+        // W czasie wyciągania kadru przyszedł nowszy dymek (kolejny zapis, błąd) — ten jest już nieaktualny
+        if !crate::powiadomienie::aktualny(zamowienie) {
+            return;
+        }
+        let Some((piksele, sekundy, gra)) = kadr else {
+            return crate::powiadomienie::pokaz(miejsce, &tytul, &zapas, false, false, None, None);
+        };
+        let pulpit = plik.file_name().is_some_and(|n| n.to_string_lossy().starts_with("Clipeon_Pulpit_"));
+        let opis = match (film.is_some_and(|(_, czesci)| czesci), gra.is_empty(), pulpit) {
+            (true, _, _) => zapas,
+            (_, false, _) => gra,
+            (_, true, true) => "Pulpit".to_string(),
+            (_, true, false) => String::new(),
+        };
+        let sekundy = film.map_or(sekundy, |(s, _)| s);
+        let kadr = crate::powiadomienie::Kadr { piksele, szer, wys, dlugosc: crate::powiadomienie::czas(sekundy) };
+        crate::powiadomienie::pokaz(miejsce, &tytul, &opis, false, false, None, Some(kadr));
+    });
+}
+
+/// Prawy górny róg nagrywanego monitora (albo głównego, gdy tamtego nie ma) — tam stają dymki.
+fn miejsce_dymka(app: &AppHandle) -> Option<crate::powiadomienie::Miejsce> {
     let cfg = app.try_state::<Rdzen>().map(|r| r.config()).unwrap_or_default();
     let monitor = cfg.aktywny_monitor().0;
     let m = app
         .available_monitors()
         .ok()
         .and_then(|l| l.into_iter().find(|m| !monitor.is_empty() && m.name().is_some_and(|n| *n == monitor)))
-        .or_else(|| app.primary_monitor().ok().flatten());
-    let Some(m) = m else { return };
-    let miejsce = crate::powiadomienie::Miejsce {
+        .or_else(|| app.primary_monitor().ok().flatten())?;
+    Some(crate::powiadomienie::Miejsce {
         prawa: m.position().x + m.size().width as i32,
         gora: m.position().y,
         skala: m.scale_factor() as f32,
-    };
-    let (tytul, opis) = (tytul.to_string(), opis.to_string());
-    std::thread::spawn(move || crate::powiadomienie::pokaz(miejsce, &tytul, &opis, blad, trwaly, klik));
+    })
 }
 
 // ---------- Komendy dla okna ----------
