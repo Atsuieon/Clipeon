@@ -697,6 +697,7 @@ input[type="number"]:focus-visible, select:focus-visible { outline: none; border
 /* Przekreślony mikrofon przy statusie, gdy Clipeon nie nagrywa mikrofonu */
 .status-mik { display: flex; flex: none; color: var(--pomoc); }
 .status-mik[hidden] { display: none; }
+.status-mik.uwaga { color: var(--zolty); cursor: help; }
 .status-mik .ikona { width: 15px; height: 15px; }
 
 /* ---------- Edytor: ścieżki dźwięku pod osią czasu ---------- */

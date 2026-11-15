@@ -45,6 +45,9 @@ pub struct Stan {
     pub czeka_na_gre: bool,
     /// Czy mikrofon jest nagrywany (wyłączony = przekreślony mikrofon przy statusie)
     pub mikrofon: bool,
+    /// Mikrofon nagrywa, ale coś jest nie tak (cisza, zamarzł, zapasowe urządzenie, blokada w prywatności
+    /// Windows) — żółty mikrofon przy statusie z wyjaśnieniem w podpowiedzi
+    pub uwaga_mikrofonu: Option<String>,
     /// Windows rysuje teraz żółtą ramkę wokół nagrywanego ekranu (droga przez Windows Graphics Capture
     /// na systemie, który nie umie jej wyłączyć)
     pub ramka: bool,
@@ -106,6 +109,8 @@ const POWROT_NAJPOZNIEJ_PO: Duration = Duration::from_secs(1800);
 /// Przełączenie dźwięku na nowe urządzenie trwa ułamek sekundy — żółtą kropkę trzymamy co najmniej tyle,
 /// żeby dało się ją zauważyć
 const PRZELACZANIE_WIDAC: Duration = Duration::from_secs(2);
+/// Dymek o problemie z mikrofonem pokazujemy najwyżej raz na tyle czasu (uwaga przy statusie zostaje)
+const DYMEK_MIKROFONU_CO: Duration = Duration::from_secs(30 * 60);
 /// Po tylu sekundach bez problemów zapamiętujemy drogę jako działającą
 const DROGA_DZIALA_PO: Duration = Duration::from_secs(30);
 
@@ -164,6 +169,10 @@ struct Wnetrze {
     /// Ścieżki dźwięku ("system", "mikrofon"), które przełączają się na nowe urządzenie: od kiedy
     /// i czy jeszcze trwa (skończone zostaje do PRZELACZANIE_WIDAC, potem zdejmuje je strażnik)
     przelaczanie: BTreeMap<&'static str, (Instant, bool)>,
+    /// Uwaga o mikrofonie od wątku dźwięku (patrz `Stan.uwaga_mikrofonu`)
+    uwaga_mikrofonu: Option<String>,
+    /// Kiedy pokazaliśmy ostatni dymek o mikrofonie
+    dymek_mikrofonu: Option<Instant>,
     /// Drogi przechwytywania, które zawiodły w tym uruchomieniu: (monitor, droga)
     odrzucone: HashSet<(String, Droga)>,
     /// Lżejsze ustawienia enkodera (po wykryciu, że nie nadąża)
@@ -229,6 +238,8 @@ impl Rdzen {
             start_sesji: None,
             wznawianie: None,
             przelaczanie: BTreeMap::new(),
+            uwaga_mikrofonu: None,
+            dymek_mikrofonu: None,
             odrzucone: HashSet::new(),
             lekki: false,
             gra: None,
@@ -278,6 +289,7 @@ impl Rdzen {
             gra_proces: w.cfg.gra.clone(),
             czeka_na_gre: w.czeka_na_gre,
             mikrofon: w.cfg.mikrofon,
+            uwaga_mikrofonu: w.uwaga_mikrofonu.clone(),
             ramka: w.sesja.as_ref().is_some_and(|s| s.wideo.droga.z_ramka()),
             film: w.film.as_ref().map(Film::sekundy),
             film_zapis: w.zapis_filmu,
@@ -321,10 +333,12 @@ impl Rdzen {
     }
 
     /// Zgłoszenia ścieżki dźwięku: błąd i „działa” jak u reszty, a przełączanie na nowe urządzenie
-    /// (zamknięta gra, inne słuchawki) to tylko żółta kropka — bez błędu i bez alarmu.
+    /// (zamknięta gra, inne słuchawki) to tylko żółta kropka — bez błędu i bez alarmu. Uwaga o mikrofonie
+    /// (nagrywa ciszę, zamarzł, zapasowe urządzenie) to żółty mikrofon przy statusie i raz dymek.
     fn zglaszacz_dzwieku(&self, pokolenie: u64, klucz: &'static str) -> impl Fn(audio::Zgloszenie) + Send + 'static {
         let r = self.clone();
         move |z| {
+            let mut dymek = None;
             let zmiana = {
                 let mut w = r.zamek();
                 if w.pokolenie != pokolenie {
@@ -340,13 +354,30 @@ impl Rdzen {
                         false
                     }
                     audio::Zgloszenie::Blad(_) => w.przelaczanie.remove(klucz).is_some(),
+                    audio::Zgloszenie::Uwaga { opis: u, dymek: pewny } => {
+                        // Dymek tylko przy nowym, pewnym problemie i nie częściej niż DYMEK_MIKROFONU_CO
+                        if *pewny
+                            && u.is_some()
+                            && w.uwaga_mikrofonu.is_none()
+                            && w.dymek_mikrofonu.is_none_or(|t| t.elapsed() >= DYMEK_MIKROFONU_CO)
+                        {
+                            w.dymek_mikrofonu = Some(Instant::now());
+                            dymek = u.clone();
+                        }
+                        let zmiana = w.uwaga_mikrofonu != *u;
+                        w.uwaga_mikrofonu = u.clone();
+                        zmiana
+                    }
                 }
             };
             if zmiana {
                 r.wyslij_stan();
             }
+            if let Some(opis) = dymek {
+                r.uwaga("Mikrofon chyba nie nagrywa", &opis);
+            }
             match z {
-                audio::Zgloszenie::Przelaczanie => {}
+                audio::Zgloszenie::Przelaczanie | audio::Zgloszenie::Uwaga { .. } => {}
                 audio::Zgloszenie::Dziala => r.zglos(pokolenie, klucz, None),
                 audio::Zgloszenie::Blad(b) => r.zglos(pokolenie, klucz, Some(b)),
             }
@@ -564,6 +595,7 @@ impl Rdzen {
             w.pokolenie += 1;
             w.bledy.retain(|k, _| zostaw.contains(k));
             w.przelaczanie.clear();
+            w.uwaga_mikrofonu = None;
             let sesja = w.sesja.take();
             // Bufory zostają na następną sesję — chyba że trwa film (ten dostaje nowy segment)
             if let Some(s) = sesja.as_ref().filter(|_| w.film.is_none()) {

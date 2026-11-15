@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
-use windows::Win32::Foundation::{CloseHandle, HANDLE};
+use windows::Win32::Foundation::{CloseHandle, ERROR_SUCCESS, HANDLE};
 use windows::Win32::Media::Audio::{
     AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR, AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_E_RESOURCES_INVALIDATED,
     AUDCLNT_E_SERVICE_NOT_RUNNING, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
@@ -21,8 +21,10 @@ use windows::Win32::Media::Audio::{
     PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE, VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK, WAVE_FORMAT_PCM, WAVEFORMATEX, eCapture, eConsole,
     eRender,
 };
+use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
 use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
 use windows::Win32::System::Com::{BLOB, CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree, IAgileObject, IAgileObject_Impl, STGM_READ};
+use windows::Win32::System::Registry::{HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RegGetValueW};
 use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
 use windows::Win32::System::Variant::{VT_BLOB, VT_LPWSTR};
 use windows::core::{HRESULT, IUnknown, Interface, implement};
@@ -42,6 +44,21 @@ const FORMAT_PROCESU: Format = Format { czestotliwosc: 48_000, kanaly: 2, bity: 
 const PROCES_PROB: u32 = 3;
 /// Loopback procesu nie działa na tym komputerze (patrz PROCES_PROB)
 static PROCES_ZEPSUTY: AtomicBool = AtomicBool::new(false);
+/// Mikrofon (w przeciwieństwie do loopbacku) przysyła pakiety bez przerwy, nawet w ciszy. Gdy przez tyle
+/// czasu nie przyśle nic, sterownik „zamarzł” (bywa z USB i Bluetooth, też po uśpieniu) — otwieramy go od nowa.
+/// Dawniej Clipeon brał to za ciszę i do końca nagrywał w tej ścieżce same zera.
+const MIKROFON_ZAMARZL_PO: Duration = Duration::from_secs(2);
+/// Po tylu zamarznięciach z rzędu (bez żadnego pakietu pomiędzy) pokazujemy uwagę i dalej próbujemy po cichu
+const ZAMARZNIEC_DO_UWAGI: u32 = 3;
+/// Prawdziwy mikrofon zawsze trochę szumi, więc długa cisza cyfrowa (same zera) to zwykle wyciszenie
+/// przyciskiem na słuchawkach albo zepsuty sterownik. Próg jest długi, bo mikrofony z bramką szumów
+/// (np. NVIDIA Broadcast) dają same zera, gdy nikt nie mówi — dlatego przy samej ciszy jest tylko żółty
+/// mikrofon, bez dymka
+const CISZA_CYFROWA_PO: Duration = Duration::from_secs(120);
+/// Co tyle sprawdzamy, czy mikrofon nie jest wyciszony w Windows
+const WYCISZENIE_CO: Duration = Duration::from_secs(2);
+/// Co tyle wpis o mikrofonie w dzienniku (szczyt głośności, pakiety)
+const WPIS_MIKROFONU_CO: Duration = Duration::from_secs(60);
 
 /// Skąd nagrywamy dźwięk.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -97,6 +114,10 @@ pub enum Zgloszenie {
     Przelaczanie,
     /// Nie da się nagrywać dźwięku (opis dla użytkownika)
     Blad(String),
+    /// Mikrofon nagrywa, ale chyba nie to, co trzeba (wyciszony, cisza, zamarzł, zapasowe urządzenie,
+    /// blokada w prywatności Windows) — uwaga przy statusie, nie błąd. `opis` None = problem minął;
+    /// `dymek` = problem na tyle pewny, że warto pokazać też dymek
+    Uwaga { opis: Option<String>, dymek: bool },
 }
 
 /// Dlaczego sesja przechwytywania się skończyła bez błędu.
@@ -107,6 +128,8 @@ enum Koniec {
     Zmiana,
     /// Zmieniła się gra: otwieramy przechwytywanie od nowa po cichu (to nie zmiana urządzenia)
     NowaGra,
+    /// Mikrofon przestał przysyłać pakiety (patrz MIKROFON_ZAMARZL_PO) — otwieramy go od nowa
+    Zamarzl,
 }
 
 /// Dlaczego sesja przechwytywania się skończyła.
@@ -194,6 +217,8 @@ pub fn uruchom(
         let mut koder: Option<Koder> = None;
         let mut faza = Faza::Spokoj;
         let mut nieudane_procesu = 0;
+        // Pilnowanie mikrofonu (cisza, zamarznięcie, zapasowe urządzenie) przeżywa ponowne otwarcia
+        let mut czujnik = (zrodlo == Zrodlo::Mikrofon).then(Czujnik::nowy);
         while !stop_watku.load(Ordering::SeqCst) {
             let mut ruszylo = || {
                 if matches!(faza, Faza::Przelaczanie(_)) {
@@ -205,13 +230,16 @@ pub fn uruchom(
             let wynik = match zrodlo {
                 // Loopback procesu nie działa na tym komputerze: „Gra” = cały dźwięk, „Reszta” = cisza
                 Zrodlo::Gra if PROCES_ZEPSUTY.load(Ordering::SeqCst) => {
-                    sesja(Zrodlo::System, "", bitrate_kbps, &bufor, &stop_watku, &mut koder, &mut ruszylo)
+                    sesja(Zrodlo::System, "", bitrate_kbps, &bufor, &stop_watku, &mut koder, &mut ruszylo, None)
                 }
                 Zrodlo::Reszta if PROCES_ZEPSUTY.load(Ordering::SeqCst) => {
                     sesja_ciszy(zrodlo, &cel, None, bitrate_kbps, &bufor, &stop_watku, &mut koder, &mut ruszylo)
                 }
                 z if z.proces() => sesja_procesu(z, &cel, bitrate_kbps, &bufor, &stop_watku, &mut koder, &mut ruszylo),
-                z => sesja(z, &wybrane, bitrate_kbps, &bufor, &stop_watku, &mut koder, &mut ruszylo),
+                z => {
+                    let czujnik = czujnik.as_mut().map(|c| (c, &zglos as &dyn Fn(Zgloszenie)));
+                    sesja(z, &wybrane, bitrate_kbps, &bufor, &stop_watku, &mut koder, &mut ruszylo, czujnik)
+                }
             };
             if stop_watku.load(Ordering::SeqCst) {
                 break;
@@ -225,6 +253,31 @@ pub fn uruchom(
                 Ok(Koniec::Zmiana) => {
                     faza = Faza::Przelaczanie(Instant::now());
                     zglos(Zgloszenie::Przelaczanie);
+                    Duration::ZERO
+                }
+                // Mikrofon zamarzł: pierwsze razy jak zmiana urządzenia (żółta kropka), potem uwaga przy
+                // statusie i dalsze próby po cichu (kropka nie miga co 2 s, dziennik się nie zapycha)
+                Ok(Koniec::Zamarzl) => {
+                    if let Some(c) = czujnik.as_mut() {
+                        c.zamarzniecia += 1;
+                        if c.zamarzniecia == 1 {
+                            crate::dziennik::info(&format!(
+                                "Dźwięk ({}): urządzenie od {} s nic nie przysyła — otwieram je od nowa",
+                                zrodlo.nazwa(),
+                                MIKROFON_ZAMARZL_PO.as_secs()
+                            ));
+                        }
+                        if c.zamarzniecia < ZAMARZNIEC_DO_UWAGI {
+                            faza = Faza::Przelaczanie(Instant::now());
+                            zglos(Zgloszenie::Przelaczanie);
+                        } else if c.zamarzniecia == ZAMARZNIEC_DO_UWAGI {
+                            crate::dziennik::info(&format!(
+                                "Dźwięk ({}): po ponownym otwarciu dalej nic — próbuję dalej po cichu",
+                                zrodlo.nazwa()
+                            ));
+                            c.odswiez(&zglos);
+                        }
+                    }
                     Duration::ZERO
                 }
                 Err(e) => {
@@ -401,6 +454,8 @@ impl Drop for Zdarzenie {
 /// Jedna sesja przechwytywania: na wybranym urządzeniu albo na bieżącym domyślnym. Próbki idą do
 /// `koder` — zostaje ten z poprzedniej sesji, jeśli nowe urządzenie ma ten sam format (wtedy przerwę
 /// między sesjami zegar wypełnia ciszą). `ruszylo` jest wołane, gdy przechwytywanie wystartowało.
+/// `czujnik` (tylko mikrofon) pilnuje, czy urządzenie naprawdę nagrywa.
+#[allow(clippy::too_many_arguments)]
 fn sesja(
     zrodlo: Zrodlo,
     wybrane: &str,
@@ -409,6 +464,7 @@ fn sesja(
     stop: &AtomicBool,
     koder: &mut Option<Koder>,
     ruszylo: &mut dyn FnMut(),
+    mut czujnik: Option<(&mut Czujnik, &dyn Fn(Zgloszenie))>,
 ) -> Result<Koniec, Blad> {
     unsafe {
         let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
@@ -432,6 +488,12 @@ fn sesja(
             Some(u) => u,
             None => enumerator.GetDefaultAudioEndpoint(kierunek, eConsole)?,
         };
+        // Mikrofon: z którego urządzenia nagrywamy (do dziennika i do uwagi o zapasowym) i czy Windows
+        // nie blokuje programom mikrofonu (wtedy zamiast błędu przychodzi sama cisza)
+        if let Some((c, zglos)) = czujnik.as_mut() {
+            c.urzadzenie(zrodlo, &urzadzenie, zapasowe);
+            c.odswiez(*zglos);
+        }
         // Identyfikator urządzenia: gdy użytkownik zmieni domyślne (np. na słuchawki), zaczynamy od nowa
         let id_start = id_urzadzenia(&urzadzenie);
         let mut klient: IAudioClient = urzadzenie.Activate(CLSCTX_ALL, None)?;
@@ -484,7 +546,8 @@ fn sesja(
         let przechwyt: IAudioCaptureClient = klient.GetService()?;
         klient.Start()?;
         ruszylo();
-        let wynik = przechwytuj(&przechwyt, k, zdarzenie.as_ref().filter(|_| ze_zdarzeniem), stop, Duration::from_secs(2), &mut sprawdz);
+        let wynik =
+            przechwytuj(&przechwyt, k, zdarzenie.as_ref().filter(|_| ze_zdarzeniem), stop, Duration::from_secs(2), &mut sprawdz, czujnik);
         let _ = klient.Stop();
         wynik
     }
@@ -492,6 +555,7 @@ fn sesja(
 
 /// Pętla odbioru próbek, wspólna dla wszystkich sesji: pakiety z WASAPI do enkodera, a gdy nic nie
 /// przychodzi — cisza. Co `co` woła `sprawdz`, który może zakończyć sesję (zmiana urządzenia albo gry).
+/// Przy mikrofonie `czujnik` pilnuje, czy pakiety przychodzą i czy jest w nich coś poza zerami.
 fn przechwytuj(
     przechwyt: &IAudioCaptureClient,
     k: &mut Koder,
@@ -499,8 +563,12 @@ fn przechwytuj(
     stop: &AtomicBool,
     co: Duration,
     sprawdz: &mut dyn FnMut() -> Option<Koniec>,
+    mut czujnik: Option<(&mut Czujnik, &dyn Fn(Zgloszenie))>,
 ) -> Result<Koniec, Blad> {
     let mut sprawdzone = Instant::now();
+    if let Some((c, _)) = czujnik.as_mut() {
+        c.ostatni_pakiet = Instant::now();
+    }
     while !stop.load(Ordering::SeqCst) {
         match zdarzenie {
             // Czekamy na dane najwyżej 100 ms (przy ciszy loopback nie budzi nas wcale)
@@ -527,6 +595,9 @@ fn przechwytuj(
             };
             // Bez wiarygodnego znacznika czasu (loopback procesu bywa bez niego) próbki idą zaraz za poprzednimi
             let czas = (qpc != 0 && flagi & AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR.0 as u32 == 0).then_some(qpc as i64);
+            if let Some((c, _)) = czujnik.as_mut() {
+                c.pakiet(k.format.bity, probki);
+            }
             let w = k.zegar.pakiet(&mut k.wejscie, czas, ramek as i64, probki);
             unsafe { przechwyt.ReleaseBuffer(ramek)? };
             w?;
@@ -536,8 +607,249 @@ fn przechwytuj(
         if !byly_dane {
             k.cisza()?;
         }
+        if let Some((c, zglos)) = czujnik.as_mut() {
+            if c.ostatni_pakiet.elapsed() >= MIKROFON_ZAMARZL_PO {
+                return Ok(Koniec::Zamarzl);
+            }
+            c.wpis_do_dziennika();
+            c.sprawdz_wyciszenie(false);
+            c.odswiez(*zglos);
+        }
     }
     Ok(Koniec::Zmiana)
+}
+
+/// Pilnuje, czy mikrofon naprawdę nagrywa głos: czy pakiety przychodzą, czy jest w nich coś poza cyfrowymi
+/// zerami, z którego urządzenia nagrywamy i czy Windows nie blokuje mikrofonu. Problemy zgłasza jako uwagę
+/// przy statusie (`Zgloszenie::Uwaga`), a co minutę zapisuje w dzienniku szczyt głośności. Żyje dłużej niż
+/// jedno otwarcie urządzenia, więc ponowne otwarcie nie zeruje liczenia ciszy.
+struct Czujnik {
+    /// Kiedy przyszedł ostatni pakiet (licznik zaczyna się od nowa z każdym otwarciem urządzenia)
+    ostatni_pakiet: Instant,
+    /// Kiedy ostatnio w próbkach było coś poza cyfrowymi zerami
+    ostatni_dzwiek: Instant,
+    /// Zamarznięcia z rzędu (zeruje je pierwszy pakiet)
+    zamarzniecia: u32,
+    /// Wybrany mikrofon jest odłączony i nagrywamy z domyślnego: jego nazwa
+    zapas: Option<String>,
+    /// Windows nie pozwala programom na mikrofon (Prywatność → Mikrofon)
+    prywatnosc: bool,
+    /// Głośność urządzenia w Windows (do sprawdzania wyciszenia) i wynik ostatniego sprawdzenia
+    glosnosc: Option<IAudioEndpointVolume>,
+    wyciszony: bool,
+    sprawdzone_wyciszenie: Instant,
+    /// Ostatnio zgłoszona uwaga (zgłaszamy tylko zmiany)
+    zgloszona: Option<String>,
+    /// Z którego urządzenia nagrywaliśmy ostatnio (wpis w dzienniku tylko przy zmianie)
+    ostatnie_urzadzenie: Option<String>,
+    /// Do wpisu w dzienniku: od kiedy liczymy, szczyt (0–1), pakiety, pakiety z samymi zerami
+    od_wpisu: Instant,
+    szczyt: f32,
+    pakiety: u64,
+    zerowe: u64,
+}
+
+impl Czujnik {
+    fn nowy() -> Czujnik {
+        let teraz = Instant::now();
+        Czujnik {
+            ostatni_pakiet: teraz,
+            ostatni_dzwiek: teraz,
+            zamarzniecia: 0,
+            zapas: None,
+            prywatnosc: false,
+            glosnosc: None,
+            wyciszony: false,
+            sprawdzone_wyciszenie: teraz,
+            zgloszona: None,
+            ostatnie_urzadzenie: None,
+            od_wpisu: teraz,
+            szczyt: 0.0,
+            pakiety: 0,
+            zerowe: 0,
+        }
+    }
+
+    /// Sesja otworzyła urządzenie (`zapasowe` = zamiast odłączonego wybranego).
+    fn urzadzenie(&mut self, zrodlo: Zrodlo, urzadzenie: &IMMDevice, zapasowe: bool) {
+        let nazwa = nazwa_urzadzenia(urzadzenie).unwrap_or_else(|| "urządzenie bez nazwy".into());
+        if self.ostatnie_urzadzenie.as_deref() != Some(nazwa.as_str()) {
+            crate::dziennik::info(&format!("Dźwięk ({}): nagrywam z „{nazwa}”", zrodlo.nazwa()));
+            self.ostatnie_urzadzenie = Some(nazwa.clone());
+        }
+        self.zapas = zapasowe.then_some(nazwa);
+        self.glosnosc = unsafe { urzadzenie.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None) }.ok();
+        self.prywatnosc = mikrofon_zablokowany();
+        self.sprawdz_wyciszenie(true);
+    }
+
+    /// Czy mikrofon jest wyciszony w Windows (albo ma głośność 0) — co WYCISZENIE_CO, `teraz` = od razu.
+    /// Część słuchawek wycisza tak mikrofon przyciskiem.
+    fn sprawdz_wyciszenie(&mut self, teraz: bool) {
+        if !teraz && self.sprawdzone_wyciszenie.elapsed() < WYCISZENIE_CO {
+            return;
+        }
+        self.sprawdzone_wyciszenie = Instant::now();
+        self.wyciszony = self.glosnosc.as_ref().is_some_and(|g| unsafe {
+            g.GetMute().is_ok_and(|m| m.as_bool()) || g.GetMasterVolumeLevelScalar().is_ok_and(|v| v <= 0.0)
+        });
+    }
+
+    /// Przyszedł pakiet z mikrofonu (`probki` = None: pakiet oznaczony przez Windows jako cisza).
+    fn pakiet(&mut self, bity: u16, probki: Option<&[u8]>) {
+        let teraz = Instant::now();
+        self.ostatni_pakiet = teraz;
+        self.zamarzniecia = 0;
+        self.pakiety += 1;
+        let szczyt = probki.map_or(0.0, |p| szczyt_probek(bity, p));
+        if szczyt > 0.0 {
+            self.ostatni_dzwiek = teraz;
+            self.szczyt = self.szczyt.max(szczyt);
+        } else {
+            self.zerowe += 1;
+        }
+    }
+
+    /// Co pokazać przy statusie (None = mikrofon nagrywa normalnie) i czy warto też dymkiem.
+    fn uwaga(&self) -> (Option<String>, bool) {
+        let mut u = Vec::new();
+        let mut dymek = true;
+        if self.prywatnosc {
+            u.push(
+                "Windows nie pozwala programom używać mikrofonu, więc w klipach jest cisza. Włącz: Ustawienia Windows → \
+                 Prywatność i zabezpieczenia → Mikrofon → dostęp do mikrofonu oraz „Zezwalaj aplikacjom klasycznym na \
+                 dostęp do mikrofonu”."
+                    .to_string(),
+            );
+        } else if self.zamarzniecia >= ZAMARZNIEC_DO_UWAGI {
+            u.push(
+                "Mikrofon przestał przysyłać dźwięk. Clipeon próbuje go otworzyć od nowa — sprawdź, czy jest podłączony \
+                 (przy Bluetooth: czy słuchawki są połączone)."
+                    .to_string(),
+            );
+        } else if self.wyciszony {
+            u.push(
+                "Mikrofon jest wyciszony w Windows (albo ma głośność 0), więc w klipach jest cisza. Włącz go w ustawieniach \
+                 dźwięku Windows albo przyciskiem na słuchawkach."
+                    .to_string(),
+            );
+        } else if self.ostatni_dzwiek.elapsed() >= CISZA_CYFROWA_PO {
+            u.push(
+                "Mikrofon od dłuższej chwili nagrywa idealną ciszę. Sprawdź, czy nie jest wyciszony przyciskiem na \
+                 słuchawkach i czy w Ustawieniach → Dźwięk wybrany jest właściwy mikrofon. (Mikrofony z bramką szumów, \
+                 np. NVIDIA Broadcast, tak mają, gdy nikt nie mówi.)"
+                    .to_string(),
+            );
+            dymek = false;
+        }
+        if let Some(n) = &self.zapas {
+            u.push(format!("Wybrany mikrofon jest odłączony — Clipeon nagrywa z „{n}”. Wróci na wybrany, gdy tylko się pojawi."));
+        }
+        if self.zapas.is_some() {
+            dymek = true;
+        }
+        let dymek = dymek && !u.is_empty();
+        ((!u.is_empty()).then(|| u.join("\n")), dymek)
+    }
+
+    /// Zgłasza uwagę rdzeniowi, gdy się zmieniła (i zapisuje ją w dzienniku).
+    fn odswiez(&mut self, zglos: &dyn Fn(Zgloszenie)) {
+        let (u, dymek) = self.uwaga();
+        if u != self.zgloszona {
+            match &u {
+                Some(t) => crate::dziennik::info(&format!("Mikrofon — uwaga: {t}")),
+                None => crate::dziennik::info("Mikrofon: znowu nagrywa normalnie"),
+            }
+            self.zgloszona = u.clone();
+            zglos(Zgloszenie::Uwaga { opis: u, dymek });
+        }
+    }
+
+    /// Co WPIS_MIKROFONU_CO: szczyt głośności i liczba pakietów w dzienniku — po tym widać od razu,
+    /// czy mikrofon w danej chwili nagrywał głos, ciszę cyfrową, czy nic nie przysyłał.
+    fn wpis_do_dziennika(&mut self) {
+        let minelo = self.od_wpisu.elapsed();
+        if minelo < WPIS_MIKROFONU_CO {
+            return;
+        }
+        let glosnosc = if self.szczyt > 0.0 {
+            format!("szczyt {:.0} dB", 20.0 * self.szczyt.log10())
+        } else {
+            "same zera (cisza cyfrowa)".to_string()
+        };
+        crate::dziennik::info(&format!(
+            "Mikrofon ({} s): {glosnosc}, pakiety {}, w tym z samymi zerami {}",
+            minelo.as_secs(),
+            self.pakiety,
+            self.zerowe
+        ));
+        self.od_wpisu = Instant::now();
+        self.szczyt = 0.0;
+        self.pakiety = 0;
+        self.zerowe = 0;
+    }
+}
+
+/// Największa wartość bezwzględna próbki w pakiecie (0–1); 0 = same cyfrowe zera.
+fn szczyt_probek(bity: u16, dane: &[u8]) -> f32 {
+    match bity {
+        32 => dane
+            .chunks_exact(4)
+            .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]).abs())
+            .filter(|v| v.is_finite())
+            .fold(0.0, f32::max),
+        16 => dane.chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]]).unsigned_abs()).max().unwrap_or(0) as f32 / 32768.0,
+        24 => {
+            dane.chunks_exact(3).map(|b| (i32::from_le_bytes([0, b[0], b[1], b[2]]) >> 8).unsigned_abs()).max().unwrap_or(0) as f32
+                / 8_388_608.0
+        }
+        _ => 0.0,
+    }
+}
+
+/// Czy Windows blokuje programom mikrofon (Ustawienia → Prywatność i zabezpieczenia → Mikrofon). Wtedy
+/// nagrywanie startuje bez błędu, ale mikrofon przysyła same zera — bez tej uwagi nie da się tego zauważyć.
+fn mikrofon_zablokowany() -> bool {
+    const KLUCZ: &str = r"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone";
+    [
+        // Cały komputer, wszyscy użytkownicy („Dostęp do mikrofonu”)
+        (HKEY_LOCAL_MACHINE, KLUCZ.to_string()),
+        // Ten użytkownik („Zezwalaj aplikacjom na dostęp do mikrofonu”)
+        (HKEY_CURRENT_USER, KLUCZ.to_string()),
+        // Programy spoza Sklepu, jak Clipeon („Zezwalaj aplikacjom klasycznym…”)
+        (HKEY_CURRENT_USER, format!(r"{KLUCZ}\NonPackaged")),
+    ]
+    .iter()
+    .any(|(klucz, sciezka)| tekst_z_rejestru(*klucz, sciezka, "Value").is_some_and(|w| odmowa(&w)))
+}
+
+/// Windows zapisuje zgodę jako „Allow” albo „Deny”.
+fn odmowa(wartosc: &str) -> bool {
+    wartosc.trim().eq_ignore_ascii_case("Deny")
+}
+
+/// Krótka wartość tekstowa z rejestru (None, gdy jej nie ma).
+fn tekst_z_rejestru(klucz: HKEY, sciezka: &str, nazwa: &str) -> Option<String> {
+    let sciezka: Vec<u16> = sciezka.encode_utf16().chain(std::iter::once(0)).collect();
+    let nazwa: Vec<u16> = nazwa.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut bufor = [0u16; 64];
+    let mut rozmiar = std::mem::size_of_val(&bufor) as u32;
+    let wynik = unsafe {
+        RegGetValueW(
+            klucz,
+            windows::core::PCWSTR(sciezka.as_ptr()),
+            windows::core::PCWSTR(nazwa.as_ptr()),
+            RRF_RT_REG_SZ,
+            None,
+            Some(bufor.as_mut_ptr().cast()),
+            Some(&mut rozmiar),
+        )
+    };
+    if wynik != ERROR_SUCCESS {
+        return None;
+    }
+    let dl = (rozmiar as usize / 2).min(bufor.len());
+    Some(String::from_utf16_lossy(&bufor[..dl]).trim_end_matches('\0').to_string())
 }
 
 /// Sesja ścieżki „Gra” albo „Discord i reszta”: loopback procesu gry (z procesami potomnymi).
@@ -574,7 +886,8 @@ fn sesja_procesu(
         klient.Start()?;
         ruszylo();
         let mut sprawdz = || (cel.load(Ordering::SeqCst) != gra).then_some(Koniec::NowaGra);
-        let wynik = przechwytuj(&przechwyt, k, zdarzenie.as_ref().filter(|_| ze_zdarzeniem), stop, Duration::from_millis(250), &mut sprawdz);
+        let wynik =
+            przechwytuj(&przechwyt, k, zdarzenie.as_ref().filter(|_| ze_zdarzeniem), stop, Duration::from_millis(250), &mut sprawdz, None);
         let _ = klient.Stop();
         wynik
     }
@@ -832,7 +1145,7 @@ fn nazwa_urzadzenia(urzadzenie: &IMMDevice) -> Option<String> {
 
 #[cfg(test)]
 mod testy {
-    use super::{Blad, FORMAT_PROCESU, Zegar, dlugosc_adts, zmiana_urzadzenia};
+    use super::{Blad, Czujnik, FORMAT_PROCESU, Zegar, dlugosc_adts, odmowa, szczyt_probek, zmiana_urzadzenia};
     use windows::core::{Error, HRESULT};
 
     /// Zegar 48 kHz, stereo 16 bit (4 bajty na próbkę), start w zerze
@@ -922,5 +1235,51 @@ mod testy {
         let opis = Blad::Urzadzenie(blad(0x8889_0004)).to_string();
         assert!(opis.starts_with("urządzenie dźwięku zostało odłączone albo zmienione"), "{opis}");
         assert!(opis.contains("0x88890004"), "{opis}");
+    }
+
+    #[test]
+    fn szczyt_probek_odroznia_szum_od_cyfrowej_ciszy() {
+        // float32: same zera (też -0.0) = cisza cyfrowa, cichy szum mikrofonu już nie
+        let zera: Vec<u8> = [0.0f32, -0.0, 0.0, 0.0].iter().flat_map(|v| v.to_le_bytes()).collect();
+        assert_eq!(szczyt_probek(32, &zera), 0.0);
+        let szum: Vec<u8> = [0.0f32, -0.001, 0.0005, 0.0].iter().flat_map(|v| v.to_le_bytes()).collect();
+        assert!((szczyt_probek(32, &szum) - 0.001).abs() < 1e-6);
+        // 16 bit: i16::MIN nie może się przepełnić
+        let p16: Vec<u8> = [0i16, i16::MIN, 3].iter().flat_map(|v| v.to_le_bytes()).collect();
+        assert_eq!(szczyt_probek(16, &p16), 1.0);
+        assert_eq!(szczyt_probek(16, &[0, 0, 0, 0]), 0.0);
+        // 24 bit: -1 to FF FF FF
+        assert!(szczyt_probek(24, &[0xFF, 0xFF, 0xFF, 0, 0, 0]) > 0.0);
+        assert_eq!(szczyt_probek(24, &[0, 0, 0, 0, 0, 0]), 0.0);
+    }
+
+    #[test]
+    fn zgoda_na_mikrofon_z_rejestru() {
+        assert!(odmowa("Deny"));
+        assert!(odmowa("deny "));
+        assert!(!odmowa("Allow"));
+        assert!(!odmowa(""));
+    }
+
+    #[test]
+    fn uwaga_o_mikrofonie() {
+        let mut c = Czujnik::nowy();
+        assert_eq!(c.uwaga(), (None, false));
+        // Zapasowy mikrofon zamiast odłączonego wybranego
+        c.zapas = Some("Mikrofon (Kamera)".into());
+        assert!(c.uwaga().0.unwrap().contains("„Mikrofon (Kamera)”"));
+        // Zamarznięty mikrofon: uwaga dopiero po kilku nieudanych otwarciach, pierwszy pakiet ją zdejmuje
+        c.zapas = None;
+        c.zamarzniecia = super::ZAMARZNIEC_DO_UWAGI;
+        assert!(c.uwaga().0.unwrap().contains("przestał przysyłać"));
+        c.pakiet(32, Some(&0.01f32.to_le_bytes()));
+        assert_eq!(c.uwaga(), (None, false));
+        // Wyciszony w Windows: uwaga z dymkiem
+        c.wyciszony = true;
+        let (opis, dymek) = c.uwaga();
+        assert!(opis.unwrap().contains("wyciszony w Windows") && dymek);
+        // Blokada w prywatności Windows jest ważniejsza niż reszta i mówi, gdzie ją wyłączyć
+        c.prywatnosc = true;
+        assert!(c.uwaga().0.unwrap().contains("Prywatność"));
     }
 }
