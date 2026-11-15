@@ -12,7 +12,7 @@ use windows::Win32::Graphics::Gdi::{
     AC_SRC_ALPHA, AC_SRC_OVER, ANTIALIASED_QUALITY, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION,
     CLIP_DEFAULT_PRECIS, CreateCompatibleDC, CreateDIBSection, CreateFontW, DEFAULT_CHARSET, DIB_RGB_COLORS,
     DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DeleteDC, DeleteObject, DrawTextW,
-    GetDC, GetTextExtentPoint32W, HGDIOBJ, OUT_DEFAULT_PRECIS, ReleaseDC, SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
+    GetDC, GetTextExtentPoint32W, GetTextFaceW, HDC, HGDIOBJ, OUT_DEFAULT_PRECIS, ReleaseDC, SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -27,9 +27,43 @@ static NUMER: AtomicU64 = AtomicU64::new(0);
 /// Numer klikniętego dymka (0 = żaden)
 static KLIKNIETY: AtomicU64 = AtomicU64::new(0);
 
+/// Ostatnio zamówiony dymek. Dymek po zapisie czeka na kadr z klipu (ffmpeg), więc w tym czasie może
+/// przyjść nowszy (kolejny zapis, błąd) — wtedy spóźniony nie wyskakuje już nad nim.
+static ZAMOWIONY: AtomicU64 = AtomicU64::new(0);
+
 /// Chowa bieżący dymek (np. alarm, gdy problem minął).
 pub fn ukryj() {
+    ZAMOWIONY.fetch_add(1, Ordering::SeqCst);
     NUMER.fetch_add(1, Ordering::SeqCst);
+}
+
+/// Rezerwuje miejsce w kolejce dymków; wywołać od razu przy zdarzeniu, zanim zacznie się coś długiego.
+pub fn zamow() -> u64 {
+    ZAMOWIONY.fetch_add(1, Ordering::SeqCst) + 1
+}
+
+/// Czy zamówiony dymek jest wciąż najnowszy (nic po nim nie zamówiono ani nie schowano)?
+pub fn aktualny(zamowienie: u64) -> bool {
+    ZAMOWIONY.load(Ordering::SeqCst) == zamowienie
+}
+
+/// Krój napisów: „Segoe UI Variable Text” z Windows 11, a gdzie go nie ma (Windows 10) — zwykłe
+/// „Segoe UI”. Bez tego GDI podstawia jakiś inny krój i napisy wychodzą krzywe albo za szerokie.
+fn kroj(dc: HDC) -> windows::core::PCWSTR {
+    static WINDOWS_11: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let jest = *WINDOWS_11.get_or_init(|| unsafe {
+        let f = CreateFontW(
+            -12, 0, 0, 0, 400, 0, 0, 0, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, 0,
+            w!("Segoe UI Variable Text"),
+        );
+        let stara = SelectObject(dc, HGDIOBJ(f.0));
+        let mut nazwa = [0u16; 64];
+        let n = GetTextFaceW(dc, Some(&mut nazwa)).max(0) as usize;
+        SelectObject(dc, stara);
+        let _ = DeleteObject(HGDIOBJ(f.0));
+        String::from_utf16_lossy(&nazwa[..n.min(nazwa.len())]).trim_end_matches('\0').eq_ignore_ascii_case("Segoe UI Variable Text")
+    });
+    if jest { w!("Segoe UI Variable Text") } else { w!("Segoe UI") }
 }
 
 /// Prawy górny róg monitora (piksele fizyczne) i skala DPI.
@@ -131,10 +165,11 @@ pub fn pokaz(
 
         // Tekst (GDI, wygładzanie w odcieniach szarości — ClearType nie pasuje do przezroczystości)
         SetBkMode(dc, TRANSPARENT);
+        let nazwa_kroju = kroj(dc);
         let czcionka = |rozmiar: f32, waga: i32| {
             CreateFontW(
                 -px(rozmiar), 0, 0, 0, waga, 0, 0, 0, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                ANTIALIASED_QUALITY, 0, w!("Segoe UI Variable Text"),
+                ANTIALIASED_QUALITY, 0, nazwa_kroju,
             )
         };
         // Z kadrem tytuł jest krótki („Klip zapisany”), więc może być grubszy; długie tytuły zostają lekkie

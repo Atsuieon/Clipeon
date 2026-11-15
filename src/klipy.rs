@@ -167,21 +167,59 @@ pub fn miniatura(klip: &Path) -> Result<Miniatura, String> {
 }
 
 /// Kadr do dymka po zapisie: obrazek `szer`×`wys` (0x00RRGGBB, przycięty do tych proporcji), długość
-/// klipu w sekundach i nazwa gry z metadanych — wszystko jednym wywołaniem ffmpeg. Bierzemy ostatnią
-/// klatkę kluczową (są co sekundę), bo końcówka klipu to chwila, dla której go zapisano, a jedna
-/// klatka kluczowa dekoduje się od ręki i nie zabiera procesora grze.
-pub fn kadr_dymka(klip: &Path, szer: i32, wys: i32) -> Option<(Vec<u32>, f64, String)> {
-    let filtr = format!("scale={szer}:{wys}:force_original_aspect_ratio=increase,crop={szer}:{wys}");
-    let wynik = crate::ffmpeg::komenda()
-        .args(["-hide_banner", "-skip_frame", "nokey", "-sseof", "-2", "-i"])
-        .arg(klip)
-        .args(["-frames:v", "1", "-an", "-vf", &filtr, "-f", "rawvideo", "-pix_fmt", "bgra", "-"])
-        .stdin(std::process::Stdio::null())
-        .output()
-        .ok()?;
-    let piksele = piksele_kadru(&wynik.stdout, szer, wys)?;
-    let opis = String::from_utf8_lossy(&wynik.stderr);
-    Some((piksele, dlugosc_z_opisu(&opis).unwrap_or(0.0), nazwa_gry_z_opisu(&opis).unwrap_or_default()))
+/// klipu w sekundach i nazwa gry z metadanych. Najpierw ostatnia klatka kluczowa (są co sekundę, a
+/// końcówka klipu to chwila, dla której go zapisano; jedna klatka kluczowa dekoduje się od ręki), a gdy
+/// jej nie ma (np. plik z innym odstępem klatek kluczowych) — pierwsza klatka pliku. ffmpeg idzie
+/// z niskim priorytetem, żeby nie zabrać gry procesora, i dostaje najwyżej `limit`: na wolnym albo
+/// zajętym komputerze dymek nie może czekać w nieskończoność — wtedy pokazuje się bez kadru.
+pub fn kadr_dymka(klip: &Path, szer: i32, wys: i32, limit: std::time::Duration) -> Option<(Vec<u32>, f64, String)> {
+    let koniec = std::time::Instant::now() + limit;
+    let filtr = format!("scale={szer}:{wys}:force_original_aspect_ratio=increase:flags=bilinear,crop={szer}:{wys},format=bgra");
+    for poczatek in [&["-skip_frame", "nokey", "-sseof", "-2"][..], &["-ss", "0"][..]] {
+        let mut cmd = crate::ffmpeg::komenda_w_tle();
+        cmd.args(["-hide_banner", "-nostdin"])
+            .args(poczatek)
+            .arg("-i")
+            .arg(klip)
+            .args(["-map", "0:v:0", "-frames:v", "1", "-an", "-sn", "-dn", "-vf", &filtr, "-f", "rawvideo", "-"]);
+        let (bajty, opis) = uruchom_z_limitem(cmd, koniec)?;
+        if let Some(piksele) = piksele_kadru(&bajty, szer, wys) {
+            return Some((piksele, dlugosc_z_opisu(&opis).unwrap_or(0.0), nazwa_gry_z_opisu(&opis).unwrap_or_default()));
+        }
+    }
+    None
+}
+
+/// Uruchamia ffmpeg i zwraca (stdout, stderr), albo `None`, gdy się nie uruchomił albo nie skończył
+/// do `koniec` (wtedy jest zabijany). Oba potoki czytamy w tle, żeby ffmpeg nie stanął na pełnym.
+fn uruchom_z_limitem(mut cmd: std::process::Command, koniec: std::time::Instant) -> Option<(Vec<u8>, String)> {
+    use std::io::Read;
+    use std::process::Stdio;
+    let mut proces = cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().ok()?;
+    let (mut wyjscie, mut bledy) = (proces.stdout.take()?, proces.stderr.take()?);
+    let czytaj_wyjscie = std::thread::spawn(move || {
+        let mut b = Vec::new();
+        let _ = wyjscie.read_to_end(&mut b);
+        b
+    });
+    let czytaj_bledy = std::thread::spawn(move || {
+        let mut s = Vec::new();
+        let _ = bledy.read_to_end(&mut s);
+        String::from_utf8_lossy(&s).into_owned()
+    });
+    loop {
+        match proces.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if std::time::Instant::now() < koniec => std::thread::sleep(std::time::Duration::from_millis(10)),
+            _ => {
+                let _ = proces.kill();
+                let _ = proces.wait();
+                crate::dziennik::info("Kadr do dymka: ffmpeg nie zdążył, dymek bez kadru");
+                return None;
+            }
+        }
+    }
+    Some((czytaj_wyjscie.join().ok()?, czytaj_bledy.join().unwrap_or_default()))
 }
 
 /// Surowa klatka BGRA z ffmpeg → piksele 0x00RRGGBB; `None`, gdy klatka ma inny rozmiar, niż zamówiono.
@@ -480,8 +518,23 @@ fn dlugosc_z_opisu(opis: &str) -> Option<f64> {
 mod testy {
     use super::{
         lista, nazwa_gry_z_opisu, nazwy_sciezek_z_opisu, obraz_z_opisu, piksele_kadru, sprawdz_sciezke, sprawdz_wynik_w, szczyty,
-        usun_starsze, znaczniki_z_opisu,
+        usun_starsze, uruchom_z_limitem, znaczniki_z_opisu,
     };
+
+    #[test]
+    fn proces_z_limitem_oddaje_wyjscie_albo_jest_zabijany() {
+        use std::time::{Duration, Instant};
+        let mut echo = std::process::Command::new("cmd");
+        echo.args(["/C", "echo hej"]);
+        let (wyjscie, _) = uruchom_z_limitem(echo, Instant::now() + Duration::from_secs(10)).expect("cmd nie ruszył");
+        assert_eq!(String::from_utf8_lossy(&wyjscie).trim(), "hej");
+        // Proces, który się nie mieści w limicie (ping trwa ~4 s), jest zabijany od razu po limicie
+        let mut dlugi = std::process::Command::new("ping");
+        dlugi.args(["-n", "5", "127.0.0.1"]);
+        let start = Instant::now();
+        assert!(uruchom_z_limitem(dlugi, Instant::now() + Duration::from_millis(300)).is_none());
+        assert!(start.elapsed() < Duration::from_secs(2), "czekał {:?}", start.elapsed());
+    }
 
     #[test]
     fn kadr_dymka_z_surowej_klatki() {

@@ -179,14 +179,21 @@ const czarne = await strona.evaluate(() => {
 });
 sprawdz(czarne > 0.2, `tło jest za gęste: tylko ${(czarne * 100).toFixed(0)}% okna jest czarne`);
 // Szybki ruch nad pustym miejscem zostawia smugę na całej drodze…
+// Smuga gaśnie w prawdziwym czasie, a na zajętej maszynie CI ruch i pomiar trwają dłużej — początek
+// zdążał zgasnąć przed pomiarem po całym ruchu. Dlatego mierzymy w trakcie ruchu (pomiar zastępuje
+// krótką pauzę między krokami) i zaraz po nim, a liczy się najjaśniejszy pomiar każdego miejsca.
 await strona.mouse.move(440, 640);
 await strona.waitForTimeout(100);
+let [poczatek, koniec] = [0, 0];
 for (let i = 1; i <= 8; i++) {
   await strona.mouse.move(440 + i * 30, 640 + (i % 3) * 4);
-  await strona.waitForTimeout(12);
+  if (i >= 3) poczatek = Math.max(poczatek, await jasneZnaki(500, 640));
+  else await strona.waitForTimeout(12);
 }
-await strona.waitForTimeout(60);
-const [poczatek, koniec] = [await jasneZnaki(500, 640), await jasneZnaki(640, 640)];
+for (let proba = 0; proba < 10; proba++) {
+  await strona.waitForTimeout(30);
+  [poczatek, koniec] = [Math.max(poczatek, await jasneZnaki(500, 640)), Math.max(koniec, await jasneZnaki(640, 640))];
+}
 sprawdz(poczatek > 20 && koniec > 20, `szybki ruch myszki nie zostawia smugi: ${poczatek}, ${koniec}`);
 await zrzut("0a-tlo-smuga");
 // …myszka, która stoi, niczego nie podtrzymuje: smuga sama gaśnie
