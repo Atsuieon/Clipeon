@@ -17,7 +17,8 @@ window.Napis = (() => {
   const ZAPAS_X = 90; // o ile px płótno wystaje poza napis (miejsce na rozsypkę i rozprysk)
   const ZAPAS_Y = 34;
   const GESTOSC = 1.5; // co ile px liter stoi kropka
-  const KROPKA = 1.25; // średnica kropki w px
+  const KROPKA = 1.0; // średnica kropki w px
+  const PROG = 140; // od jakiego krycia piksela litery stoi kropka (wyżej = cieńsze litery, otwarte „e” i „o”)
   const ROZSYPKA = 70; // px — jak daleko kropki leżą przed zlotem
   const ZLOT_MS = 1400; // ile leci jedna kropka
   const OPOZNIENIE_MS = 450; // rozrzut startu kropek
@@ -33,7 +34,7 @@ window.Napis = (() => {
   const ZAR = 22; // px od miejsca, przy których kropka świeci pełnym kolorem ruchu
   // Kolor spoczynku i kolor kropek w ruchu: szare kropki rozjaśniają się do bieli (bez kolorów, decyzja brosky'ego;
   // pomarańczowy akcent z oryginału, [255, 90, 54], odrzucony 2026-11-15)
-  const kolor = { baza: [200, 200, 200], ruch: [255, 255, 255], poswiata: "rgba(255,255,255,0.9)" };
+  const kolor = { baza: [225, 225, 225], ruch: [255, 255, 255], poswiata: "rgba(255,255,255,0.9)" };
   const paleta = Array.from({ length: ODCIENIE }, (_, i) => {
     const t = i / (ODCIENIE - 1);
     const [r, g, b] = kolor.baza.map((c, k) => Math.round(c + (kolor.ruch[k] - c) * t));
@@ -111,7 +112,7 @@ window.Napis = (() => {
     for (let py = krok / 2; py < pomoc.height; py += krok) {
       for (let px = krok / 2; px < pomoc.width; px += krok) {
         const a = dane[(Math.floor(py) * pomoc.width + Math.floor(px)) * 4 + 3];
-        if (a < 90) continue;
+        if (a < PROG) continue;
         // Stały pseudolosowy „charakter” kropki: kierunek rozsypki, opóźnienie, głębia
         const los = (Math.sin(i * 12.9898 + 78.233) * 43758.5453) % 1;
         const los2 = (Math.sin(i * 39.3468 + 11.135) * 24634.6345) % 1;

@@ -753,7 +753,7 @@ input[type="number"]:focus-visible, select:focus-visible { outline: none; border
 /* ---------- Napis „Clipeon” z cząsteczek (rysuje napis.js) ---------- */
 /* Napis zostaje w HTML (miejsce w pasku, czytniki ekranu), ale przezroczysty; kropki leżą na płótnie nad nim.
    Płótno wystaje poza napis (rozsypka, rozprysk) i nie łapie myszki, więc nie zasłania zakładek. */
-.marka { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
+.marka { font-size: 28px; font-weight: 500; letter-spacing: -0.01em; }
 .marka.czasteczki { color: transparent; user-select: none; cursor: default; }
 .marka-plotno { position: fixed; z-index: 5; pointer-events: none; }
 
