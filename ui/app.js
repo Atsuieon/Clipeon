@@ -1,5 +1,5 @@
 // Okno Clipeona: zakładki Klipy, Filmy (długie nagrania) i Ustawienia. Rozmawia z rdzeniem przez komendy Tauri.
-// Animowane tło rysuje osobny plik tlo.js (window.Tlo).
+// Animowane tło rysuje osobny plik tlo.js (window.Tlo), napis „Clipeon” z cząsteczek — napis.js (window.Napis).
 const { invoke, convertFileSrc } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
@@ -207,9 +207,13 @@ function pokazStan(s) {
   // Przy nagrywaniu widać klatki zapisanego trybu — od razu wiadomo, czy pulpit idzie w 30, czy w 60
   const fps = cfg && (pulpit ? cfg.fps_pulpitu : cfg.fps);
   $("status-tekst").textContent = s.nagrywa && !s.pauza && !s.bledy.length && !s.wznawianie && !s.przelaczanie && fps ? `${tekst} · ${fps} kl./s` : tekst;
-  // Przekreślony mikrofon, gdy Clipeon nagrywa bez mikrofonu
-  $("status-mik").innerHTML = ikona("mikrofonWyl");
-  $("status-mik").hidden = s.mikrofon !== false;
+  // Przekreślony mikrofon, gdy Clipeon nagrywa bez mikrofonu; żółty, gdy mikrofon nagrywa, ale chyba nie głos
+  // (cisza cyfrowa, zamarzł, zapasowe urządzenie, blokada w prywatności Windows) — wyjaśnienie w podpowiedzi
+  const uwagaMik = s.mikrofon !== false && s.uwaga_mikrofonu;
+  $("status-mik").innerHTML = ikona(uwagaMik ? "mikrofon" : "mikrofonWyl");
+  $("status-mik").hidden = s.mikrofon !== false && !uwagaMik;
+  $("status-mik").classList.toggle("uwaga", !!uwagaMik);
+  $("status-mik").title = uwagaMik || "Mikrofon nie jest nagrywany — włączysz go w Ustawieniach → Dźwięk";
   $("status").title = s.bledy.length
     ? s.bledy.join("\n")
     : s.przelaczanie && !s.wznawianie
@@ -774,6 +778,7 @@ function odtworz(klip) {
   v.src = `${convertFileSrc(klip.sciezka)}?v=${Date.now()}`;
   $("odtwarzacz").hidden = false;
   window.Tlo?.odswiez(); // tło stoi, gdy zasłania je edytor
+  window.Napis?.odswiez();
   v.play().catch(() => {});
   $("odtw-zamknij").focus();
 }
@@ -788,6 +793,7 @@ function zamknijOdtwarzacz() {
   zatrzymajDzwiekNaZywo();
   $("odtwarzacz").hidden = true;
   window.Tlo?.odswiez();
+  window.Napis?.odswiez();
   odtwarzany = null;
 }
 
@@ -2109,7 +2115,7 @@ const NAZWY_USTAWIEN = {
   format_filmu: "Rozmiar filmów", dzwiek_systemowy: "Dźwięk z gry i komputera", mikrofon: "Mój mikrofon",
   mikrofon_urzadzenie: "Który mikrofon", dzwiek_zapisu: "Dźwięk po zapisaniu", powiadomienie_zapisu: "Powiadomienie w rogu ekranu",
   ikona_przy_zegarze: "Ikona przy zegarze", sprawdzaj_aktualizacje: "Sprawdzanie nowej wersji", animowane_tlo: "Animowane tło",
-  kolorowy_napis: "Kolorowy napis", enkoder: "Format wideo", metoda_przechwytywania: "Sposób przechwytywania obrazu",
+  kolorowy_napis: "Napis z cząsteczek", enkoder: "Format wideo", metoda_przechwytywania: "Sposób przechwytywania obrazu",
   skrot: "Skrót do zapisania klipu", skrot_filmu: "Skrót do nagrywania filmu", skrot_znacznika: "Skrót znacznika w filmie", folder_klipow: "Gdzie zapisywać klipy",
   sprzatanie_dni: "Usuwanie starych klipów", sprzatanie_gb: "Limit miejsca na klipy", autostart: "Uruchamianie razem z Windows",
 };
@@ -2361,7 +2367,7 @@ function odswiezPrzyciskZapisu() {
   $("zapisz-klip").innerHTML = zIkona("zapisz", `Zapisz ${cfg ? cfg.bufor_sekundy : 30} s`);
   $("zapisz-klip").title = cfg ? `Skrót: ${cfg.skrot}` : "";
   window.Tlo?.wlacz(!cfg || cfg.animowane_tlo !== false);
-  document.documentElement.classList.toggle("bez-zorzy", !!cfg && cfg.kolorowy_napis === false);
+  window.Napis?.wlacz(!cfg || cfg.kolorowy_napis !== false);
 }
 
 // ---------- Ikony i zakładka startowa ----------

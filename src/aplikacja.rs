@@ -212,6 +212,13 @@ fn obsluz_zdarzenie(app: &AppHandle, z: Zdarzenie) {
             pokaz_dymek(app, "Clipeon nie nagrywa", &opis, true, true);
         }
         Zdarzenie::Uwaga { tytul, opis } => pokaz_dymek(app, &tytul, &opis, true, false),
+        // Mikrofon chyba nie nagrywa głosu: własny dźwięk ostrzeżenia (inny niż błąd i zapis) i dymek
+        Zdarzenie::UwagaMikrofonu(opis) => {
+            if cfg.dzwiek_zapisu {
+                crate::dzwiek::zagraj_uwage();
+            }
+            pokaz_dymek(app, "Problem z mikrofonem", &opis, true, false);
+        }
         Zdarzenie::Alarm(None) => {
             crate::powiadomienie::ukryj();
             pokaz_dymek(app, "Nagrywanie znów działa", "Clipeon sam wznowił nagrywanie", false, false);

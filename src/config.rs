@@ -33,7 +33,7 @@ pub struct Config {
     pub format_filmu: String,
     /// Animowane tło okna (znaki ASCII i smuga za ruchem myszki)
     pub animowane_tlo: bool,
-    /// Kolory wędrujące po napisie „Clipeon” w oknie (wyłączone = zwykły biały napis)
+    /// Napis „Clipeon” w oknie z cząsteczek (wyłączone = zwykły biały napis); nazwa pola z czasów kolorowej zorzy
     pub kolorowy_napis: bool,
     /// Ikona w zasobniku zawsze widoczna przy zegarze (a nie w ukrytych ikonach pod ^)
     pub ikona_przy_zegarze: bool,

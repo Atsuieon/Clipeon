@@ -7,7 +7,7 @@
 // Myszka, która stoi, niczego nie dolewa, więc efekt wokół niej sam znika.
 // Nad przyciskiem, polem ustawień albo klipem smuga nie powstaje — tam ma być czytelnie.
 // Rysowanie stoi, gdy okno jest w tle, schowane albo otwarty jest edytor (zero pracy podczas gry).
-// Wtedy też <html> dostaje klasę „tlo-stoi”, która zatrzymuje zorzę na napisie „Clipeon” (style.css).
+// Wtedy też <html> dostaje klasę „tlo-stoi”.
 // Tła nie gasi systemowe „bez animacji” (prefers-reduced-motion): ma własny wyłącznik w Ustawieniach.
 window.Tlo = (() => {
   const plotno = document.getElementById("tlo");
