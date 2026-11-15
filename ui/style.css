@@ -751,38 +751,12 @@ input[type="number"]:focus-visible, select:focus-visible { outline: none; border
 .naglowek .przycisk { -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
 .naglowek .przycisk:not(:hover) { background: rgba(0, 0, 0, 0.5); }
 
-/* ---------- Napis „Clipeon”: zorza ---------- */
-/* Biały napis, po którym wędrują cztery kolorowe plamy. Wszystko to jedno tło przycięte do liter:
-   każda plama jest osobną warstwą i animacja przesuwa tylko ich położenie. */
-.marka {
-  --zorza: 62%;
-  font-size: 26px;
-  font-weight: 400;
-  color: transparent;
-  background:
-    radial-gradient(closest-side, #00c2ff, transparent) 0% 0% / var(--zorza) 190% no-repeat,
-    radial-gradient(closest-side, #33ff8c, transparent) 100% 0% / var(--zorza) 190% no-repeat,
-    radial-gradient(closest-side, #ffc640, transparent) 100% 100% / var(--zorza) 190% no-repeat,
-    radial-gradient(closest-side, #e54cff, transparent) 0% 100% / var(--zorza) 190% no-repeat,
-    #fff;
-  -webkit-background-clip: text;
-  background-clip: text;
-  animation: zorza 14s ease-in-out infinite;
-}
-@keyframes zorza {
-  25% { background-position: 60% 80%, 20% 100%, 0% 20%, 100% 30%, 0 0; }
-  50% { background-position: 100% 100%, 0% 40%, 40% 0%, 60% 100%, 0 0; }
-  75% { background-position: 30% 20%, 70% 0%, 100% 60%, 0% 0%, 0 0; }
-}
-/* Zorza stoi razem z tłem: okno w tle, otwarty edytor albo wyłączone „Animowane tło” */
-.tlo-stoi .marka { animation-play-state: paused; }
-/* Systemowe „bez animacji” gasi przejścia wyżej; zorza i tło mają własny wyłącznik w Ustawieniach */
-@media (prefers-reduced-motion: reduce) {
-  .marka { animation: zorza 14s ease-in-out infinite !important; }
-}
-
-/* Ustawienie „Kolorowy napis Clipeon” wyłączone: zwykły biały napis */
-.bez-zorzy .marka { background: none; color: var(--naglowek); animation: none !important; }
+/* ---------- Napis „Clipeon” z cząsteczek (rysuje napis.js) ---------- */
+/* Napis zostaje w HTML (miejsce w pasku, czytniki ekranu), ale przezroczysty; kropki leżą na płótnie nad nim.
+   Płótno wystaje poza napis (rozsypka, rozprysk) i nie łapie myszki, więc nie zasłania zakładek. */
+.marka { font-size: 28px; font-weight: 500; letter-spacing: -0.01em; }
+.marka.czasteczki { color: transparent; user-select: none; cursor: default; }
+.marka-plotno { position: fixed; z-index: 5; pointer-events: none; }
 
 /* ---------- Przycisk filmu (długie nagrywanie) ---------- */
 .przycisk.film { font-variant-numeric: tabular-nums; }

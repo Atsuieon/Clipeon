@@ -15,6 +15,14 @@ Mikrofon, który „znika” z nagrań: Clipeon sam to wykrywa, naprawia i mówi
 - **Dymek „Problem z mikrofonem” i nowy dźwięk ostrzeżenia** (dwa krótkie „dzyń”, inne niż dźwięk zapisu i błędu) przy każdym z tych problemów. Ten sam problem najwyżej raz na pół godziny, żeby nie przeszkadzać w grze. Dźwięk wyłącza ten sam przełącznik co dźwięk po zapisaniu.
 - **Dziennik**: nazwa mikrofonu, z którego Clipeon nagrywa, i co minutę jego głośność (szczyt w dB, liczba pakietów, ile z nich to same zera). Po pliku `clipeon.log` od razu widać, kiedy i dlaczego głos zniknął.
 
+## 1.4.10
+
+Napis „Clipeon” z cząsteczek.
+
+- **Napis w rogu okna jest teraz złożony z drobnych kropek.** Przy starcie i za każdym razem, gdy okno wraca z zasobnika, kropki zlatują się z rozsypki w litery. Kursor rozsuwa je na boki, a kliknięcie w napis rozpryskuje je; po chwili wracają na miejsce.
+- Kolorowa zorza na napisie zniknęła. Przełącznik „Kolorowy napis” w Ustawieniach nazywa się teraz „Napis „Clipeon” z cząsteczek”; po wyłączeniu napis jest zwykły, biały.
+- Efekt działa także przy wyłączonych animacjach w Windowsie, a staje całkiem, gdy okno jest w tle, schowane albo otwarty jest edytor (zero pracy podczas gry).
+
 ## 1.4.8
 
 Nowe powiadomienie po zapisie klipu.

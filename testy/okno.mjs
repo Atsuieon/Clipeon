@@ -228,19 +228,45 @@ for (let i = 1; i <= 6; i++) {
 }
 await strona.waitForTimeout(60);
 sprawdz((await jasneZnaki(przyciskFolder.x + 40, przyciskFolder.y + 10)) === 0, "smuga powstaje, gdy mysz jest nad przyciskiem");
-// Napis „Clipeon” ma zorzę (kolorowe tło przycięte do liter)
-const marka = await strona.evaluate(() => {
-  const s = getComputedStyle(document.querySelector(".marka"));
-  return [s.backgroundClip || s.webkitBackgroundClip, s.animationName, s.backgroundImage.includes("radial-gradient")];
+// Napis „Clipeon” z cząsteczek: przezroczysty tekst w HTML, kropki na płótnie nad nim (napis.js)
+await strona.evaluate(() => window.Napis.zlot());
+await strona.waitForTimeout(2200);
+const kropki = () => strona.evaluate(() => {
+  const p = document.querySelector(".marka-plotno");
+  if (!p || p.hidden) return -1;
+  const d = p.getContext("2d").getImageData(0, 0, p.width, p.height).data;
+  let ile = 0;
+  for (let i = 3; i < d.length; i += 4) if (d[i] > 100) ile++;
+  return ile;
 });
-sprawdz(marka[0].startsWith("text") && marka[1] === "zorza" && marka[2], `napis „Clipeon” nie ma zorzy: ${JSON.stringify(marka)}`);
-// Ustawienie „Kolorowy napis” wyłączone: zwykły biały napis bez animacji
+const naPlotnie = await kropki();
+const tekstMarki = await strona.evaluate(() => getComputedStyle(document.querySelector(".marka")).color);
+sprawdz(naPlotnie > 200 && tekstMarki === "rgba(0, 0, 0, 0)", `napis „Clipeon” bez kropek: ${naPlotnie} jasnych pikseli, kolor tekstu ${tekstMarki}`);
+// Kliknięcie w napis rozpryskuje kropki: część wylatuje poza litery
+const pozaLiterami = () => strona.evaluate(() => {
+  const m = document.querySelector(".marka").getBoundingClientRect();
+  const p = document.querySelector(".marka-plotno");
+  const r = p.getBoundingClientRect();
+  const s = p.width / r.width;
+  const d = p.getContext("2d").getImageData(0, 0, p.width, p.height).data;
+  let ile = 0;
+  for (let y = 0; y < p.height; y++) for (let x = 0; x < p.width; x++) {
+    const [cx, cy] = [r.left + x / s, r.top + y / s];
+    if (d[(y * p.width + x) * 4 + 3] > 100 && (cx < m.left - 4 || cx > m.right + 4 || cy < m.top - 4 || cy > m.bottom + 4)) ile++;
+  }
+  return ile;
+});
+const przedKliknieciem = await pozaLiterami();
+const pudloMarki = await strona.locator(".marka").boundingBox();
+await strona.mouse.click(pudloMarki.x + pudloMarki.width / 2, pudloMarki.y + pudloMarki.height / 2);
+await strona.mouse.move(pudloMarki.x + 600, pudloMarki.y + 300);
+await strona.waitForTimeout(250);
+const poKliknieciu = await pozaLiterami();
+sprawdz(poKliknieciu > przedKliknieciem + 20, `kliknięcie nie rozprysnęło kropek (${przedKliknieciem} → ${poKliknieciu})`);
+// Ustawienie wyłączone: zwykły biały napis, płótno schowane
 await strona.evaluate(() => { cfg.kolorowy_napis = false; odswiezPrzyciskZapisu(); });
-const bialy = await strona.evaluate(() => {
-  const s = getComputedStyle(document.querySelector(".marka"));
-  return [s.animationName, s.backgroundImage, s.color];
-});
-sprawdz(bialy[0] === "none" && bialy[1] === "none" && bialy[2] !== "rgba(0, 0, 0, 0)", `wyłączony kolorowy napis dalej ma zorzę: ${JSON.stringify(bialy)}`);
+const bialy = await strona.evaluate(() => getComputedStyle(document.querySelector(".marka")).color);
+sprawdz((await kropki()) === -1 && bialy !== "rgba(0, 0, 0, 0)", `wyłączony napis z cząsteczek dalej widać jako kropki (kolor tekstu ${bialy})`);
 await strona.evaluate(() => { cfg.kolorowy_napis = true; odswiezPrzyciskZapisu(); });
 
 // ---------- Film (długie nagrywanie) ----------
