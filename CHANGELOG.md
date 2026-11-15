@@ -1,5 +1,13 @@
 # Zmiany
 
+## 1.4.10
+
+Napis „Clipeon” z cząsteczek.
+
+- **Napis w rogu okna jest teraz złożony z drobnych kropek.** Przy starcie i za każdym razem, gdy okno wraca z zasobnika, kropki zlatują się z rozsypki w litery. Kursor rozsuwa je na boki, a kliknięcie w napis rozpryskuje je; po chwili wracają na miejsce.
+- Kolorowa zorza na napisie zniknęła. Przełącznik „Kolorowy napis” w Ustawieniach nazywa się teraz „Napis „Clipeon” z cząsteczek”; po wyłączeniu napis jest zwykły, biały.
+- Efekt działa także przy wyłączonych animacjach w Windowsie, a staje całkiem, gdy okno jest w tle, schowane albo otwarty jest edytor (zero pracy podczas gry).
+
 ## 1.4.8
 
 Nowe powiadomienie po zapisie klipu.
