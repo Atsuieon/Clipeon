@@ -2442,6 +2442,10 @@ $("autor").addEventListener("click", (e) => {
   e.preventDefault();
   invoke("otworz_repozytorium");
 });
+$("wesprzyj").addEventListener("click", (e) => {
+  e.preventDefault();
+  invoke("otworz_wsparcie");
+});
 $("sprawdz-teraz").addEventListener("click", async () => {
   const b = $("sprawdz-teraz");
   b.disabled = true;

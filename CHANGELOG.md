@@ -1,5 +1,12 @@
 # Zmiany
 
+## 1.4.12
+
+Wsparcie przez Ko-fi.
+
+- Na dole Ustawień, pod „Clipeon · by Atsuieon”, jest mała pigułka „Keep Clipeon free · Ko-fi”. Otwiera stronę Ko-fi w zwykłej przeglądarce; w oknie Clipeona nic z Ko-fi się nie ładuje (żadnych zewnętrznych skryptów ani połączeń).
+- Na GitHubie: przycisk Ko-fi w README i przycisk „Sponsor” w repozytorium (`.github/FUNDING.yml`).
+
 ## 1.4.8
 
 Nowe powiadomienie po zapisie klipu.
