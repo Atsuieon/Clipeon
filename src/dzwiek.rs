@@ -1,4 +1,4 @@
-// Krótkie dźwięki po zapisie klipu i po błędzie: syntezowane w pamięci (bez pliku WAV obok programu)
+// Krótkie dźwięki po zapisie klipu, po błędzie i przy ostrzeżeniu: syntezowane w pamięci (bez pliku WAV obok programu)
 // i odtwarzane asynchronicznie przez PlaySound.
 // „Kropla” (zapis): szybkie „plum” w górę, czysty ton z wybrzmieniem i cichy odprysk wyżej.
 use std::sync::OnceLock;
@@ -151,6 +151,27 @@ pub fn zagraj_blad() {
     }));
 }
 
+/// Dźwięk ostrzeżenia („coś nie działa”, np. mikrofon nie nagrywa głosu): dwa jednakowe, krótkie
+/// „dzyń” na tej samej wysokości, drugie z cichą kwartą pod spodem — nie rośnie jak zapis i nie opada
+/// jak błąd, więc od razu słychać, że to coś innego.
+pub fn zagraj_uwage() {
+    static WAV: OnceLock<Vec<u8>> = OnceLock::new();
+    odtworz(WAV.get_or_init(uwaga));
+}
+
+fn uwaga() -> Vec<u8> {
+    zbuduj(
+        &[
+            Ton { start: 0.0, f0: 0.0, f1: 880.0, tg: 0.0, atak: 0.005, tau: 0.060, glosnosc: 1.0, druga: 0.12, dlugosc: 0.25 },
+            Ton { start: 0.140, f0: 0.0, f1: 880.0, tg: 0.0, atak: 0.005, tau: 0.090, glosnosc: 0.90, druga: 0.12, dlugosc: 0.35 },
+            Ton { start: 0.140, f0: 0.0, f1: 659.3, tg: 0.0, atak: 0.010, tau: 0.100, glosnosc: 0.35, druga: 0.0, dlugosc: 0.35 },
+        ],
+        0.55,
+        0.14,
+        0.40,
+    )
+}
+
 #[cfg(test)]
 mod testy {
     use super::*;
@@ -165,6 +186,13 @@ mod testy {
         assert_eq!(&plik[..4], b"RIFF");
         assert_eq!(&plik[8..12], b"WAVE");
         assert_eq!(plik.len(), 44 + probki.len() * 2);
+    }
+
+    #[test]
+    fn dzwiek_uwagi_jest_krotki() {
+        let plik = uwaga();
+        // 0,55 s, 16 bit mono 44,1 kHz
+        assert_eq!(plik.len(), 44 + (0.55f32 * CZESTOTLIWOSC as f32) as usize * 2);
     }
 
     #[test]

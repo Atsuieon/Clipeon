@@ -52,8 +52,7 @@ const MIKROFON_ZAMARZL_PO: Duration = Duration::from_secs(2);
 const ZAMARZNIEC_DO_UWAGI: u32 = 3;
 /// Prawdziwy mikrofon zawsze trochę szumi, więc długa cisza cyfrowa (same zera) to zwykle wyciszenie
 /// przyciskiem na słuchawkach albo zepsuty sterownik. Próg jest długi, bo mikrofony z bramką szumów
-/// (np. NVIDIA Broadcast) dają same zera, gdy nikt nie mówi — dlatego przy samej ciszy jest tylko żółty
-/// mikrofon, bez dymka
+/// (np. NVIDIA Broadcast) dają same zera, gdy nikt nie mówi
 const CISZA_CYFROWA_PO: Duration = Duration::from_secs(120);
 /// Co tyle sprawdzamy, czy mikrofon nie jest wyciszony w Windows
 const WYCISZENIE_CO: Duration = Duration::from_secs(2);
@@ -115,9 +114,9 @@ pub enum Zgloszenie {
     /// Nie da się nagrywać dźwięku (opis dla użytkownika)
     Blad(String),
     /// Mikrofon nagrywa, ale chyba nie to, co trzeba (wyciszony, cisza, zamarzł, zapasowe urządzenie,
-    /// blokada w prywatności Windows) — uwaga przy statusie, nie błąd. `opis` None = problem minął;
-    /// `dymek` = problem na tyle pewny, że warto pokazać też dymek
-    Uwaga { opis: Option<String>, dymek: bool },
+    /// blokada w prywatności Windows) — uwaga przy statusie, dymek i dźwięk ostrzeżenia, nie błąd.
+    /// `opis` None = problem minął; `krotko` = jedna linijka do dymka
+    Uwaga { opis: Option<String>, krotko: String },
 }
 
 /// Dlaczego sesja przechwytywania się skończyła bez błędu.
@@ -710,58 +709,59 @@ impl Czujnik {
         }
     }
 
-    /// Co pokazać przy statusie (None = mikrofon nagrywa normalnie) i czy warto też dymkiem.
-    fn uwaga(&self) -> (Option<String>, bool) {
-        let mut u = Vec::new();
-        let mut dymek = true;
+    /// Co pokazać przy statusie (None = mikrofon nagrywa normalnie): pełne wyjaśnienie i krótki napis
+    /// do dymka (dymek ma jedną linijkę).
+    fn uwaga(&self) -> Option<(String, String)> {
+        let mut u: Vec<(String, String)> = Vec::new();
+        let mut dodaj = |pelny: &str, krotki: &str| u.push((pelny.to_string(), krotki.to_string()));
         if self.prywatnosc {
-            u.push(
+            dodaj(
                 "Windows nie pozwala programom używać mikrofonu, więc w klipach jest cisza. Włącz: Ustawienia Windows → \
                  Prywatność i zabezpieczenia → Mikrofon → dostęp do mikrofonu oraz „Zezwalaj aplikacjom klasycznym na \
-                 dostęp do mikrofonu”."
-                    .to_string(),
+                 dostęp do mikrofonu”.",
+                "Windows blokuje mikrofon (Prywatność → Mikrofon)",
             );
         } else if self.zamarzniecia >= ZAMARZNIEC_DO_UWAGI {
-            u.push(
+            dodaj(
                 "Mikrofon przestał przysyłać dźwięk. Clipeon próbuje go otworzyć od nowa — sprawdź, czy jest podłączony \
-                 (przy Bluetooth: czy słuchawki są połączone)."
-                    .to_string(),
+                 (przy Bluetooth: czy słuchawki są połączone).",
+                "Mikrofon przestał przysyłać dźwięk",
             );
         } else if self.wyciszony {
-            u.push(
+            dodaj(
                 "Mikrofon jest wyciszony w Windows (albo ma głośność 0), więc w klipach jest cisza. Włącz go w ustawieniach \
-                 dźwięku Windows albo przyciskiem na słuchawkach."
-                    .to_string(),
+                 dźwięku Windows albo przyciskiem na słuchawkach.",
+                "Mikrofon jest wyciszony w Windows",
             );
         } else if self.ostatni_dzwiek.elapsed() >= CISZA_CYFROWA_PO {
-            u.push(
+            dodaj(
                 "Mikrofon od dłuższej chwili nagrywa idealną ciszę. Sprawdź, czy nie jest wyciszony przyciskiem na \
                  słuchawkach i czy w Ustawieniach → Dźwięk wybrany jest właściwy mikrofon. (Mikrofony z bramką szumów, \
-                 np. NVIDIA Broadcast, tak mają, gdy nikt nie mówi.)"
-                    .to_string(),
+                 np. NVIDIA Broadcast, tak mają, gdy nikt nie mówi.)",
+                "Mikrofon nagrywa samą ciszę",
             );
-            dymek = false;
         }
         if let Some(n) = &self.zapas {
-            u.push(format!("Wybrany mikrofon jest odłączony — Clipeon nagrywa z „{n}”. Wróci na wybrany, gdy tylko się pojawi."));
+            u.push((
+                format!("Wybrany mikrofon jest odłączony — Clipeon nagrywa z „{n}”. Wróci na wybrany, gdy tylko się pojawi."),
+                format!("Wybrany odłączony, nagrywam z „{n}”"),
+            ));
         }
-        if self.zapas.is_some() {
-            dymek = true;
-        }
-        let dymek = dymek && !u.is_empty();
-        ((!u.is_empty()).then(|| u.join("\n")), dymek)
+        let krotki = u.first()?.1.clone();
+        Some((u.into_iter().map(|(p, _)| p).collect::<Vec<_>>().join("\n"), krotki))
     }
 
     /// Zgłasza uwagę rdzeniowi, gdy się zmieniła (i zapisuje ją w dzienniku).
     fn odswiez(&mut self, zglos: &dyn Fn(Zgloszenie)) {
-        let (u, dymek) = self.uwaga();
-        if u != self.zgloszona {
-            match &u {
+        let u = self.uwaga();
+        let opis = u.as_ref().map(|(p, _)| p.clone());
+        if opis != self.zgloszona {
+            match &opis {
                 Some(t) => crate::dziennik::info(&format!("Mikrofon — uwaga: {t}")),
                 None => crate::dziennik::info("Mikrofon: znowu nagrywa normalnie"),
             }
-            self.zgloszona = u.clone();
-            zglos(Zgloszenie::Uwaga { opis: u, dymek });
+            self.zgloszona = opis.clone();
+            zglos(Zgloszenie::Uwaga { opis, krotko: u.map(|(_, k)| k).unwrap_or_default() });
         }
     }
 
@@ -1264,22 +1264,24 @@ mod testy {
     #[test]
     fn uwaga_o_mikrofonie() {
         let mut c = Czujnik::nowy();
-        assert_eq!(c.uwaga(), (None, false));
+        assert_eq!(c.uwaga(), None);
         // Zapasowy mikrofon zamiast odłączonego wybranego
         c.zapas = Some("Mikrofon (Kamera)".into());
-        assert!(c.uwaga().0.unwrap().contains("„Mikrofon (Kamera)”"));
-        // Zamarznięty mikrofon: uwaga dopiero po kilku nieudanych otwarciach, pierwszy pakiet ją zdejmuje
-        c.zapas = None;
+        let (opis, krotko) = c.uwaga().unwrap();
+        assert!(opis.contains("„Mikrofon (Kamera)”") && krotko.contains("Kamera"));
+        // Zamarznięty mikrofon: uwaga dopiero po kilku nieudanych otwarciach, pierwszy pakiet ją zdejmuje.
+        // Przy dwóch problemach dymek mówi o ważniejszym, a podpowiedź o obu
         c.zamarzniecia = super::ZAMARZNIEC_DO_UWAGI;
-        assert!(c.uwaga().0.unwrap().contains("przestał przysyłać"));
+        let (opis, krotko) = c.uwaga().unwrap();
+        assert!(opis.contains("przestał przysyłać") && opis.contains("Kamera") && krotko.contains("przestał"));
+        c.zapas = None;
         c.pakiet(32, Some(&0.01f32.to_le_bytes()));
-        assert_eq!(c.uwaga(), (None, false));
-        // Wyciszony w Windows: uwaga z dymkiem
+        assert_eq!(c.uwaga(), None);
+        // Wyciszony w Windows
         c.wyciszony = true;
-        let (opis, dymek) = c.uwaga();
-        assert!(opis.unwrap().contains("wyciszony w Windows") && dymek);
+        assert!(c.uwaga().unwrap().1.contains("wyciszony"));
         // Blokada w prywatności Windows jest ważniejsza niż reszta i mówi, gdzie ją wyłączyć
         c.prywatnosc = true;
-        assert!(c.uwaga().0.unwrap().contains("Prywatność"));
+        assert!(c.uwaga().unwrap().0.contains("Prywatność"));
     }
 }

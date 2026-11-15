@@ -10,8 +10,9 @@ Mikrofon, który „znika” z nagrań: Clipeon sam to wykrywa, naprawia i mówi
   - Windows nie pozwala programom używać mikrofonu (Prywatność i zabezpieczenia → Mikrofon), z instrukcją, co włączyć,
   - mikrofon dalej nic nie przysyła mimo kilku prób,
   - wybrany mikrofon jest odłączony i Clipeon nagrywa z innego (z jego nazwą),
-  - od 2 minut idealna cisza cyfrowa (np. wyciszenie przyciskiem, którego Windows nie widzi). Mikrofony z bramką szumów, np. NVIDIA Broadcast, też tak mają, gdy nikt nie mówi, więc tu jest tylko żółty mikrofon, bez dymka.
-  Przy pozostałych problemach pojawia się też dymek, najwyżej raz na pół godziny. Uwaga znika sama, gdy mikrofon znowu nagrywa.
+  - od 2 minut idealna cisza cyfrowa (np. wyciszenie przyciskiem, którego Windows nie widzi; mikrofony z bramką szumów, np. NVIDIA Broadcast, też tak mają, gdy nikt nie mówi).
+  Uwaga znika sama, gdy mikrofon znowu nagrywa.
+- **Dymek „Problem z mikrofonem” i nowy dźwięk ostrzeżenia** (dwa krótkie „dzyń”, inne niż dźwięk zapisu i błędu) przy każdym z tych problemów. Ten sam problem najwyżej raz na pół godziny, żeby nie przeszkadzać w grze. Dźwięk wyłącza ten sam przełącznik co dźwięk po zapisaniu.
 - **Dziennik**: nazwa mikrofonu, z którego Clipeon nagrywa, i co minutę jego głośność (szczyt w dB, liczba pakietów, ile z nich to same zera). Po pliku `clipeon.log` od razu widać, kiedy i dlaczego głos zniknął.
 
 ## 1.4.8

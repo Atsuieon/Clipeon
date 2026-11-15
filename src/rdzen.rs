@@ -72,6 +72,8 @@ pub enum Zdarzenie {
     Alarm(Option<String>),
     /// Nagrywanie działa, ale gorzej niż mogłoby (np. za stary sterownik karty) — pokazywane raz
     Uwaga { tytul: String, opis: String },
+    /// Mikrofon chyba nie nagrywa głosu (krótki opis) — dymek i dźwięk ostrzeżenia
+    UwagaMikrofonu(String),
     /// Zaczęło się długie nagrywanie
     FilmStart,
     /// Długie nagrywanie się skończyło i plik jest składany; Some = skończyło się samo (powód)
@@ -171,8 +173,8 @@ struct Wnetrze {
     przelaczanie: BTreeMap<&'static str, (Instant, bool)>,
     /// Uwaga o mikrofonie od wątku dźwięku (patrz `Stan.uwaga_mikrofonu`)
     uwaga_mikrofonu: Option<String>,
-    /// Kiedy pokazaliśmy ostatni dymek o mikrofonie
-    dymek_mikrofonu: Option<Instant>,
+    /// Kiedy i o czym był ostatni dymek o mikrofonie
+    dymek_mikrofonu: Option<(Instant, String)>,
     /// Drogi przechwytywania, które zawiodły w tym uruchomieniu: (monitor, droga)
     odrzucone: HashSet<(String, Droga)>,
     /// Lżejsze ustawienia enkodera (po wykryciu, że nie nadąża)
@@ -354,15 +356,14 @@ impl Rdzen {
                         false
                     }
                     audio::Zgloszenie::Blad(_) => w.przelaczanie.remove(klucz).is_some(),
-                    audio::Zgloszenie::Uwaga { opis: u, dymek: pewny } => {
-                        // Dymek tylko przy nowym, pewnym problemie i nie częściej niż DYMEK_MIKROFONU_CO
-                        if *pewny
-                            && u.is_some()
-                            && w.uwaga_mikrofonu.is_none()
-                            && w.dymek_mikrofonu.is_none_or(|t| t.elapsed() >= DYMEK_MIKROFONU_CO)
+                    audio::Zgloszenie::Uwaga { opis: u, krotko } => {
+                        // Dymek i dźwięk przy nowym problemie; ten sam problem najwyżej raz na DYMEK_MIKROFONU_CO
+                        // (np. mikrofon z bramką szumów, który co chwila „nagrywa ciszę”)
+                        if u.is_some()
+                            && !w.dymek_mikrofonu.as_ref().is_some_and(|(t, k)| k == krotko && t.elapsed() < DYMEK_MIKROFONU_CO)
                         {
-                            w.dymek_mikrofonu = Some(Instant::now());
-                            dymek = u.clone();
+                            w.dymek_mikrofonu = Some((Instant::now(), krotko.clone()));
+                            dymek = Some(krotko.clone());
                         }
                         let zmiana = w.uwaga_mikrofonu != *u;
                         w.uwaga_mikrofonu = u.clone();
@@ -374,7 +375,7 @@ impl Rdzen {
                 r.wyslij_stan();
             }
             if let Some(opis) = dymek {
-                r.uwaga("Mikrofon chyba nie nagrywa", &opis);
+                (r.powiadom)(Zdarzenie::UwagaMikrofonu(opis));
             }
             match z {
                 audio::Zgloszenie::Przelaczanie | audio::Zgloszenie::Uwaga { .. } => {}
