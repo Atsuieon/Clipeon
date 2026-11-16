@@ -29,10 +29,6 @@ pub struct Config {
     pub skrot_filmu: String,
     /// Skrót znacznika w trwającym filmie (do skoku w edytorze); pusty = bez skrótu
     pub skrot_znacznika: String,
-    /// Skrót „klip na Discorda”: zapis, zmniejszenie do `limit_discorda_mb` i kopia do schowka; pusty = bez skrótu
-    pub skrot_discorda: String,
-    /// Limit wysyłania plików na Discordzie w MB (bez Nitro 10, Nitro Basic 50, Nitro 500)
-    pub limit_discorda_mb: u32,
     /// Język okna i dymków: "pl" albo "en" (przy pierwszym uruchomieniu taki jak Windows)
     pub jezyk: String,
     /// Nagrywaj tylko grę: gdy na wierzchu jest coś innego (Alt+Tab do Discorda, przeglądarki), obraz
@@ -105,8 +101,6 @@ impl Default for Config {
             skrot: "Alt+F10".into(),
             skrot_filmu: "Alt+F9".into(),
             skrot_znacznika: "Alt+F8".into(),
-            skrot_discorda: "Alt+F7".into(),
-            limit_discorda_mb: 10,
             jezyk: crate::jezyk::systemowy().into(),
             tylko_gra: false,
             format_filmu: crate::film::BEZ_ZMIAN.into(),
@@ -269,18 +263,11 @@ impl Config {
         let klip = Some((klip.0.0, klip.1));
         let film = klawisze(&self.skrot_filmu)?;
         let znacznik = klawisze(&self.skrot_znacznika)?;
-        let discord = klawisze(&self.skrot_discorda)?;
         if film.is_some() && film == klip {
             return Err("Skrót filmu musi być inny niż skrót klipu".into());
         }
         if znacznik.is_some() && (znacznik == klip || znacznik == film) {
             return Err("Skrót znacznika musi być inny niż skróty klipu i filmu".into());
-        }
-        if discord.is_some() && (discord == klip || discord == film || discord == znacznik) {
-            return Err("Skrót klipu na Discorda musi być inny niż pozostałe skróty".into());
-        }
-        if !(1..=1000).contains(&self.limit_discorda_mb) {
-            return Err("Limit Discorda musi wynosić od 1 do 1000 MB".into());
         }
         if !JEZYKI.contains(&self.jezyk.as_str()) {
             return Err(format!("Nieznany język \"{}\"", self.jezyk));
@@ -335,20 +322,8 @@ mod testy {
     }
 
     #[test]
-    fn skrot_discorda_i_jezyk() {
+    fn jezyk_tylko_polski_albo_angielski() {
         let mut c = Config { folder_klipow: r"C:\Klipy".into(), ..Config::default() };
-        assert_eq!(c.skrot_discorda, "Alt+F7");
-        assert_eq!(c.limit_discorda_mb, 10);
-        assert!(c.sprawdz().is_ok());
-        c.skrot_discorda = "Alt+F10".into();
-        assert!(c.sprawdz().is_err());
-        c.skrot_discorda = "alt+f8".into();
-        assert!(c.sprawdz().is_err());
-        c.skrot_discorda = String::new();
-        assert!(c.sprawdz().is_ok());
-        c.limit_discorda_mb = 0;
-        assert!(c.sprawdz().is_err());
-        c.limit_discorda_mb = 50;
         c.jezyk = "en".into();
         assert!(c.sprawdz().is_ok());
         c.jezyk = "de".into();

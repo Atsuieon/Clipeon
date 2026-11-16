@@ -2,13 +2,7 @@
 
 ## 1.5.0
 
-Klip na Discorda jednym skrótem, angielski interfejs, „Nagrywaj tylko grę”, znikający mikrofon wykrywany i naprawiany, napis „Clipeon” z cząsteczek i wsparcie przez Ko-fi. (Wersje 1.4.10–1.4.12 nie były wydawane osobno — wszystko jest tutaj.)
-
-### Klip na Discorda jednym skrótem
-
-- **Alt+F7** zapisuje klip jak Alt+F10, a potem od razu przygotowuje go na Discorda: jeśli plik jest większy niż limit, Clipeon zmniejsza go (i w razie potrzeby bierze tylko końcówkę, ok. minuty przy 10 MB), a gotowy plik kopiuje do schowka. W Discordzie wystarczy Ctrl+V.
-- Dymek najpierw mówi „Klip zapisany · Przygotowuję go na Discorda”, potem „Klip w schowku” z kadrem i rozmiarem pliku. Oryginał zostaje w bibliotece bez zmian.
-- W Ustawieniach → Zapisywanie klipów: własny skrót i limit plików (10 MB bez Nitro, 50 MB Nitro Basic, 500 MB Nitro). Ten sam klip jest też w menu ikony przy zegarze.
+Angielski interfejs, „Nagrywaj tylko grę”, znikający mikrofon wykrywany i naprawiany, napis „Clipeon” z cząsteczek i wsparcie przez Ko-fi. (Wersje 1.4.10–1.4.12 nie były wydawane osobno — wszystko jest tutaj.)
 
 ### Angielski interfejs
 

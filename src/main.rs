@@ -8,7 +8,6 @@ mod audio;
 mod bufor;
 mod config;
 mod dda;
-mod discord;
 mod dziennik;
 mod dzwiek;
 mod edycja;

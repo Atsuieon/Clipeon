@@ -32,7 +32,6 @@
 - **Tryb pulpitu** — przełącznik „Gra | Pulpit” na pasku: pulpit ma własny ekran i lżejsze ustawienia (domyślnie 30 FPS, 12 Mb/s), a ekran wybierzesz jednym kliknięciem.
 - **Gra, Discord i mikrofon osobno** — w edytorze trzy ścieżki z wykresem dźwięku: „Gra”, „Discord i reszta” i „Mikrofon”. Ściszysz albo wyciszysz każdą z nich i od razu to słychać.
 - **Edytor** — przycinanie, kadrowanie, zmniejszanie do 10 / 20 / 50 / 100 MB i zapis jako zapętlony GIF / WebP, np. pod Discorda. Głośność słychać od razu, a `←` / `→` przewijają o 5 s, `,` / `.` o klatkę.
-- **Klip na Discorda jednym skrótem** — **Alt+F7** zapisuje klip, w razie potrzeby zmniejsza go do limitu Discorda (10 / 50 / 500 MB) i kopiuje do schowka. W Discordzie wystarczy Ctrl+V.
 - **Nagrywaj tylko grę** — po Alt+Tab obraz zatrzymuje się na ostatniej klatce gry, więc Discord ani przeglądarka nie trafią do klipu.
 - **Przeciągnij albo skopiuj** — gotowy klip przeciągasz prosto do Discorda, przeglądarki albo folderu, albo klikasz „Kopiuj” i wklejasz Ctrl+V.
 - **Biblioteka** — klipy pogrupowane według dni, zaznaczanie wielu naraz, usuwanie do Kosza.
@@ -109,7 +108,7 @@ Clipeon to ta sama aplikacja pod nową nazwą. Zainstaluj go: instalator sam usu
 Clipeon keeps the last seconds of your gameplay in memory and saves them as an MP4 when you press **Alt+F10**;
 **Alt+F9** starts and stops a long recording with no time limit, which can then be re-encoded to HEVC or AV1 in the background to save space.
 GPU capture and encoding (AMD / NVIDIA / Intel), a desktop recording mode, separate game / Discord / mic tracks, film markers, crash recovery for long recordings, trimming, shrink-to-size for Discord,
-drag-and-drop or copy-paste clips into other apps, **Alt+F7** to save a clip already shrunk to Discord's upload limit and copied to the clipboard, and a "Record only the game" switch that freezes the picture when you Alt+Tab away. Windows 10 2004+ / 11. [Download the latest release](https://github.com/Atsuieon/Clipeon/releases/latest)
+drag-and-drop or copy-paste clips into other apps, and a "Record only the game" switch that freezes the picture when you Alt+Tab away. Windows 10 2004+ / 11. [Download the latest release](https://github.com/Atsuieon/Clipeon/releases/latest)
 — the installer is unsigned, so SmartScreen may warn: *More info → Run anyway*. The interface is in English or Polish (set from the Windows language on first start; change it in Settings → System → Language).
 
 ## Wsparcie
