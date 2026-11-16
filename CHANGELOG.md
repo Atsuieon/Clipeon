@@ -2,7 +2,29 @@
 
 ## 1.5.0
 
-Znikający mikrofon wykrywany i naprawiany, napis „Clipeon” z cząsteczek i wsparcie przez Ko-fi. (Wersje 1.4.10–1.4.12 nie były wydawane osobno — wszystko jest tutaj.)
+Klip na Discorda jednym skrótem, angielski interfejs, „Nagrywaj tylko grę”, znikający mikrofon wykrywany i naprawiany, napis „Clipeon” z cząsteczek i wsparcie przez Ko-fi. (Wersje 1.4.10–1.4.12 nie były wydawane osobno — wszystko jest tutaj.)
+
+### Klip na Discorda jednym skrótem
+
+- **Alt+F7** zapisuje klip jak Alt+F10, a potem od razu przygotowuje go na Discorda: jeśli plik jest większy niż limit, Clipeon zmniejsza go (i w razie potrzeby bierze tylko końcówkę, ok. minuty przy 10 MB), a gotowy plik kopiuje do schowka. W Discordzie wystarczy Ctrl+V.
+- Dymek najpierw mówi „Klip zapisany · Przygotowuję go na Discorda”, potem „Klip w schowku” z kadrem i rozmiarem pliku. Oryginał zostaje w bibliotece bez zmian.
+- W Ustawieniach → Zapisywanie klipów: własny skrót i limit plików (10 MB bez Nitro, 50 MB Nitro Basic, 500 MB Nitro). Ten sam klip jest też w menu ikony przy zegarze.
+
+### Angielski interfejs
+
+- Ustawienia → System → **Język**: „Jak Windows” (domyślnie), Polski albo English. Po angielsku jest okno, dymki i menu przy zegarze. Windows w innym języku niż polski dostaje od razu angielski.
+
+### Nagrywaj tylko grę
+
+- Nowy przełącznik w Ustawieniach → Nagrywanie. Gdy przełączysz się z gry (Alt+Tab do Discorda, przeglądarki, na pulpit albo do okna Clipeona), obraz w nagraniu zatrzymuje się na ostatniej, przyciemnionej klatce gry, a po powrocie do gry nagrywa się dalej. Okno na drugim monitorze nie zatrzymuje obrazu. Dźwięk nagrywa się cały czas.
+- Gdy w ustawieniach wybrano konkretną grę, liczy się tylko ona. W trybie „Pulpit” przełącznik nie działa (tam nagrywa się wszystko).
+- Przy włączonym przełączniku Clipeon nagrywa obraz przez pamięć RAM (na tej drodze da się zatrzymać obraz).
+
+### Poprawki
+
+- **Ścieżka „Gra” nie łapie już Discorda.** Bez wybranej gry ścieżka „Gra” brała dźwięk dowolnego programu na wierzchu, np. Discorda, Spotify albo Steama. Teraz pomija komunikatory, przeglądarki, odtwarzacze, launchery i narzędzia (OBS, Medal, sterowniki kart, terminal itp.).
+- **Właściwe kolory na kartach AMD.** Enkoder AMD (H.264) przy obrazie przez pamięć RAM zapisywał pełny zakres kolorów, choć plik mówił, że ograniczony — czernie i biele wychodziły przepalone albo wyblakłe. Teraz dostaje obraz już przeliczony do ograniczonego zakresu.
+- **Dźwięk nie rozjeżdża się po zmianie formatu urządzenia.** Gdy słuchawki albo karta dźwiękowa przełączyły się między 44,1 a 48 kHz (np. po podłączeniu innych słuchawek), dźwięk w klipie mógł się przesunąć względem obrazu. Teraz Clipeon prosi Windows o stały format 48 kHz, więc zmiana urządzenia go nie rusza.
 
 ### Wsparcie przez Ko-fi
 

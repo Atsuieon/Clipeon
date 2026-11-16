@@ -14,7 +14,7 @@ use windows::Win32::Foundation::{CloseHandle, ERROR_SUCCESS, HANDLE};
 use windows::Win32::Media::Audio::{
     AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR, AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_E_RESOURCES_INVALIDATED,
     AUDCLNT_E_SERVICE_NOT_RUNNING, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-    AUDCLNT_STREAMFLAGS_LOOPBACK, AUDIOCLIENT_ACTIVATION_PARAMS, AUDIOCLIENT_ACTIVATION_PARAMS_0, AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
+    AUDCLNT_STREAMFLAGS_LOOPBACK, AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, AUDIOCLIENT_ACTIVATION_PARAMS, AUDIOCLIENT_ACTIVATION_PARAMS_0, AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
     AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS, ActivateAudioInterfaceAsync, DEVICE_STATE_ACTIVE, IActivateAudioInterfaceAsyncOperation,
     IActivateAudioInterfaceCompletionHandler, IActivateAudioInterfaceCompletionHandler_Impl, IAudioCaptureClient, IAudioClient, IMMDevice,
     IMMDeviceEnumerator, MMDeviceEnumerator, PROCESS_LOOPBACK_MODE, PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE,
@@ -36,9 +36,9 @@ const RAMKA_AAC: i64 = 1024;
 const PRZELACZANIE_NAJDLUZEJ: Duration = Duration::from_secs(10);
 /// Co tyle próbujemy otworzyć urządzenie w trakcie przełączania
 const PROBA_PRZELACZENIA_CO: Duration = Duration::from_millis(250);
-/// Format ścieżek „Gra” i „Discord i reszta”. Loopback procesu nie ma formatu miksera — podajemy własny,
-/// a Windows sam przelicza (AUTOCONVERTPCM). Ten sam format w każdej sesji = enkoder przeżywa zmianę gry.
-const FORMAT_PROCESU: Format = Format { czestotliwosc: 48_000, kanaly: 2, bity: 16 };
+/// Format wszystkich ścieżek dźwięku. Podajemy własny, a Windows sam przelicza z formatu urządzenia
+/// (AUTOCONVERTPCM). Ten sam format w każdej sesji = enkoder przeżywa zmianę gry, urządzenia i jego częstotliwości.
+const STALY_FORMAT: Format = Format { czestotliwosc: 48_000, kanaly: 2, bity: 16 };
 /// Tyle nieudanych prób loopbacku procesu z rzędu (nie licząc zmian urządzenia) i Clipeon przestaje
 /// go używać do końca uruchomienia: „Gra” nagrywa wtedy cały dźwięk komputera, a „Discord i reszta” ciszę
 const PROCES_PROB: u32 = 3;
@@ -497,29 +497,57 @@ fn sesja(
         let id_start = id_urzadzenia(&urzadzenie);
         let mut klient: IAudioClient = urzadzenie.Activate(CLSCTX_ALL, None)?;
 
+        // Zawsze ten sam format (48 kHz, stereo, 16 bit), a Windows sam przelicza z formatu urządzenia
+        // (AUTOCONVERTPCM). Dzięki temu po zmianie urządzenia albo jego częstotliwości (44,1 <-> 48 kHz)
+        // zostaje ten sam enkoder, a przerwę wypełnia cisza — dźwięk nie ucieka przed obraz.
+        // Gdy system tego nie przyjmie (bardzo stare sterowniki) — format miksera jak dawniej.
+        let staly = STALY_FORMAT.waveformat();
         let wsk = klient.GetMixFormat()?;
         let f = *wsk;
-        let format = Format { czestotliwosc: f.nSamplesPerSec, kanaly: f.nChannels as u32, bity: f.wBitsPerSample };
+        let mix = Format { czestotliwosc: f.nSamplesPerSec, kanaly: f.nChannels as u32, bity: f.wBitsPerSample };
         // Bufor 200 ms po stronie systemu. Najpierw z powiadamianiem zdarzeniem (wątek śpi, aż przyjdą dane,
         // zamiast budzić się co 10 ms); gdy system tego nie przyjmie — zwykłe odpytywanie
         let zdarzenie = CreateEventW(None, false, false, None).ok().map(Zdarzenie);
-        let mut wynik = Err(windows::core::Error::empty());
+        let przeliczanie = AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
+        let mut proby: Vec<(u32, *const WAVEFORMATEX, Format, bool)> = Vec::new();
         if zdarzenie.is_some() {
-            wynik = klient.Initialize(AUDCLNT_SHAREMODE_SHARED, flagi | AUDCLNT_STREAMFLAGS_EVENTCALLBACK, 2_000_000, 0, wsk, None);
+            proby.push((flagi | przeliczanie | AUDCLNT_STREAMFLAGS_EVENTCALLBACK, &staly, STALY_FORMAT, true));
         }
-        let mut ze_zdarzeniem = wynik.is_ok();
-        if !ze_zdarzeniem {
-            // Nieudany Initialize zostawia klienta w nieokreślonym stanie — bierzemy nowego
-            match urzadzenie.Activate(CLSCTX_ALL, None) {
-                Ok(k) => {
-                    klient = k;
-                    wynik = klient.Initialize(AUDCLNT_SHAREMODE_SHARED, flagi, 2_000_000, 0, wsk, None);
+        proby.push((flagi | przeliczanie, &staly, STALY_FORMAT, false));
+        if zdarzenie.is_some() {
+            proby.push((flagi | AUDCLNT_STREAMFLAGS_EVENTCALLBACK, wsk as *const _, mix, true));
+        }
+        proby.push((flagi, wsk as *const _, mix, false));
+        let mut wynik = Err(windows::core::Error::empty());
+        let mut format = mix;
+        let mut ze_zdarzeniem = false;
+        for (i, (f_init, wf, fmt, zd)) in proby.into_iter().enumerate() {
+            if i > 0 {
+                // Nieudany Initialize zostawia klienta w nieokreślonym stanie — bierzemy nowego
+                match urzadzenie.Activate(CLSCTX_ALL, None) {
+                    Ok(k) => klient = k,
+                    Err(e) => {
+                        wynik = Err(e);
+                        break;
+                    }
                 }
-                Err(e) => wynik = Err(e),
+            }
+            wynik = klient.Initialize(AUDCLNT_SHAREMODE_SHARED, f_init, 2_000_000, 0, wf, None);
+            if wynik.is_ok() {
+                format = fmt;
+                ze_zdarzeniem = zd;
+                break;
             }
         }
         CoTaskMemFree(Some(wsk as *const _));
         wynik?;
+        if format != STALY_FORMAT {
+            crate::dziennik::info(&format!(
+                "Dźwięk ({}): Windows nie przelicza na 48 kHz, nagrywam w formacie urządzenia ({} Hz)",
+                zrodlo.nazwa(),
+                format.czestotliwosc
+            ));
+        }
         if let (true, Some(z)) = (ze_zdarzeniem, &zdarzenie) {
             ze_zdarzeniem = klient.SetEventHandle(z.0).is_ok();
         }
@@ -873,7 +901,7 @@ fn sesja_procesu(
     };
     unsafe {
         let klient = petla_procesu(pid, tryb)?;
-        let wf = FORMAT_PROCESU.waveformat();
+        let wf = STALY_FORMAT.waveformat();
         let zdarzenie = CreateEventW(None, false, false, None).ok().map(Zdarzenie);
         let mut flagi = AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM;
         if zdarzenie.is_some() {
@@ -881,7 +909,7 @@ fn sesja_procesu(
         }
         klient.Initialize(AUDCLNT_SHAREMODE_SHARED, flagi, 2_000_000, 0, &wf, None)?;
         let ze_zdarzeniem = matches!(&zdarzenie, Some(z) if klient.SetEventHandle(z.0).is_ok());
-        let k = Koder::dla(koder, zrodlo, FORMAT_PROCESU, bitrate_kbps, bufor)?;
+        let k = Koder::dla(koder, zrodlo, STALY_FORMAT, bitrate_kbps, bufor)?;
         let przechwyt: IAudioCaptureClient = klient.GetService()?;
         klient.Start()?;
         ruszylo();
@@ -906,7 +934,7 @@ fn sesja_ciszy(
     koder: &mut Option<Koder>,
     ruszylo: &mut dyn FnMut(),
 ) -> Result<Koniec, Blad> {
-    let k = Koder::dla(koder, zrodlo, FORMAT_PROCESU, bitrate_kbps, bufor)?;
+    let k = Koder::dla(koder, zrodlo, STALY_FORMAT, bitrate_kbps, bufor)?;
     ruszylo();
     while !stop.load(Ordering::SeqCst) {
         std::thread::sleep(Duration::from_millis(100));
@@ -1145,7 +1173,7 @@ fn nazwa_urzadzenia(urzadzenie: &IMMDevice) -> Option<String> {
 
 #[cfg(test)]
 mod testy {
-    use super::{Blad, Czujnik, FORMAT_PROCESU, Zegar, dlugosc_adts, odmowa, szczyt_probek, zmiana_urzadzenia};
+    use super::{Blad, Czujnik, STALY_FORMAT, Zegar, dlugosc_adts, odmowa, szczyt_probek, zmiana_urzadzenia};
     use windows::core::{Error, HRESULT};
 
     /// Zegar 48 kHz, stereo 16 bit (4 bajty na próbkę), start w zerze
@@ -1198,7 +1226,7 @@ mod testy {
 
     #[test]
     fn format_dzwieku_gry() {
-        let f = FORMAT_PROCESU.waveformat();
+        let f = STALY_FORMAT.waveformat();
         assert_eq!((f.nSamplesPerSec, f.nChannels, f.wBitsPerSample), (48_000, 2, 16));
         assert_eq!((f.nBlockAlign, f.nAvgBytesPerSec), (4, 192_000));
     }

@@ -456,10 +456,15 @@ impl Plan {
 
 /// Drogi do wypróbowania dla bieżących ustawień, od najlepszej.
 pub fn drogi(cfg: &Config) -> Vec<Droga> {
-    match plan(cfg) {
+    let mut l = match plan(cfg) {
         Ok(p) => kolejnosc_drog(&p.warunki(&cfg.metoda_przechwytywania)),
         Err(_) => vec![Droga::Potok],
+    };
+    if cfg.tylko_gra() {
+        // Obraz zatrzymujemy w wątku taktującym, więc potrzebna droga przez RAM
+        l.retain(|d| d.przez_ram());
     }
+    l
 }
 
 /// Startuje nagrywanie obrazu wybraną drogą. `zglos` dostaje opis błędu, gdy ffmpeg nieoczekiwanie
@@ -609,7 +614,18 @@ pub fn uruchom(
     // ffmpeg: początek ustalamy przy pierwszym pakiecie (start przechwytywania trwa różnie długo).
     let t0 = droga.przez_ram().then(teraz_100ns);
     if let (Some(wspolna), Some(wejscie)) = (wejscie_potoku, wejscie) {
-        watek_taktujacy(wspolna, wejscie, fps, stop.clone(), problem.clone(), statystyki.clone(), przeciazenie.clone(), p.ekran);
+        let tylko_gra = cfg.tylko_gra().then(|| crate::gra::TylkoGra::nowe(&p.nazwa_monitora, cfg.wybrana_gra()));
+        watek_taktujacy(
+            wspolna,
+            wejscie,
+            fps,
+            stop.clone(),
+            problem.clone(),
+            statystyki.clone(),
+            przeciazenie.clone(),
+            p.ekran,
+            tylko_gra,
+        );
     }
 
     // Wątek czytający: dzieli strumień na klatki i wrzuca je do bufora. Bufor wybiera wołający po opisie
@@ -864,6 +880,7 @@ fn watek_taktujacy(
     statystyki: Arc<Statystyki>,
     przeciazenie: Arc<AtomicBool>,
     rozmiar: (u32, u32),
+    mut tylko_gra: Option<crate::gra::TylkoGra>,
 ) {
     let okres = Duration::from_secs_f64(1.0 / fps as f64);
     let start = Instant::now();
@@ -875,21 +892,35 @@ fn watek_taktujacy(
             // Okno 1 s: ile taktów się spóźniło; 5 s z rzędu ponad 10% = enkoder nie nadąża
             let (mut spoznione_w_oknie, mut zle_sekundy) = (0u32, 0u32);
             let czekanie = okres.mul_f64(CZEKANIE_NA_KLATKE);
+            let mut zatrzymany = false;
             while !stop.load(Ordering::SeqCst) {
                 let czekaj_do = Instant::now() + czekanie;
-                loop {
-                    let mut w = wspolna.zablokuj();
-                    if w.nowa {
-                        std::mem::swap(&mut w.piksele, &mut moja);
-                        w.nowa = false;
-                        break;
+                // „Nagrywaj tylko grę”: poza grą powtarzamy ostatnią klatkę gry (przyciemnioną)
+                let gra = tylko_gra.as_mut().is_none_or(|t| t.mozna_nagrywac());
+                if gra == zatrzymany {
+                    zatrzymany = !gra;
+                    if zatrzymany {
+                        przyciemnij(&mut moja);
+                        crate::dziennik::info("Na wierzchu nie ma gry — obraz stoi na ostatniej klatce gry");
+                    } else {
+                        crate::dziennik::info("Gra wróciła na wierzch — nagrywam obraz dalej");
                     }
-                    drop(w);
-                    if Instant::now() >= czekaj_do || stop.load(Ordering::SeqCst) {
-                        dolicz(&statystyki.powtorzone, 1);
-                        break;
+                }
+                if !zatrzymany {
+                    loop {
+                        let mut w = wspolna.zablokuj();
+                        if w.nowa {
+                            std::mem::swap(&mut w.piksele, &mut moja);
+                            w.nowa = false;
+                            break;
+                        }
+                        drop(w);
+                        if Instant::now() >= czekaj_do || stop.load(Ordering::SeqCst) {
+                            dolicz(&statystyki.powtorzone, 1);
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_millis(1));
                     }
-                    std::thread::sleep(Duration::from_millis(1));
                 }
                 if wejscie.write_all(&moja).is_err() {
                     return; // ffmpeg nie żyje; wątek czytający zgłosi błąd
@@ -922,6 +953,15 @@ fn watek_taktujacy(
             }
         })
         .expect("wątek wideo-takt");
+}
+
+/// Przyciemnia klatkę BGRA do ok. 40% jasności — znak w nagraniu, że w tym miejscu gra była schowana.
+fn przyciemnij(piksele: &mut [u8]) {
+    for p in piksele.chunks_exact_mut(4) {
+        for k in &mut p[..3] {
+            *k = (*k as u16 * 2 / 5) as u8;
+        }
+    }
 }
 
 // ---------- Dzielenie strumienia na klatki ----------
@@ -1081,6 +1121,13 @@ mod testy {
         assert_eq!(kolejnosc_drog(&Warunki { metoda: "dda", ..warunki() }), vec![Droga::Dda, Droga::DdaRam, Droga::Potok]);
         assert_eq!(kolejnosc_drog(&Warunki { metoda: "dda", ta_sama_karta: false, ..warunki() }), vec![Droga::DdaRam, Droga::Potok]);
         assert_eq!(kolejnosc_drog(&Warunki { metoda: "dda-ram", ..warunki() }), vec![Droga::DdaRam, Droga::Potok]);
+    }
+
+    #[test]
+    fn przyciemnienie_zostawia_przezroczystosc() {
+        let mut klatka = vec![255, 100, 10, 255, 0, 0, 0, 7];
+        przyciemnij(&mut klatka);
+        assert_eq!(klatka, vec![102, 40, 4, 255, 0, 0, 0, 7]);
     }
 
     #[test]

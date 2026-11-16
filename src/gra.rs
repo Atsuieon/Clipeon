@@ -22,7 +22,9 @@ pub struct Gra {
     pub proces: String,
 }
 
-/// Programy, które nigdy nie są grą: pulpit, powłoka Windows, przeglądarki i sam Clipeon.
+/// Programy, które nigdy nie są grą: pulpit, powłoka Windows, przeglądarki, komunikatory, odtwarzacze,
+/// launchery gier, nagrywanie i sam Clipeon. Bez wybranej gry ścieżka „Gra” bierze dźwięk ostatniego
+/// programu na wierzchu — gdyby był nim Discord, rozmowa trafiłaby do „Gra”, a nie do „Discord i reszta”.
 const POMIJANE: &[&str] = &[
     "explorer.exe",
     "searchhost.exe",
@@ -40,6 +42,68 @@ const POMIJANE: &[&str] = &[
     "opera_gx.exe",
     "brave.exe",
     "vivaldi.exe",
+    "iexplore.exe",
+    "arc.exe",
+    "yandex.exe",
+    // Komunikatory
+    "discord.exe",
+    "discordptb.exe",
+    "discordcanary.exe",
+    "teamspeak.exe",
+    "ts3client_win64.exe",
+    "ts3client_win32.exe",
+    "skype.exe",
+    "slack.exe",
+    "ms-teams.exe",
+    "teams.exe",
+    "telegram.exe",
+    "whatsapp.exe",
+    "signal.exe",
+    "zoom.exe",
+    "mumble.exe",
+    "guilded.exe",
+    "element.exe",
+    // Muzyka i filmy
+    "spotify.exe",
+    "vlc.exe",
+    "mpc-hc64.exe",
+    "mpc-be64.exe",
+    "potplayermini64.exe",
+    "wmplayer.exe",
+    "music.ui.exe",
+    "video.ui.exe",
+    "applemusic.exe",
+    "itunes.exe",
+    // Launchery i sklepy z grami
+    "steam.exe",
+    "steamwebhelper.exe",
+    "epicgameslauncher.exe",
+    "battle.net.exe",
+    "riotclientux.exe",
+    "riotclientservices.exe",
+    "eadesktop.exe",
+    "origin.exe",
+    "galaxyclient.exe",
+    "upc.exe",
+    "ubisoftconnect.exe",
+    "rockstarlauncher.exe",
+    "xboxpcapp.exe",
+    "gamebar.exe",
+    // Nagrywanie, nakładki i narzędzia
+    "obs64.exe",
+    "obs32.exe",
+    "medal.exe",
+    "nvidia app.exe",
+    "nvidia overlay.exe",
+    "radeonsoftware.exe",
+    "amdrssrcext.exe",
+    "windowsterminal.exe",
+    "cmd.exe",
+    "powershell.exe",
+    "pwsh.exe",
+    "notepad.exe",
+    "code.exe",
+    "systemsettings.exe",
     "clipeon.exe",
 ];
 
@@ -66,6 +130,50 @@ pub fn na_pierwszym_planie(monitor: &str) -> Option<Gra> {
         return None;
     }
     z_okna(okno)
+}
+
+/// Pilnuje, czy na nagrywanym ekranie jest gra (ustawienie „Nagrywaj tylko grę”). Wołane przy każdej
+/// klatce, więc okno na wierzchu ocenia od nowa tylko wtedy, gdy się zmieniło (i raz na pół sekundy,
+/// gdyby gra zminimalizowała się bez zmiany okna na wierzchu).
+pub struct TylkoGra {
+    monitor: String,
+    /// Wybrana w ustawieniach gra (pusta = każdy program, który może być grą)
+    wybrana: String,
+    okno: isize,
+    sprawdzone: std::time::Instant,
+    gra: bool,
+}
+
+impl TylkoGra {
+    pub fn nowe(monitor: &str, wybrana: &str) -> Self {
+        TylkoGra {
+            monitor: monitor.to_string(),
+            wybrana: wybrana.to_string(),
+            okno: 0,
+            sprawdzone: std::time::Instant::now(),
+            gra: true,
+        }
+    }
+
+    /// Czy obraz z ekranu można teraz nagrywać. Fałsz, gdy na wierzchu nagrywanego ekranu jest
+    /// coś innego niż gra (Discord, przeglądarka, pulpit, przełącznik Alt+Tab, okno Clipeona).
+    pub fn mozna_nagrywac(&mut self) -> bool {
+        let okno = unsafe { GetForegroundWindow() };
+        // Przez ułamek sekundy w trakcie przełączania okien nic nie jest na wierzchu — zostaje poprzednia ocena
+        if okno.is_invalid() {
+            return self.gra;
+        }
+        let numer = okno.0 as isize;
+        if numer == self.okno && self.sprawdzone.elapsed() < std::time::Duration::from_millis(500) {
+            return self.gra;
+        }
+        self.okno = numer;
+        self.sprawdzone = std::time::Instant::now();
+        // Okno na innym monitorze nie zasłania gry na nagrywanym
+        self.gra = !na_monitorze(okno, &self.monitor)
+            || z_okna(okno).is_some_and(|g| self.wybrana.is_empty() || ten_sam(&g.proces, &self.wybrana));
+        self.gra
+    }
 }
 
 /// Numer procesu programu (dla nagrywania dźwięku samej gry). Gdy program ma kilka procesów o tej samej
@@ -252,7 +360,7 @@ fn na_monitorze(okno: HWND, monitor: &str) -> bool {
 
 #[cfg(test)]
 mod testy {
-    use super::{glowny, mozliwa_gra, ten_sam};
+    use super::{POMIJANE, glowny, mozliwa_gra, ten_sam};
 
     #[test]
     fn dzwiek_gry_bierze_glowny_proces_programu() {
@@ -271,6 +379,11 @@ mod testy {
         assert!(!mozliwa_gra("chrome.exe"));
         assert!(!mozliwa_gra("Clipeon.exe"));
         assert!(!mozliwa_gra(""));
+        // Komunikator na wierzchu nie może przejąć ścieżki „Gra”
+        assert!(!mozliwa_gra("Discord.exe"));
+        assert!(!mozliwa_gra("Spotify.exe"));
+        assert!(!mozliwa_gra("steamwebhelper.exe"));
+        assert!(POMIJANE.iter().all(|p| *p == p.to_ascii_lowercase()));
         assert!(mozliwa_gra("Cyberpunk2077.exe"));
         assert!(mozliwa_gra("csgo.exe"));
     }

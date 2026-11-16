@@ -2,6 +2,7 @@
 // i sprawdza, że skrypt startuje bez błędów, a najważniejsze elementy działają.
 // Uruchomienie: npm install --no-save playwright && npx playwright install chromium && node testy/okno.mjs
 import { readFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 
@@ -35,7 +36,7 @@ function udawanyTauri() {
     sprawdzaj_aktualizacje: true, monitor: "", monitor_id: "", tryb: "gra", monitor_pulpitu: "",
     monitor_pulpitu_id: "", fps_pulpitu: 30, bitrate_pulpitu_mbps: 12, metoda_przechwytywania: "auto",
     mikrofon_urzadzenie: "", gra: "", gra_nazwa: "", skrot_filmu: "Alt+F9", animowane_tlo: true, kolorowy_napis: true,
-    format_filmu: "bez_zmian",
+    format_filmu: "bez_zmian", skrot_znacznika: "Alt+F8", skrot_discorda: "Alt+F7", limit_discorda_mb: 10, jezyk: "pl", tylko_gra: false,
   };
   const stan = {
     nagrywa: true, pauza: false, bledy: [], wznawianie: null, przelaczanie: null, tryb: "gra", ekran: "Ekran 1", monitor: "",
@@ -44,6 +45,7 @@ function udawanyTauri() {
   };
   const odpowiedzi = {
     stan: () => stan,
+    jezyk: () => window.__jezyk || "pl",
     ustawienia: () => ({ cfg: structuredClone(cfg), autostart: false, enkodery: [["auto", "Automatycznie"]], formaty_filmu: [["bez_zmian", "Pełna jakość — bez zmian (największy plik)"], ["hevc", "Mniejszy plik — HEVC, ok. połowa rozmiaru"], ["av1", "Najmniejszy plik — AV1, ok. 1/3 rozmiaru"]], wersja: "test", repozytorium: "" }),
     mikrofony: () => [
       { id: "m1", nazwa: "Mikrofon (USB)", domyslny: true },
@@ -932,6 +934,58 @@ await strona.click("#wesprzyj");
 await strona.waitForTimeout(50);
 sprawdz((await strona.evaluate(() => window.__wsparcie)) === 1, "przycisk wsparcia nie woła otworz_wsparcie");
 sprawdz(!(await strona.isVisible("#pasek-zapisu")), "kliknięcie wsparcia pokazało pasek niezapisanych zmian");
+
+// 3. Okno po angielsku: słownik en.json (fetch potrzebuje http, nie file://) i brak polskich napisów
+const serwer = createServer((zad, odp) => {
+  try {
+    const plik = decodeURIComponent(new URL(zad.url, "http://x").pathname).replace(/^\/+/, "") || "index.html";
+    const typ = { html: "text/html", js: "text/javascript", css: "text/css", json: "application/json", svg: "image/svg+xml" }[plik.split(".").pop()];
+    odp.writeHead(200, typ ? { "Content-Type": typ + "; charset=utf-8" } : {});
+    odp.end(readFileSync(ui + plik));
+  } catch {
+    odp.writeHead(404);
+    odp.end();
+  }
+});
+await new Promise((r) => serwer.listen(0, "127.0.0.1", r));
+const en = await przegladarka.newPage({ viewport: { width: 1200, height: 800 } });
+en.on("pageerror", (e) => bledy.push(`EN: błąd skryptu: ${e.message}`));
+await en.addInitScript(udawanyTauri);
+await en.addInitScript(() => (window.__jezyk = "en"));
+await en.goto(`http://127.0.0.1:${serwer.address().port}/index.html`);
+await en.waitForTimeout(800);
+sprawdz((await en.getAttribute("html", "lang")) === "en", "EN: okno nie przełączyło się na angielski");
+sprawdz((await en.textContent("#zakladka-ustawienia").catch(() => "")).includes("Settings") || (await en.locator("text=Settings").count()) > 0, "EN: zakładka Ustawienia nie jest przetłumaczona");
+// Każdy widoczny tekst z polskimi literami w Klipach i Ustawieniach to brak w słowniku
+const polskie = new Set();
+const zbierz = async () => {
+  for (const t of await en.evaluate(() => {
+    const w = [];
+    const it = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    while (it.nextNode()) {
+      const n = it.currentNode;
+      const el = n.parentElement;
+      if (!el || el.closest("script, style, [hidden]") || !el.getClientRects().length) continue;
+      if (/[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/.test(n.nodeValue)) w.push(n.nodeValue.trim());
+    }
+    for (const el of document.querySelectorAll("[title], [aria-label], [data-pusty]"))
+      for (const a of ["title", "aria-label", "data-pusty"]) if (/[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/.test(el.getAttribute(a) || "")) w.push(`${a}: ${el.getAttribute(a)}`);
+    return w;
+  })) polskie.add(t);
+};
+await zbierz();
+await en.evaluate(() => document.querySelector('[data-zakladka="ustawienia"], #zakladka-ustawienia')?.click());
+await en.waitForTimeout(300);
+await zbierz();
+await en.evaluate(() => document.querySelector('[data-zakladka="filmy"]')?.click());
+await en.waitForTimeout(300);
+await zbierz();
+if (process.env.ZRZUTY) await en.screenshot({ path: `${process.env.ZRZUTY}/en-filmy.png` });
+await en.evaluate(() => document.querySelector('[data-zakladka="ustawienia"]')?.click());
+await en.waitForTimeout(200);
+if (process.env.ZRZUTY) await en.screenshot({ path: `${process.env.ZRZUTY}/en-ustawienia.png`, fullPage: true });
+sprawdz(polskie.size === 0, `EN: nieprzetłumaczone teksty: ${[...polskie].join(" | ")}`);
+serwer.close();
 
 await przegladarka.close();
 if (bledy.length) {
