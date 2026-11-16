@@ -1,5 +1,5 @@
 // Słownik polski → angielski. Plik jest zwykłym skryptem okna (bez pobierania w trakcie działania),
-// a rdzeń wczytuje ten sam plik przy kompilacji (src/jezyk.rs): wszystko między pierwszym „{” a ostatnim „}” to JSON.
+// a rdzeń wczytuje ten sam plik przy kompilacji (src/jezyk.rs): JSON po „SLOWNIK_EN =” aż do ostatniego nawiasu.
 window.SLOWNIK_EN = {
  "_opis": "Słownik polski → angielski dla okna (jezyk.js) i rdzenia (src/jezyk.rs). Klucz = polski tekst z okna albo z kodu Rust, „wzory” = wyrażenia regularne z $1, $2 (części są tłumaczone dalej).",
  "teksty": {

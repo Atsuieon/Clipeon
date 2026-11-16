@@ -7,11 +7,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 static EN: AtomicBool = AtomicBool::new(false);
 
 /// Słownik polski → angielski: skrypt okna `window.SLOWNIK_EN = {…};` — JSON to wszystko od pierwszego
-/// „{” do ostatniego „}”.
+/// nawiasu klamrowego po `SLOWNIK_EN =` do ostatniego (komentarze nad nim mogą zawierać nawiasy).
 const SLOWNIK_EN: &str = include_str!("../ui/en.js");
 
 fn json_slownika(skrypt: &str) -> &str {
-    match (skrypt.find('{'), skrypt.rfind('}')) {
+    let od = skrypt.find("SLOWNIK_EN =").unwrap_or(0);
+    match (skrypt[od..].find('{').map(|a| od + a), skrypt.rfind('}')) {
         (Some(a), Some(b)) if a < b => &skrypt[a..=b],
         _ => "{}",
     }
@@ -63,7 +64,7 @@ pub fn wybierz(pl: String, en: String) -> String {
 
 #[cfg(test)]
 mod testy {
-    use super::{kod_dla_windows, slownik};
+    use super::{SLOWNIK_EN, json_slownika, kod_dla_windows, slownik};
 
     #[test]
     fn jezyk_z_windows() {
@@ -74,6 +75,8 @@ mod testy {
 
     #[test]
     fn slownik_sie_wczytuje() {
+        // Cały plik musi być poprawnym JSON-em (błąd nie może cicho dać pustego słownika)
+        serde_json::from_str::<serde_json::Value>(json_slownika(SLOWNIK_EN)).expect("ui/en.js: zły JSON");
         assert_eq!(slownik().get("Klip zapisany").map(String::as_str), Some("Clip saved"));
         assert!(slownik().len() > 200);
     }
