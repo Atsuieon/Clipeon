@@ -258,6 +258,8 @@ function pokazFilm(s) {
   $("skrot-filmu-uwaga").textContent = s.skrot_filmu_blad || "";
   $("skrot-znacznika-uwaga").hidden = !s.skrot_znacznika_blad;
   $("skrot-znacznika-uwaga").textContent = s.skrot_znacznika_blad || "";
+  $("skrot-discorda-uwaga").hidden = !s.skrot_discorda_blad;
+  $("skrot-discorda-uwaga").textContent = s.skrot_discorda_blad || "";
   // Zapisany film jest zmniejszany w tle do formatu z ustawień
   $("film-zmniejszanie").hidden = s.film_zmniejszanie == null;
   $("film-zmniejszanie").textContent = `Zmniejszam ostatni film: ${s.film_zmniejszanie ?? 0}%. Do końca jest w bibliotece w pełnej jakości.`;
@@ -1952,6 +1954,7 @@ const POLA = [
   ["monitor", "monitor", "tekst"],
   ["monitor-pulpitu", "monitor_pulpitu", "tekst"],
   ["mikrofon-urzadzenie", "mikrofon_urzadzenie", "tekst"],
+  ["limit-discorda", "limit_discorda_mb", "liczba"],
 ];
 
 function wpiszPola(c) {
@@ -2015,6 +2018,7 @@ async function wczytajUstawienia() {
   ustawSkrot($("skrot"), cfg.skrot);
   ustawSkrot($("skrot-filmu"), cfg.skrot_filmu);
   ustawSkrot($("skrot-znacznika"), cfg.skrot_znacznika ?? "Alt+F8");
+  ustawSkrot($("skrot-discorda"), cfg.skrot_discorda ?? "Alt+F7");
   $("folder").textContent = cfg.folder_klipow;
   $("autostart").checked = u.autostart;
   $("wersja").textContent = u.wersja;
@@ -2098,6 +2102,7 @@ function zebraneUstawienia() {
     skrot: $("skrot").dataset.wartosc,
     skrot_filmu: $("skrot-filmu").dataset.wartosc,
     skrot_znacznika: $("skrot-znacznika").dataset.wartosc,
+    skrot_discorda: $("skrot-discorda").dataset.wartosc,
     folder_klipow: $("folder").textContent,
     sprzatanie_dni: $("sprz-dni-wl").checked ? Number($("sprz-dni").value) || 30 : 0,
     sprzatanie_gb: $("sprz-gb-wl").checked ? Number($("sprz-gb").value) || 50 : 0,
@@ -2107,7 +2112,7 @@ function zebraneUstawienia() {
 // Klucz ustawienia → pole formularza (do zaznaczania zmienionych) i nazwa na liście w pytaniu
 const POLE_KLUCZA = {
   ...Object.fromEntries(POLA.map(([id, klucz]) => [klucz, id])),
-  skrot: "skrot", skrot_filmu: "skrot-filmu", skrot_znacznika: "skrot-znacznika", folder_klipow: "folder", sprzatanie_dni: "sprz-dni", sprzatanie_gb: "sprz-gb", autostart: "autostart",
+  skrot: "skrot", skrot_filmu: "skrot-filmu", skrot_znacznika: "skrot-znacznika", skrot_discorda: "skrot-discorda", folder_klipow: "folder", sprzatanie_dni: "sprz-dni", sprzatanie_gb: "sprz-gb", autostart: "autostart",
 };
 const NAZWY_USTAWIEN = {
   bufor_sekundy: "Ile ostatnich sekund zapisywać", fps: "Gra: klatki/s", bitrate_mbps: "Gra: Mb/s",
@@ -2116,7 +2121,8 @@ const NAZWY_USTAWIEN = {
   mikrofon_urzadzenie: "Który mikrofon", dzwiek_zapisu: "Dźwięk po zapisaniu", powiadomienie_zapisu: "Powiadomienie w rogu ekranu",
   ikona_przy_zegarze: "Ikona przy zegarze", sprawdzaj_aktualizacje: "Sprawdzanie nowej wersji", animowane_tlo: "Animowane tło",
   kolorowy_napis: "Napis z cząsteczek", enkoder: "Format wideo", metoda_przechwytywania: "Sposób przechwytywania obrazu",
-  skrot: "Skrót do zapisania klipu", skrot_filmu: "Skrót do nagrywania filmu", skrot_znacznika: "Skrót znacznika w filmie", folder_klipow: "Gdzie zapisywać klipy",
+  skrot: "Skrót do zapisania klipu", skrot_filmu: "Skrót do nagrywania filmu", skrot_znacznika: "Skrót znacznika w filmie", skrot_discorda: "Skrót klipu na Discorda",
+  limit_discorda_mb: "Limit plików na Discordzie", folder_klipow: "Gdzie zapisywać klipy",
   sprzatanie_dni: "Usuwanie starych klipów", sprzatanie_gb: "Limit miejsca na klipy", autostart: "Uruchamianie razem z Windows",
 };
 

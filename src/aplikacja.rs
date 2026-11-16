@@ -21,6 +21,7 @@ struct PozycjeMenu {
     stan: MenuItem<Wry>,
     aktualizacja: MenuItem<Wry>,
     zapisz: MenuItem<Wry>,
+    discord: MenuItem<Wry>,
     pauza: MenuItem<Wry>,
     film: MenuItem<Wry>,
     tryb_gra: CheckMenuItem<Wry>,
@@ -38,6 +39,10 @@ fn pozwol_na_folder(app: &AppHandle, folder: &std::path::Path) {
 
 fn tekst_zapisu(cfg: &Config) -> String {
     format!("Zapisz ostatnie {} s\t{}", cfg.bufor_sekundy, cfg.skrot)
+}
+
+fn tekst_discorda(cfg: &Config) -> String {
+    format!("Klip na Discorda (do {} MB)\t{}", cfg.limit_discorda_mb, cfg.skrot_discorda)
 }
 
 fn tekst_filmu(cfg: &Config, trwa: bool) -> String {
@@ -191,11 +196,35 @@ fn obsluz_zdarzenie(app: &AppHandle, z: Zdarzenie) {
                 crate::dzwiek::zagraj();
             }
             if cfg.powiadomienie_zapisu {
-                pokaz_dymek_klipu(app, &plik, "Klip zapisany", &format!("Ostatnie {}", dlugosc_slowami(f64::from(cfg.bufor_sekundy))), None);
+                pokaz_dymek_klipu(app, &plik, "Klip zapisany", &format!("Ostatnie {}", dlugosc_slowami(f64::from(cfg.bufor_sekundy))), None, false);
             }
             let _ = app.emit("klip-zapisany", plik);
             // Po zapisie pilnujemy limitów folderu (jeśli sprzątanie jest włączone)
             std::thread::spawn(move || crate::sprzatanie::sprzataj(&cfg.folder_klipow, cfg.sprzatanie_dni, cfg.sprzatanie_gb));
+        }
+        // Klip na Discorda: najpierw zapis jak zwykle, potem (czasem kilka sekund) zmniejszanie do limitu
+        Zdarzenie::ZapisanoNaDiscorda(plik) => {
+            if cfg.dzwiek_zapisu {
+                crate::dzwiek::zagraj();
+            }
+            pokaz_dymek(app, "Klip zapisany", &format!("Przygotowuję go na Discorda (do {} MB)…", cfg.limit_discorda_mb), false, false);
+            let _ = app.emit("klip-zapisany", plik);
+            std::thread::spawn(move || crate::sprzatanie::sprzataj(&cfg.folder_klipow, cfg.sprzatanie_dni, cfg.sprzatanie_gb));
+        }
+        Zdarzenie::NaDiscorda(Ok(g)) => {
+            let mb = format!("{:.1} MB", g.mb).replace('.', ",");
+            let opis = if g.zmniejszony {
+                format!("Wklej Ctrl+V w Discordzie · {mb}, {}", dlugosc_slowami(g.sekundy))
+            } else {
+                format!("Wklej Ctrl+V w Discordzie · {mb}")
+            };
+            pokaz_dymek_klipu(app, &g.plik, "Klip w schowku", &opis, None, true);
+        }
+        Zdarzenie::NaDiscorda(Err(e)) => {
+            if cfg.dzwiek_zapisu {
+                crate::dzwiek::zagraj_blad();
+            }
+            pokaz_dymek(app, "Klip zapisany, ale nie trafił do schowka", &e, true, false);
         }
         // Błąd pokazujemy zawsze — inaczej użytkownik myślałby, że klip jest zapisany
         Zdarzenie::BladZapisu(e) => {
@@ -251,7 +280,7 @@ fn obsluz_zdarzenie(app: &AppHandle, z: Zdarzenie) {
             }
             let opis = if czesci > 1 { format!("{}, części: {czesci}", dlugosc_slowami(sekundy)) } else { dlugosc_slowami(sekundy) };
             // Plik to pierwsza część filmu — długość na kadrze bierzemy z całości
-            pokaz_dymek_klipu(app, &plik, "Film zapisany", &opis, Some((sekundy, czesci > 1)));
+            pokaz_dymek_klipu(app, &plik, "Film zapisany", &opis, Some((sekundy, czesci > 1)), false);
             let _ = app.emit("film-zapisany", plik);
         }
         Zdarzenie::FilmOdzyskany { plik, sekundy, czesci } => {
@@ -318,7 +347,8 @@ const CZEKANIE_NA_KADR: std::time::Duration = std::time::Duration::from_millis(2
 /// pulpitu „Pulpit”). `zapas` to opis na wypadek, gdyby kadru nie dało się wyciągnąć — wtedy dymek
 /// jest samym tekstem. `film` = (długość całego filmu, czy ma kilka części): plik to wtedy tylko
 /// pierwsza część, więc długość bierzemy stąd, a przy kilku częściach `zapas` stoi też pod kadrem.
-fn pokaz_dymek_klipu(app: &AppHandle, plik: &std::path::Path, tytul: &str, zapas: &str, film: Option<(f64, bool)>) {
+/// `staly_opis` = zawsze `zapas` pod tytułem (zamiast nazwy gry z klipu).
+fn pokaz_dymek_klipu(app: &AppHandle, plik: &std::path::Path, tytul: &str, zapas: &str, film: Option<(f64, bool)>, staly_opis: bool) {
     let zamowienie = crate::powiadomienie::zamow();
     let Some(miejsce) = miejsce_dymka(app) else { return };
     let (plik, tytul, zapas) = (plik.to_path_buf(), tytul.to_string(), zapas.to_string());
@@ -333,7 +363,7 @@ fn pokaz_dymek_klipu(app: &AppHandle, plik: &std::path::Path, tytul: &str, zapas
             return crate::powiadomienie::pokaz(miejsce, &tytul, &zapas, false, false, None, None);
         };
         let pulpit = plik.file_name().is_some_and(|n| n.to_string_lossy().starts_with("Clipeon_Pulpit_"));
-        let opis = match (film.is_some_and(|(_, czesci)| czesci), gra.is_empty(), pulpit) {
+        let opis = match (film.is_some_and(|(_, czesci)| czesci) || staly_opis, gra.is_empty(), pulpit) {
             (true, _, _) => zapas,
             (_, false, _) => gra,
             (_, true, true) => "Pulpit".to_string(),
@@ -485,6 +515,7 @@ fn zapisz_ustawienia(app: AppHandle, rdzen: State<'_, Rdzen>, mut cfg: Config, a
     if let Some(m) = app.try_state::<PozycjeMenu>() {
         let cfg = rdzen.config();
         let _ = m.zapisz.set_text(tekst_zapisu(&cfg));
+        let _ = m.discord.set_text(tekst_discorda(&cfg));
         let _ = m.film.set_text(tekst_filmu(&cfg, false));
     }
     let a = app.autolaunch();
@@ -498,8 +529,8 @@ async fn wybierz_folder(app: AppHandle) -> Option<String> {
 }
 
 #[tauri::command]
-fn zapisz_klip(rdzen: State<'_, Rdzen>) {
-    rdzen.zapisz_klip();
+fn zapisz_klip(rdzen: State<'_, Rdzen>, na_discorda: Option<bool>) {
+    rdzen.zapisz_klip(na_discorda.unwrap_or(false));
 }
 
 #[tauri::command]
@@ -824,6 +855,7 @@ pub fn uruchom() {
             // Menu zasobnika
             let stan = MenuItem::with_id(app, "stan", "○ Uruchamiam nagrywanie…", false, None::<&str>)?;
             let zapisz = MenuItem::with_id(app, "zapisz", tekst_zapisu(&cfg), true, None::<&str>)?;
+            let discord = MenuItem::with_id(app, "discord", tekst_discorda(&cfg), true, None::<&str>)?;
             let log = MenuItem::with_id(app, "log", "Pokaż dziennik zdarzeń", true, None::<&str>)?;
             let aktualizacja = MenuItem::with_id(app, "aktualizacja", "Sprawdź aktualizacje", true, None::<&str>)?;
             let pauza = MenuItem::with_id(app, "pauza", "Wstrzymaj nagrywanie", true, None::<&str>)?;
@@ -837,9 +869,9 @@ pub fn uruchom() {
             let sep = || PredefinedMenuItem::separator(app);
             let menu = Menu::with_items(
                 app,
-                &[&stan, &sep()?, &zapisz, &film, &pauza, &tryb_gra, &tryb_pulpit, &sep()?, &folder, &biblioteka, &ustawienia, &log, &aktualizacja, &sep()?, &zamknij],
+                &[&stan, &sep()?, &zapisz, &discord, &film, &pauza, &tryb_gra, &tryb_pulpit, &sep()?, &folder, &biblioteka, &ustawienia, &log, &aktualizacja, &sep()?, &zamknij],
             )?;
-            app.manage(PozycjeMenu { stan, aktualizacja, zapisz, pauza, film, tryb_gra, tryb_pulpit });
+            app.manage(PozycjeMenu { stan, aktualizacja, zapisz, discord, pauza, film, tryb_gra, tryb_pulpit });
             app.manage(crate::aktualizacje::Stan::default());
 
             TrayIconBuilder::with_id(ID_ZASOBNIKA)
@@ -850,7 +882,8 @@ pub fn uruchom() {
                 .on_menu_event(|app, e| {
                     let rdzen = app.state::<Rdzen>();
                     match e.id().as_ref() {
-                        "zapisz" => rdzen.zapisz_klip(),
+                        "zapisz" => rdzen.zapisz_klip(false),
+                        "discord" => rdzen.zapisz_klip(true),
                         "pauza" => rdzen.przelacz_pauze(),
                         "film" => {
                             let r = rdzen.inner().clone();

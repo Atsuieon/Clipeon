@@ -248,6 +248,27 @@
                 </div>
                 <div class="ust">
                   <div class="opis">
+                    <span>Skrót „klip na Discorda”</span>
+                    <p class="pomoc">Zapisuje klip, zmniejsza go do limitu Discorda i kładzie do schowka. Na Discordzie zostaje Ctrl+V i Enter. Za długi klip zostaje przycięty do końcówki, a oryginał zostaje w bibliotece.</p>
+                    <p class="pomoc uwaga" id="skrot-discorda-uwaga" hidden></p>
+                  </div>
+                  <div class="pole"><button type="button" class="pole-skrotu" id="skrot-discorda" data-skrot data-pusty="Bez skrótu"></button></div>
+                </div>
+                <div class="ust ust-pod">
+                  <div class="opis">
+                    <label for="limit-discorda">Limit plików na Discordzie</label>
+                    <p class="pomoc">Ile możesz wysłać na Discorda jednym plikiem.</p>
+                  </div>
+                  <div class="pole">
+                    <select id="limit-discorda" aria-label="Limit plików na Discordzie">
+                      <option value="10">10 MB (bez Nitro)</option>
+                      <option value="50">50 MB (Nitro Basic)</option>
+                      <option value="500">500 MB (Nitro)</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="ust">
+                  <div class="opis">
                     <span>Gdzie zapisywać klipy</span>
                     <p class="pomoc sciezka" id="folder"></p>
                     <p class="pomoc">Nowe klipy trafiają do podfolderów z miesiącem, np. 2026-11.</p>

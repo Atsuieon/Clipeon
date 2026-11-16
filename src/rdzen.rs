@@ -61,6 +61,8 @@ pub struct Stan {
     pub skrot_filmu_blad: Option<String>,
     /// Skrót znacznika jest zajęty przez inny program (opis)
     pub skrot_znacznika_blad: Option<String>,
+    /// Skrót „klip na Discorda” jest zajęty przez inny program (opis)
+    pub skrot_discorda_blad: Option<String>,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -88,6 +90,10 @@ pub enum Zdarzenie {
     Znacznik(Option<(usize, u64)>),
     /// Film przerwany awarią programu został złożony przy starcie
     FilmOdzyskany { plik: PathBuf, sekundy: f64, czesci: usize },
+    /// Klip zapisany skrótem „na Discorda” — teraz jest przygotowywany do wklejenia
+    ZapisanoNaDiscorda(PathBuf),
+    /// Klip na Discorda: plik w schowku (gotowy do Ctrl+V) albo opis błędu
+    NaDiscorda(Result<crate::discord::Gotowy, String>),
 }
 
 /// Po tylu sekundach bez nowych klatek strażnik uznaje, że nagrywanie stoi
@@ -152,10 +158,12 @@ struct Wnetrze {
     _skrot: Option<skrot::Nasluch>,
     _skrot_filmu: Option<skrot::Nasluch>,
     _skrot_znacznika: Option<skrot::Nasluch>,
+    _skrot_discorda: Option<skrot::Nasluch>,
     /// Okno ustawia właśnie nowy skrót: skróty są wyrejestrowane, żeby wciskane klawisze nie robiły klipów
     skroty_wstrzymane: bool,
     skrot_filmu_blad: Option<String>,
     skrot_znacznika_blad: Option<String>,
+    skrot_discorda_blad: Option<String>,
     /// Trwające długie nagrywanie
     film: Option<Film>,
     /// Zakończony film jest składany w plik (w tle)
@@ -230,9 +238,11 @@ impl Rdzen {
             _skrot: None,
             _skrot_filmu: None,
             _skrot_znacznika: None,
+            _skrot_discorda: None,
             skroty_wstrzymane: false,
             skrot_filmu_blad: None,
             skrot_znacznika_blad: None,
+            skrot_discorda_blad: None,
             film: None,
             zapis_filmu: false,
             zmniejszanie_filmu: None,
@@ -298,6 +308,7 @@ impl Rdzen {
             film_zmniejszanie: w.zmniejszanie_filmu,
             skrot_filmu_blad: w.skrot_filmu_blad.clone(),
             skrot_znacznika_blad: w.skrot_znacznika_blad.clone(),
+            skrot_discorda_blad: w.skrot_discorda_blad.clone(),
         }
     }
 
@@ -483,7 +494,7 @@ impl Rdzen {
         }
         let pokolenie = w.pokolenie;
         let r = self.clone();
-        match skrot::nasluchuj(&w.cfg.skrot, move || r.zapisz_klip(), self.zglaszacz(pokolenie, "skrot")) {
+        match skrot::nasluchuj(&w.cfg.skrot, move || r.zapisz_klip(false), self.zglaszacz(pokolenie, "skrot")) {
             Ok(n) => w._skrot = Some(n),
             Err(e) => {
                 w.bledy.insert("skrot", e);
@@ -492,6 +503,7 @@ impl Rdzen {
         // Zajęty skrót filmu albo znacznika to nie alarm (film da się włączyć z okna) — tylko uwaga w ustawieniach
         w.skrot_filmu_blad = None;
         w.skrot_znacznika_blad = None;
+        w.skrot_discorda_blad = None;
         if !w.cfg.skrot_filmu.is_empty() {
             let r = self.clone();
             let zglos = self.zglaszacz_skrotu(pokolenie, |w| &mut w.skrot_filmu_blad);
@@ -506,6 +518,14 @@ impl Rdzen {
             match skrot::nasluchuj(&w.cfg.skrot_znacznika, move || r.dodaj_znacznik(), zglos) {
                 Ok(n) => w._skrot_znacznika = Some(n),
                 Err(e) => w.skrot_znacznika_blad = Some(e),
+            }
+        }
+        if !w.cfg.skrot_discorda.is_empty() {
+            let r = self.clone();
+            let zglos = self.zglaszacz_skrotu(pokolenie, |w| &mut w.skrot_discorda_blad);
+            match skrot::nasluchuj(&w.cfg.skrot_discorda, move || r.zapisz_klip(true), zglos) {
+                Ok(n) => w._skrot_discorda = Some(n),
+                Err(e) => w.skrot_discorda_blad = Some(e),
             }
         }
     }
@@ -542,10 +562,10 @@ impl Rdzen {
             }
             w.skroty_wstrzymane = wstrzymaj;
             if wstrzymaj {
-                (w._skrot.take(), w._skrot_filmu.take(), w._skrot_znacznika.take())
+                (w._skrot.take(), w._skrot_filmu.take(), w._skrot_znacznika.take(), w._skrot_discorda.take())
             } else {
                 self.zarejestruj_skroty(&mut w);
-                (None, None, None)
+                (None, None, None, None)
             }
         };
         // Poza blokadą: wątek skrótu może właśnie na nią czekać
@@ -555,6 +575,7 @@ impl Rdzen {
             w.bledy.remove("skrot");
             w.skrot_filmu_blad = None;
             w.skrot_znacznika_blad = None;
+            w.skrot_discorda_blad = None;
         }
         self.wyslij_stan();
     }
@@ -614,7 +635,7 @@ impl Rdzen {
                     pulpit: s.pulpit,
                 });
             }
-            ((w._skrot.take(), w._skrot_filmu.take(), w._skrot_znacznika.take()), sesja)
+            ((w._skrot.take(), w._skrot_filmu.take(), w._skrot_znacznika.take(), w._skrot_discorda.take()), sesja)
         };
         drop(skroty);
         drop(sesja);
@@ -845,8 +866,9 @@ impl Rdzen {
         (self.powiadom)(Zdarzenie::Uwaga { tytul: tytul.into(), opis: opis.into() });
     }
 
-    /// Zapisuje bufor do MP4 w osobnym wątku; nagrywanie trwa dalej.
-    pub fn zapisz_klip(&self) {
+    /// Zapisuje bufor do MP4 w osobnym wątku; nagrywanie trwa dalej. `na_discorda` = potem zmniejsza
+    /// kopię do limitu Discorda (gdy trzeba) i kładzie ją do schowka — zostaje tylko Ctrl+V w Discordzie.
+    pub fn zapisz_klip(&self, na_discorda: bool) {
         let (migawka, folder, brak_sesji, gra) = {
             let w = self.zamek();
             let migawka = w.sesja.as_ref().map(|s| {
@@ -865,6 +887,7 @@ impl Rdzen {
             });
             (migawka, w.cfg.folder_klipow.clone(), brak_sesji(&w, "zapisywać klipy"), w.gra.as_ref().map(|g| g.nazwa.clone()))
         };
+        let limit_mb = self.zamek().cfg.limit_discorda_mb;
         let powiadom = self.powiadom.clone();
         let Some((wideo, audio, format_wideo, fps, pulpit)) = migawka else {
             powiadom(Zdarzenie::BladZapisu(brak_sesji));
@@ -872,6 +895,14 @@ impl Rdzen {
         };
         let przedrostek = if pulpit { "Clipeon_Pulpit" } else { "Clipeon" };
         std::thread::spawn(move || match zapis::zapisz(&folder, przedrostek, fps, format_wideo, wideo, audio, gra) {
+            Ok(plik) if na_discorda => {
+                powiadom(Zdarzenie::ZapisanoNaDiscorda(plik.clone()));
+                let wynik = crate::discord::przygotuj(&plik, limit_mb);
+                if let Err(e) = &wynik {
+                    crate::dziennik::blad(&format!("Klip na Discorda: {e}"));
+                }
+                powiadom(Zdarzenie::NaDiscorda(wynik));
+            }
             Ok(plik) => powiadom(Zdarzenie::Zapisano(plik)),
             Err(e) => {
                 crate::dziennik::blad(&format!("Nie udało się zapisać klipu: {e}"));
