@@ -96,7 +96,7 @@ const formatCzas = (s) => {
   return `${g ? `${g}:${String(m).padStart(2, "0")}` : m}:${String(s % 60).padStart(2, "0")}`;
 };
 const formatData = (ms) =>
-  new Date(ms).toLocaleString("pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  new Date(ms).toLocaleString(window.Jezyk?.locale || "pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
 // ---------- Pigułka: podświetlenie przesuwające się między przyciskami grupy ----------
 // Jeden element na grupę, przesuwany transformacją (karta graficzna, bez przeliczania układu).
@@ -807,7 +807,8 @@ $("wideo").addEventListener("error", () => {
   $("eksport-info").textContent = BRAK_PODGLADU;
 });
 $("wideo").addEventListener("loadeddata", () => {
-  if ($("eksport-info").textContent === BRAK_PODGLADU) $("eksport-info").textContent = "";
+  const info = $("eksport-info").textContent;
+  if (info === BRAK_PODGLADU || info === window.Jezyk?.t(BRAK_PODGLADU)) $("eksport-info").textContent = "";
 });
 
 $("wideo").addEventListener("loadedmetadata", () => {
@@ -1955,6 +1956,7 @@ const POLA = [
   ["monitor-pulpitu", "monitor_pulpitu", "tekst"],
   ["mikrofon-urzadzenie", "mikrofon_urzadzenie", "tekst"],
   ["limit-discorda", "limit_discorda_mb", "liczba"],
+  ["jezyk", "jezyk", "tekst"],
 ];
 
 function wpiszPola(c) {
@@ -2122,7 +2124,7 @@ const NAZWY_USTAWIEN = {
   ikona_przy_zegarze: "Ikona przy zegarze", sprawdzaj_aktualizacje: "Sprawdzanie nowej wersji", animowane_tlo: "Animowane tło",
   kolorowy_napis: "Napis z cząsteczek", enkoder: "Format wideo", metoda_przechwytywania: "Sposób przechwytywania obrazu",
   skrot: "Skrót do zapisania klipu", skrot_filmu: "Skrót do nagrywania filmu", skrot_znacznika: "Skrót znacznika w filmie", skrot_discorda: "Skrót klipu na Discorda",
-  limit_discorda_mb: "Limit plików na Discordzie", folder_klipow: "Gdzie zapisywać klipy",
+  limit_discorda_mb: "Limit plików na Discordzie", jezyk: "Język", folder_klipow: "Gdzie zapisywać klipy",
   sprzatanie_dni: "Usuwanie starych klipów", sprzatanie_gb: "Limit miejsca na klipy", autostart: "Uruchamianie razem z Windows",
 };
 
@@ -2175,6 +2177,7 @@ async function zapiszUstawienia() {
   $("komunikat").textContent = "Zapisuję…";
   try {
     await invoke("zapisz_ustawienia", { cfg: nowy, autostart });
+    window.Jezyk?.sprawdz();
     cfg = nowy;
     zapisane = { ...nowy, autostart };
     p.classList.add("zapisano");

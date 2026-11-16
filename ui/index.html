@@ -246,7 +246,7 @@
                   </div>
                   <div class="pole"><button type="button" class="pole-skrotu" id="skrot-znacznika" data-skrot data-pusty="Bez skrótu"></button></div>
                 </div>
-                <div class="ust">
+                <div class="ust ust-pod">
                   <div class="opis">
                     <span>Skrót „klip na Discorda”</span>
                     <p class="pomoc">Zapisuje klip, zmniejsza go do limitu Discorda i kładzie do schowka. Na Discordzie zostaje Ctrl+V i Enter. Za długi klip zostaje przycięty do końcówki, a oryginał zostaje w bibliotece.</p>
@@ -312,6 +312,19 @@
             <section class="grupa">
               <h2>System</h2>
               <div class="karta ustawienia-lista">
+                <div class="ust">
+                  <div class="opis">
+                    <label for="jezyk">Język</label>
+                    <p class="pomoc">Język okna, dymków i menu przy zegarze.</p>
+                  </div>
+                  <div class="pole">
+                    <select id="jezyk" aria-label="Język / Language">
+                      <option value="auto">Jak Windows</option>
+                      <option value="pl">Polski</option>
+                      <option value="en">English</option>
+                    </select>
+                  </div>
+                </div>
                 <div class="ust">
                   <div class="opis">
                     <label for="autostart">Uruchamiaj razem z Windows</label>
@@ -534,6 +547,7 @@
 
   <div class="dymek" id="dymek" role="status" hidden></div>
 
+  <script src="jezyk.js"></script>
   <script src="tlo.js"></script>
   <script src="napis.js"></script>
   <script src="app.js"></script>

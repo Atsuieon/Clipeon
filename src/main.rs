@@ -17,6 +17,7 @@ mod ffmpeg;
 mod film;
 mod gra;
 mod ikona;
+mod jezyk;
 mod karty;
 mod klipy;
 mod odzyskiwanie;
