@@ -22,7 +22,9 @@ pub struct Gra {
     pub proces: String,
 }
 
-/// Programy, które nigdy nie są grą: pulpit, powłoka Windows, przeglądarki i sam Clipeon.
+/// Programy, które nigdy nie są grą: pulpit, powłoka Windows, przeglądarki, komunikatory, odtwarzacze,
+/// launchery gier, nagrywanie i sam Clipeon. Bez wybranej gry ścieżka „Gra” bierze dźwięk ostatniego
+/// programu na wierzchu — gdyby był nim Discord, rozmowa trafiłaby do „Gra”, a nie do „Discord i reszta”.
 const POMIJANE: &[&str] = &[
     "explorer.exe",
     "searchhost.exe",
@@ -40,6 +42,68 @@ const POMIJANE: &[&str] = &[
     "opera_gx.exe",
     "brave.exe",
     "vivaldi.exe",
+    "iexplore.exe",
+    "arc.exe",
+    "yandex.exe",
+    // Komunikatory
+    "discord.exe",
+    "discordptb.exe",
+    "discordcanary.exe",
+    "teamspeak.exe",
+    "ts3client_win64.exe",
+    "ts3client_win32.exe",
+    "skype.exe",
+    "slack.exe",
+    "ms-teams.exe",
+    "teams.exe",
+    "telegram.exe",
+    "whatsapp.exe",
+    "signal.exe",
+    "zoom.exe",
+    "mumble.exe",
+    "guilded.exe",
+    "element.exe",
+    // Muzyka i filmy
+    "spotify.exe",
+    "vlc.exe",
+    "mpc-hc64.exe",
+    "mpc-be64.exe",
+    "potplayermini64.exe",
+    "wmplayer.exe",
+    "music.ui.exe",
+    "video.ui.exe",
+    "applemusic.exe",
+    "itunes.exe",
+    // Launchery i sklepy z grami
+    "steam.exe",
+    "steamwebhelper.exe",
+    "epicgameslauncher.exe",
+    "battle.net.exe",
+    "riotclientux.exe",
+    "riotclientservices.exe",
+    "eadesktop.exe",
+    "origin.exe",
+    "galaxyclient.exe",
+    "upc.exe",
+    "ubisoftconnect.exe",
+    "rockstarlauncher.exe",
+    "xboxpcapp.exe",
+    "gamebar.exe",
+    // Nagrywanie, nakładki i narzędzia
+    "obs64.exe",
+    "obs32.exe",
+    "medal.exe",
+    "nvidia app.exe",
+    "nvidia overlay.exe",
+    "radeonsoftware.exe",
+    "amdrssrcext.exe",
+    "windowsterminal.exe",
+    "cmd.exe",
+    "powershell.exe",
+    "pwsh.exe",
+    "notepad.exe",
+    "code.exe",
+    "systemsettings.exe",
     "clipeon.exe",
 ];
 
@@ -271,6 +335,11 @@ mod testy {
         assert!(!mozliwa_gra("chrome.exe"));
         assert!(!mozliwa_gra("Clipeon.exe"));
         assert!(!mozliwa_gra(""));
+        // Komunikator na wierzchu nie może przejąć ścieżki „Gra”
+        assert!(!mozliwa_gra("Discord.exe"));
+        assert!(!mozliwa_gra("Spotify.exe"));
+        assert!(!mozliwa_gra("steamwebhelper.exe"));
+        assert!(POMIJANE.iter().all(|p| *p == p.to_ascii_lowercase()));
         assert!(mozliwa_gra("Cyberpunk2077.exe"));
         assert!(mozliwa_gra("csgo.exe"));
     }

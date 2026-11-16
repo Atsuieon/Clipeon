@@ -526,7 +526,10 @@ pub fn format_strumienia(nazwa: &str) -> &'static str {
 /// Format pikseli, którego enkoder potrzebuje na wejściu z pamięci RAM (None = przyjmie BGRA).
 /// QSV i Media Foundation chcą NV12, OpenH264 — YUV 4:2:0.
 pub fn format_wejscia(nazwa: &str) -> Option<&'static str> {
-    if nazwa.ends_with("_qsv") || nazwa.starts_with("h264_mf") || nazwa == "libx264" {
+    // AMD: z wejściem BGRA h264_amf zapisywał pełny zakres kolorów (yuvj420p, „pc”) mimo `-color_range tv`,
+    // a część odtwarzaczy pokazuje wtedy wyblakłe albo przepalone kolory. Z NV12 w zakresie TV klip ma
+    // zakres TV i znaczniki BT.709 jak z każdej innej karty.
+    if nazwa.ends_with("_qsv") || nazwa.ends_with("_amf") || nazwa.starts_with("h264_mf") || nazwa == "libx264" {
         Some("nv12")
     } else if nazwa == "libopenh264" {
         Some("yuv420p")
@@ -693,6 +696,9 @@ mod testy {
     fn enkoder_przez_windows_ma_wlasna_nazwe_w_ffmpeg() {
         assert_eq!(nazwa_ffmpeg("h264_mf_sprzet"), "h264_mf");
         assert_eq!(format_wejscia("h264_mf_sprzet"), Some("nv12"));
+        // AMD dostaje z RAM obraz NV12 w zakresie TV (z BGRA h264_amf pisał pełny zakres)
+        assert_eq!(format_wejscia("h264_amf"), Some("nv12"));
+        assert_eq!(format_wejscia("h264_nvenc"), None);
         let a = argumenty_nagrywania("h264_mf_sprzet", 60, false);
         assert!(a.windows(2).any(|w| w == ["-c:v", "h264_mf"]));
         assert!(a.windows(2).any(|w| w == ["-hw_encoding", "1"]));
