@@ -105,9 +105,7 @@ fn pokaz_okno(app: &AppHandle, zakladka: &str) {
             .background_color(Color(0, 0, 0, 255))
             // Bez sprzętowych nakładek wideo: w oknach z przezroczystością (np. nieaktywne okna
             // w GlazeWM) taka nakładka znika i podgląd klipu jest pusty
-            .additional_browser_args(
-                "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-direct-composition-video-overlays",
-            )
+            .additional_browser_args(&argumenty_okna())
             // Bez systemowej ramki (pasek tytułu w kolorze akcentu Windows); własny pasek jest w UI.
             // Cień zostaje, więc Windows 11 nadal zaokrągla rogi i pozwala zmieniać rozmiar.
             .decorations(false)
@@ -118,6 +116,16 @@ fn pokaz_okno(app: &AppHandle, zakladka: &str) {
             Err(e) => crate::dziennik::blad(&format!("Nie udało się otworzyć okna: {e}")),
         }
     });
+}
+
+/// Argumenty WebView2 okna. `CLIPEON_PORT_TESTU` (tylko test prawdziwego okna, testy/prawdziwe-okno.mjs)
+/// włącza port debugowania, przez który test klika w okno jak użytkownik.
+fn argumenty_okna() -> String {
+    let mut a = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-direct-composition-video-overlays".to_string();
+    if let Some(port) = std::env::var("CLIPEON_PORT_TESTU").ok().and_then(|p| p.parse::<u16>().ok()) {
+        a.push_str(&format!(" --remote-debugging-port={port}"));
+    }
+    a
 }
 
 /// Windows 11 rysuje wokół okna obwódkę w kolorze akcentu (u użytkownika zielonym) — ustawiamy ciemną.

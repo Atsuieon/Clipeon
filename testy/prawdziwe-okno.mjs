@@ -1,6 +1,6 @@
 // Test prawdziwego Clipeona na Windows (GitHub Actions, windows-latest): prawdziwy rdzeń w Rust,
 // prawdziwe okno WebView2, prawdziwy config w %APPDATA%\Clipeon. Playwright podłącza się do okna
-// przez port debugowania WebView2 (WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222).
+// przez port debugowania WebView2 (zmienna CLIPEON_PORT_TESTU=9222, którą Clipeon dokleja do argumentów okna).
 //
 // Sprawdza zmianę języka tak, jak robi to użytkownik: Ustawienia → Język → Zapisz zmiany,
 // w obie strony, potem zamknięcie programu i ponowne uruchomienie.
@@ -64,6 +64,14 @@ async function otworzOkno(etap) {
     }
     await czekaj(1000);
   }
+  console.log("--- clipeon.log ---");
+  console.log(existsSync(LOG) ? readFileSync(LOG, "utf8").split("\n").slice(-40).join("\n") : "(brak)");
+  try {
+    console.log("--- procesy ---");
+    console.log(
+      execFileSync("powershell", ["-NoProfile", "-Command", "Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'clipeon|webview' } | ForEach-Object { $_.Name + ' ' + $_.CommandLine.Substring(0, [Math]::Min(300, $_.CommandLine.Length)) }"], { encoding: "utf8" }),
+    );
+  } catch {}
   throw new Error(`${etap}: nie udało się podłączyć do okna Clipeona (ostatnio: ${ostatni})`);
 }
 

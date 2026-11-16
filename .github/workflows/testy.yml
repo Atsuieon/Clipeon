@@ -59,6 +59,9 @@ jobs:
           git fetch --depth 1 origin "refs/tags/${{ matrix.wersja }}:refs/tags/${{ matrix.wersja }}"
           git checkout "${{ matrix.wersja }}"
           Copy-Item $env:RUNNER_TEMP/prawdziwe-okno.mjs testy/
+          # Stare wydanie nie zna CLIPEON_PORT_TESTU — port debugowania dopisujemy wprost
+          $p = "src/aplikacja.rs"
+          (Get-Content $p -Raw).Replace('--disable-direct-composition-video-overlays"', '--disable-direct-composition-video-overlays --remote-debugging-port=9222"') | Set-Content $p -NoNewline
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -72,7 +75,7 @@ jobs:
         run: npm install --no-save playwright@1.63.0
       - name: Zmiana języka w prawdziwym oknie
         env:
-          WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: --remote-debugging-port=9222
+          CLIPEON_PORT_TESTU: "9222"
         run: node testy/prawdziwe-okno.mjs target/release/clipeon.exe
       - name: Zrzuty okna
         if: always()
