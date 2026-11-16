@@ -10,6 +10,7 @@ repository = "https://github.com/Atsuieon/Clipeon"
 [dependencies]
 base64 = "0.22"
 drag = "2.1.1"
+regex = "1.13.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }

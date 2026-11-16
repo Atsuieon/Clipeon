@@ -323,6 +323,298 @@ window.SLOWNIK_EN = {
  },
  "wzory": [
   [
+   "^Nie nagrywa: (.+) — ponawiam…$",
+   "Not recording: $1 — retrying…"
+  ],
+  [
+   "^Nie udało się uruchomić nagrywania: (.+)$",
+   "Couldn't start recording: $1"
+  ],
+  [
+   "^Nie udało się uruchomić ffmpeg: (.+)$",
+   "Couldn't start ffmpeg: $1"
+  ],
+  [
+   "^nie udało się uruchomić ffmpeg: (.+)$",
+   "couldn't start ffmpeg: $1"
+  ],
+  [
+   "^Nie udało się uruchomić zapisu filmu: (.+)$",
+   "Couldn't start saving the film: $1"
+  ],
+  [
+   "^Nie udało się uruchomić strażnika: (.+)$",
+   "Couldn't start the watchdog: $1"
+  ],
+  [
+   "^Nie można nagrywać \\((.+?)\\): (.+)$",
+   "Can't record ($1): $2"
+  ],
+  [
+   "^Skrót (.+?) jest zajęty przez inny program \\((.+)\\)$",
+   "Shortcut $1 is taken by another program ($2)"
+  ],
+  [
+   "^Błąd w (.+?): (.+)$",
+   "Error in $1: $2"
+  ],
+  [
+   "^Błąd przesyłania do ffmpeg: (.+)$",
+   "Error sending data to ffmpeg: $1"
+  ],
+  [
+   "^Wideo: ffmpeg przestał działać: (.+)$",
+   "Video: ffmpeg stopped working: $1"
+  ],
+  [
+   "^enkoder wideo przestał działać \\((.+)\\)$",
+   "the video encoder stopped working ($1)"
+  ],
+  [
+   "^enkoder dźwięku \\(ffmpeg\\) przestał działać: (.+)$",
+   "the audio encoder (ffmpeg) stopped working: $1"
+  ],
+  [
+   "^Enkoder (.+?) nie działa: (.+)$",
+   "Encoder $1 doesn't work: $2"
+  ],
+  [
+   "^chwilowa utrata obrazu z ekranu \\(próba (.+?) z karty (.+) się nie udała\\)$",
+   "the screen picture was lost for a moment (attempt $1 on card $2 failed)"
+  ],
+  [
+   "^rozdzielczość ekranu zmieniła się na (.+)$",
+   "the screen resolution changed to $1"
+  ],
+  [
+   "^nie ma ekranu (.+) na żadnej karcie$",
+   "screen $1 isn't on any graphics card"
+  ],
+  [
+   "^ffmpeg zakończył się błędem: (.+)$",
+   "ffmpeg ended with an error: $1"
+  ],
+  [
+   "^ffmpeg nie złożył filmu: (.+)$",
+   "ffmpeg didn't put the film together: $1"
+  ],
+  [
+   "^nie udało się zapisać filmu na dysk \\((.+)\\)$",
+   "couldn't save the film to disk ($1)"
+  ],
+  [
+   "^wątek przechwytywania: (.+)$",
+   "capture thread: $1"
+  ],
+  [
+   "^nieobsługiwany format obrazu ekranu \\((.+)\\)$",
+   "unsupported screen picture format ($1)"
+  ],
+  [
+   "^nieobsługiwany format miksera: (.+) bitów$",
+   "unsupported mixer format: $1 bits"
+  ],
+  [
+   "^Za mało miejsca na dysku z folderem (.+) — zwolnij miejsce$",
+   "Not enough space on the drive with $1 — free up some space"
+  ],
+  [
+   "^Nie udało się zapisać klipu: (.+)$",
+   "Couldn't save the clip: $1"
+  ],
+  [
+   "^Nie udało się zapisać filmu: (.+)$",
+   "Couldn't save the film: $1"
+  ],
+  [
+   "^Nie udało się zacząć filmu: (.+)$",
+   "Couldn't start the film: $1"
+  ],
+  [
+   "^Nie udało się zmniejszyć filmu: (.+)$",
+   "Couldn't shrink the film: $1"
+  ],
+  [
+   "^Nie udało się go zmniejszyć: (.+)$",
+   "Couldn't shrink it: $1"
+  ],
+  [
+   "^Film został w pełnej jakości: (.+)$",
+   "The film stayed in full quality: $1"
+  ],
+  [
+   "^Nie udało się nadać nazwy klipowi: (.+)$",
+   "Couldn't name the clip: $1"
+  ],
+  [
+   "^Nie udało się nadać nazwy filmowi: (.+)$",
+   "Couldn't name the film: $1"
+  ],
+  [
+   "^Nie udało się odzyskać filmu z (.+?): (.+)$",
+   "Couldn't recover the film from $1: $2"
+  ],
+  [
+   "^Nie udało się złożyć filmu z (.+?): (.+)$",
+   "Couldn't put the film together from $1: $2"
+  ],
+  [
+   "^Odzyskuję film przerwany awarią: (.+)$",
+   "Recovering a film cut short by a crash: $1"
+  ],
+  [
+   "^Nagrywanie jest wstrzymane — wznów je, żeby (.+)$",
+   "Recording is paused — resume it to $1"
+  ],
+  [
+   "^Znaczniki działają w trakcie filmu — zacznij go skrótem (.+)$",
+   "Markers work while a film is recording — start one with $1"
+  ],
+  [
+   "^Wybrany mikrofon jest odłączony — Clipeon nagrywa z „(.+)”\\. Wróci na wybrany, gdy tylko się pojawi\\.$",
+   "The selected microphone is disconnected — Clipeon is recording from “$1”. It switches back as soon as it reappears."
+  ],
+  [
+   "^Wybrany odłączony, nagrywam z „(.+)”$",
+   "Selected one disconnected, recording from “$1”"
+  ],
+  [
+   "^Ekran (.+) jest za duży dla H\\.264 na tej karcie — Clipeon nagrywa go w HEVC\\.$",
+   "Screen $1 is too large for H.264 on this card — Clipeon records it in HEVC."
+  ],
+  [
+   "^Ekran (.+?) jest za duży dla enkodera — Clipeon nagrywa go zmniejszony do (.+)\\.$",
+   "Screen $1 is too large for the encoder — Clipeon records it scaled down to $2."
+  ],
+  [
+   "^Klip jest za długi, żeby zmieścić go w (.+) MB — przytnij go najpierw$",
+   "The clip is too long to fit in $1 MB — trim it first"
+  ],
+  [
+   "^Nie udało się zmieścić klipu w (.+) MB — przytnij go$",
+   "Couldn't fit the clip in $1 MB — trim it"
+  ],
+  [
+   "^(.+?) może mieć najwyżej (.+) s — przytnij klip$",
+   "$1 can be at most $2 s — trim the clip"
+  ],
+  [
+   "^Ustawienia zapisane, ale nie udało się zmienić autostartu: (.+)$",
+   "Settings saved, but autostart couldn't be changed: $1"
+  ],
+  [
+   "^Nie udało się skopiować klipu: (.+)$",
+   "Couldn't copy the clip: $1"
+  ],
+  [
+   "^Nie udało się przenieść klipu do Kosza: (.+)$",
+   "Couldn't move the clip to the Recycle Bin: $1"
+  ],
+  [
+   "^Nie udało się rozpocząć przeciągania: (.+)$",
+   "Couldn't start dragging: $1"
+  ],
+  [
+   "^Nie udało się pobrać aktualizacji: (.+)$",
+   "Couldn't download the update: $1"
+  ],
+  [
+   "^Nie udało się sprawdzić aktualizacji: (.+)$",
+   "Couldn't check for updates: $1"
+  ],
+  [
+   "^Nie udało się zainstalować aktualizacji: (.+)$",
+   "Couldn't install the update: $1"
+  ],
+  [
+   "^Nie udało się odczytać listy mikrofonów: (.+)$",
+   "Couldn't read the list of microphones: $1"
+  ],
+  [
+   "^Nie udało się zapisać wyniku: (.+)$",
+   "Couldn't save the result: $1"
+  ],
+  [
+   "^Nie udało się zastąpić oryginału \\(plik jest otwarty w innym programie\\?\\): (.+)$",
+   "Couldn't replace the original (is the file open in another program?): $1"
+  ],
+  [
+   "^Nie udało się zastąpić oryginału: (.+)$",
+   "Couldn't replace the original: $1"
+  ],
+  [
+   "^Oryginał zostaje jako (.+?): (.+)$",
+   "The original stays as $1: $2"
+  ],
+  [
+   "^Nie mogę odczytać miniatury: (.+)$",
+   "Can't read the thumbnail: $1"
+  ],
+  [
+   "^Nie mogę zapisać pliku filmu: (.+)$",
+   "Can't save the film file: $1"
+  ],
+  [
+   "^Nie mogę zapisać pliku tymczasowego: (.+)$",
+   "Can't save the temporary file: $1"
+  ],
+  [
+   "^Nie mogę zapisać znaczników filmu: (.+)$",
+   "Can't save the film markers: $1"
+  ],
+  [
+   "^Nie mogę zapisać listy części filmu: (.+)$",
+   "Can't save the list of film parts: $1"
+  ],
+  [
+   "^Nie mogę utworzyć folderu configu: (.+)$",
+   "Can't create the settings folder: $1"
+  ],
+  [
+   "^Nie mogę utworzyć folderu na plik do przeciągnięcia: (.+)$",
+   "Can't create the folder for the drag file: $1"
+  ],
+  [
+   "^Nie mogę zapisać w (.+?): (.+)$",
+   "Can't save in $1: $2"
+  ],
+  [
+   "^Nie mogę odczytać (.+?): (.+)$",
+   "Can't read $1: $2"
+  ],
+  [
+   "^Nie mogę utworzyć (.+?): (.+)$",
+   "Can't create $1: $2"
+  ],
+  [
+   "^Nie mogę zapisać (.+?): (.+)$",
+   "Can't save $1: $2"
+  ],
+  [
+   "^Ten Windows nie obsługuje: (.+) — używam ustawień domyślnych$",
+   "This Windows doesn't support: $1 — using default settings"
+  ],
+  [
+   "^Powód: (.+)\\. Zapisuję plik…$",
+   "Reason: $1. Saving the file…"
+  ],
+  [
+   "^(.+) kończy nagrywanie$",
+   "$1 ends the recording"
+  ],
+  [
+   "^Dostępna aktualizacja (.+)$",
+   "Update $1 available"
+  ],
+  [
+   "^Wybrana gra \\((.+)\\) się zamknęła — czekam na nią$",
+   "The selected game ($1) closed — waiting for it"
+  ],
+  [
+   "^Wybrana gra \\((.+)\\) wystartowała — zaczynam nagrywać$",
+   "The selected game ($1) started — recording"
+  ],
+  [
    "^Czekam na (.+)$",
    "Waiting for $1"
   ],
