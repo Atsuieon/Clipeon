@@ -582,16 +582,16 @@ input[type="number"]:focus-visible, select:focus-visible { outline: none; border
 .o-programie a { color: #7a7a7a; text-decoration: none; border-bottom: 1px solid #333; transition: color var(--czas); }
 .o-programie a:hover { color: var(--tytul); }
 /* Wsparcie (Ko-fi): mała, cicha pigułka pod stopką — własny przycisk, bez skryptu Ko-fi */
-.wsparcie { margin: 0 0 24px; text-align: center; font-size: 12px; }
+.wsparcie { margin: 0 0 24px; text-align: center; font-size: 15.5px; }
 .wsparcie a {
-  display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px 5px 10px;
+  display: inline-flex; align-items: center; gap: 9px; padding: 6.5px 15.5px 6.5px 13px;
   border: 1px solid var(--ramka-karty); border-radius: 999px; background: rgba(8, 8, 8, 0.82);
   -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
   color: #6a6a6a; text-decoration: none; letter-spacing: 0.01em;
   transition: color var(--czas), border-color var(--czas), background var(--czas);
 }
 .wsparcie a:hover { color: var(--tytul); border-color: var(--ramka-pola); background: var(--hover); }
-.wsparcie svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.wsparcie svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
@@ -625,7 +625,7 @@ input[type="number"]:focus-visible, select:focus-visible { outline: none; border
 .pole-pelne { display: flex; flex-direction: column; gap: 6px; color: var(--pomoc); margin: 4px 0 12px; }
 
 /* Wąskie okno: pasek mieści przełącznik i ekran kosztem napisów */
-@media (max-width: 980px) {
+@media (max-width: 1040px) {
   .gora { gap: 14px; }
   #wybor span.etykieta-wyboru { display: none; }
   #wybor { padding: 7px 10px; }
@@ -936,9 +936,36 @@ h1 { font-size: clamp(30px, 4.2vw, 44px); }
   .przycisk.aktualizacja span { display: none; }
   .przycisk.aktualizacja { padding: 9px; }
 }
-/* Bardzo wąskie okno (np. kafelek w GlazeWM): pasek łamie się na dwa rzędy zamiast ucinać przyciski */
-@media (max-width: 900px) {
-  .gora { flex-wrap: wrap; row-gap: 10px; }
+/* Wąskie okno (np. kafelek w GlazeWM): pasek zostaje w jednym rzędzie — kolejne napisy chowają się,
+   a zostają ikony (opis każdej jest w podpowiedzi po najechaniu) */
+.gora { flex-wrap: nowrap; }
+.zakladki, .tryb, .wybor { flex: none; }
+@media (max-width: 920px) {
+  .marka { display: none; }
+  .gora { gap: 14px; padding-left: 20px; }
+}
+@media (max-width: 700px) {
+  .gora { gap: 10px; padding-left: 14px; padding-right: 14px; }
+  .akcje { gap: 6px; }
+  .zakladka { padding: 7px 11px; }
+  .tryb .segment { padding: 5px 10px; }
+}
+@media (max-width: 600px) {
+  .zakladka { padding: 6px 8px; font-size: 13px; }
+  .gora .przycisk.drugorzedny, .gora #zapisz-klip { padding: 8px; }
+}
+/* Bardzo wąsko (węższe niż najmniejsze okno, np. wymuszone przez menedżer okien): najpierw znika
+   wybór gry, potem pauza (pauza jest też w menu przy zegarze) */
+@media (max-width: 700px) {
+  .gora:has(.przycisk.aktualizacja:not([hidden])) .wybor { display: none; }
+}
+@media (max-width: 560px) {
+  .gora .wybor { display: none; }
+  .gora:has(.przycisk.aktualizacja:not([hidden])) #pauza { display: none; }
+}
+@media (max-width: 500px) {
+  .gora #pauza { display: none; }
+  .gora:has(.przycisk.aktualizacja:not([hidden])) .przycisk.film { display: none; }
 }
 
 /* ---------- Proste ustawienia i „Dla nerdów” (1.4.6) ----------
@@ -958,3 +985,35 @@ h1 { font-size: clamp(30px, 4.2vw, 44px); }
 .presety { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
 .presety .segment.wlasne { pointer-events: none; }
 .etykieta-presetow { font-size: 13px; color: var(--pomoc); margin: 2px 0 -4px 2px; }
+
+/* ---------- Ustawienia przy zwężaniu okna i prosty widok (1.5.0) ---------- */
+/* Karty jakości: trzy obok siebie, dopóki przyciski mieszczą się z zapasem. Potem Gra i Pulpit obok
+   siebie, a Filmy pod nimi na całą szerokość; w bardzo wąskim oknie jedna pod drugą */
+@media (max-width: 1000px) {
+  .jakosci { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #jakosc-filmy { grid-column: 1 / -1; }
+  #jakosc-filmy .presety { max-width: 420px; }
+}
+@media (max-width: 640px) {
+  .jakosci { grid-template-columns: minmax(0, 1fr); }
+}
+.presety .segment { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Grupy ustawień zawsze w dwóch równych kolumnach (trzy wąskie łamały napisy), w wąskim oknie w jednej */
+.grupy { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 780px) {
+  .grupy { grid-template-columns: minmax(0, 1fr); }
+}
+/* Skróty: nazwa po lewej, klawisze po prawej (bez powtarzania „Skrót do…”) */
+.skroty .ust .pole .pole-skrotu { min-width: 150px; max-width: 200px; font-size: 15px; text-align: center; }
+@media (max-width: 560px) {
+  .skroty .ust { grid-template-columns: minmax(0, 1fr) auto; }
+  .skroty .ust .pole .pole-skrotu { min-width: 120px; flex: none; }
+}
+/* Prosty widok: ustawienie, które nic nie zmienia, znika razem z wyłączoną opcją nadrzędną */
+#widok-ustawienia:not(.nerd) .karta:has(#mikrofon:not(:checked)) .ust:has(#mikrofon-urzadzenie),
+#widok-ustawienia:not(.nerd) .karta:has(#dzwiek:not(:checked)) .ust:has(#dzwiek-osobno) { display: none; }
+/* Status przy wąskim pasku: sama kropka (pełny opis jest w podpowiedzi), zamiast uciętego „Nagrywa: …” */
+@media (max-width: 940px) {
+  .status #status-tekst { display: none; }
+  .status { margin-right: 0; }
+}
