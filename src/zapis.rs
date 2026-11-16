@@ -83,7 +83,7 @@ pub fn zapisz(
         }
         cmd.args(["-movflags", "+faststart", "-f", "mp4"]).arg(&tymczasowy).stdin(Stdio::piped());
 
-        let mut ffmpeg = cmd.spawn().map_err(|e| format!("Nie udało się uruchomić ffmpeg: {e}"))?;
+        let mut ffmpeg = cmd.spawn().map_err(|e| crate::ffmpeg::blad_uruchomienia(&e))?;
         let mut wejscie = ffmpeg.stdin.take().unwrap();
         for p in wideo {
             wejscie.write_all(&p.dane).map_err(|e| format!("Błąd przesyłania do ffmpeg: {e}"))?;

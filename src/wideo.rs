@@ -580,7 +580,7 @@ pub fn uruchom(
             if let Some(s) = sterowanie {
                 let _ = s.stop();
             }
-            return Err(format!("Nie udało się uruchomić ffmpeg: {e}").into());
+            return Err(crate::ffmpeg::blad_uruchomienia(&e).into());
         }
     };
     crate::dziennik::info(&format!("Wideo: {opis}"));

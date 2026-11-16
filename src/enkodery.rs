@@ -178,6 +178,12 @@ fn wynik_przy(e: &'static Enkoder, p: Proba) -> Wynik {
         w.insert(klucz, (false, powod.clone(), Instant::now() + PORAZKA_EKRANU_WAZNA));
         return Wynik::EkranNiedostepny(powod);
     }
+    if !ok && crate::ffmpeg::to_blokada(&powod) {
+        // Windows nie dał uruchomić ffmpeg: to nic nie mówi o enkoderze. Nie nadpisujemy wyniku z dysku
+        // i pamiętamy krótko — Smart App Control potrafi za chwilę wpuścić ten sam plik
+        w.insert(klucz, (false, powod.clone(), Instant::now() + PORAZKA_EKRANU_WAZNA));
+        return Wynik::NieDziala(powod);
+    }
     if ok && let Some(k) = p.tekstura {
         let mut d = DZIALALY_Z_TEKSTURA.zablokuj();
         if !d.contains(&(e.nazwa, k)) {
@@ -257,7 +263,7 @@ fn proba_z_ponowieniem(e: &Enkoder, p: Proba) -> Result<(), String> {
         Ok(()) => return Ok(()),
         Err(x) => x,
     };
-    if sprzetowy(e.nazwa) && !blad_sprzetu(&powod) {
+    if sprzetowy(e.nazwa) && !blad_sprzetu(&powod) && !crate::ffmpeg::to_blokada(&powod) {
         match proba(e, p) {
             Ok(()) => return Ok(()),
             Err(x) => powod = x,
@@ -358,7 +364,7 @@ fn proba(e: &Enkoder, p: Proba) -> Result<(), String> {
         .args(["-f", "null", "-"])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped());
-    let mut proces = cmd.spawn().map_err(|x| format!("nie udało się uruchomić ffmpeg: {x}"))?;
+    let mut proces = cmd.spawn().map_err(|x| crate::ffmpeg::blad_uruchomienia(&x))?;
     // stderr czytamy w tle, żeby pełny potok nie zatrzymał ffmpeg
     let mut stderr = proces.stderr.take().unwrap();
     let czytanie = std::thread::spawn(move || {

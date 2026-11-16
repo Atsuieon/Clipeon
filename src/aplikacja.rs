@@ -217,14 +217,22 @@ fn obsluz_zdarzenie(app: &AppHandle, z: Zdarzenie) {
             if cfg.dzwiek_zapisu {
                 crate::dzwiek::zagraj_blad();
             }
-            pokaz_dymek(app, "Nie udało się zapisać klipu", &e, true, false);
+            if crate::ffmpeg::to_blokada(&e) {
+                pokaz_dymek_blokady(app, "Nie udało się zapisać klipu", &e, false);
+            } else {
+                pokaz_dymek(app, "Nie udało się zapisać klipu", &e, true, false);
+            }
         }
         // Clipeon nie nagrywa: dymek wisi do czasu naprawy albo kliknięcia (kliknięcie otwiera okno)
         Zdarzenie::Alarm(Some(opis)) => {
             if cfg.dzwiek_zapisu {
                 crate::dzwiek::zagraj_blad();
             }
-            pokaz_dymek(app, "Clipeon nie nagrywa", &opis, true, true);
+            if crate::ffmpeg::to_blokada(&opis) {
+                pokaz_dymek_blokady(app, "Clipeon nie nagrywa", &opis, true);
+            } else {
+                pokaz_dymek(app, "Clipeon nie nagrywa", &opis, true, true);
+            }
         }
         Zdarzenie::Uwaga { tytul, opis } => pokaz_dymek(app, &tytul, &opis, true, false),
         // Mikrofon chyba nie nagrywa głosu: własny dźwięk ostrzeżenia (inny niż błąd i zapis) i dymek
@@ -329,6 +337,13 @@ fn pokaz_dymek(app: &AppHandle, tytul: &str, opis: &str, blad: bool, trwaly: boo
         None
     };
     pokaz_dymek_z_klikiem(app, tytul, opis, blad, trwaly, klik);
+}
+
+/// Windows zablokował ffmpeg (Smart App Control itp.): dymek wisi, a kliknięcie otwiera instrukcję,
+/// bo sam Clipeon nic tu nie poradzi. `trwaly` jak w `pokaz_dymek` (alarm wisi, błąd zapisu znika sam).
+fn pokaz_dymek_blokady(app: &AppHandle, tytul: &str, opis: &str, trwaly: bool) {
+    let klik: Box<dyn FnOnce() + Send> = Box::new(|| crate::aktualizacje::otworz(crate::ffmpeg::POMOC_BLOKADY));
+    pokaz_dymek_z_klikiem(app, tytul, opis, true, trwaly, Some(klik));
 }
 
 /// Dymek z własną akcją po kliknięciu (`klik` = None: kliknięcia przechodzą do gry).

@@ -1,5 +1,10 @@
 # Zmiany
 
+## 1.5.1
+
+- **Gdy Windows blokuje ffmpeg, Clipeon mówi to po ludzku.** Smart App Control (albo zasady firmy/szkoły) potrafi nie pozwolić uruchomić niepodpisanego ffmpeg — wtedy klip się nie zapisywał, a dymek pokazywał tylko „Zasady kontroli aplikacji zablokowały ten plik (os error 4551)”. Teraz dymek mówi, co się stało, a kliknięcie otwiera instrukcję: [Windows blokuje ffmpeg](docs/windows-blokuje-ffmpeg.md). To samo przy antywirusie.
+- Zablokowana próba enkodera nie nadpisuje już zapamiętanych wyników prób i nie jest powtarzana — blokada nic nie mówi o karcie graficznej.
+
 ## 1.5.0
 
 Angielski interfejs, „Nagrywaj tylko grę”, czystsze ustawienia, znikający mikrofon wykrywany i naprawiany, napis „Clipeon” z cząsteczek i wsparcie przez Ko-fi. (Wersje 1.4.10–1.4.12 nie były wydawane osobno — wszystko jest tutaj.)

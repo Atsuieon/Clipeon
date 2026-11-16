@@ -59,6 +59,13 @@ Instalator jest budowany automatycznie z kodu w tym repozytorium.
 </details>
 
 <details>
+<summary><b>Klip się nie zapisuje: „Windows zablokował ffmpeg” / „Zasady kontroli aplikacji zablokowały ten plik”.</b></summary>
+
+To **Smart App Control** w Windows 11 (albo zasady firmy/szkoły) nie pozwala uruchomić niepodpisanego ffmpeg, którym Clipeon zapisuje klipy.
+Co zrobić: [Windows blokuje ffmpeg](docs/windows-blokuje-ffmpeg.md).
+</details>
+
+<details>
 <summary><b>Gdzie są moje klipy?</b></summary>
 
 W folderze `Wideo\Clipeon`, w podfolderze z miesiącem (np. `2026-11`); starsze klipy leżą prosto w folderze. Folder zmienisz w Ustawieniach.
@@ -109,7 +116,7 @@ Clipeon keeps the last seconds of your gameplay in memory and saves them as an M
 **Alt+F9** starts and stops a long recording with no time limit, which can then be re-encoded to HEVC or AV1 in the background to save space.
 GPU capture and encoding (AMD / NVIDIA / Intel), a desktop recording mode, separate game / Discord / mic tracks, film markers, crash recovery for long recordings, trimming, shrink-to-size for Discord,
 drag-and-drop or copy-paste clips into other apps, and a "Record only the game" switch that freezes the picture when you Alt+Tab away. Windows 10 2004+ / 11. [Download the latest release](https://github.com/Atsuieon/Clipeon/releases/latest)
-— the installer is unsigned, so SmartScreen may warn: *More info → Run anyway*. The interface is in English or Polish (set from the Windows language on first start; change it in Settings → System → Language).
+— the installer is unsigned, so SmartScreen may warn: *More info → Run anyway*; if clips fail with “Windows blocked ffmpeg” (Smart App Control), see [this page](docs/windows-blokuje-ffmpeg.md#windows-blocks-ffmpeg-an-application-control-policy-has-blocked-this-file). The interface is in English or Polish (set from the Windows language on first start; change it in Settings → System → Language).
 
 ## Wsparcie
 
