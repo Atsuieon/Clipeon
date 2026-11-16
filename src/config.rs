@@ -33,7 +33,7 @@ pub struct Config {
     pub skrot_discorda: String,
     /// Limit wysyłania plików na Discordzie w MB (bez Nitro 10, Nitro Basic 50, Nitro 500)
     pub limit_discorda_mb: u32,
-    /// Język okna i dymków: "auto" (jak Windows), "pl" albo "en"
+    /// Język okna i dymków: "pl" albo "en" (przy pierwszym uruchomieniu taki jak Windows)
     pub jezyk: String,
     /// Nagrywaj tylko grę: gdy na wierzchu jest coś innego (Alt+Tab do Discorda, przeglądarki), obraz
     /// zatrzymuje się na ostatniej klatce gry. Nie dotyczy trybu „Pulpit”.
@@ -88,7 +88,7 @@ pub struct Config {
 pub const TRYB_GRA: &str = "gra";
 pub const TRYB_PULPIT: &str = "pulpit";
 pub const METODY: &[&str] = &["auto", "dda", "dda-ram", "gfx", "potok"];
-pub const JEZYKI: &[&str] = &["auto", "pl", "en"];
+pub const JEZYKI: &[&str] = &["pl", "en"];
 
 impl Default for Config {
     fn default() -> Self {
@@ -107,7 +107,7 @@ impl Default for Config {
             skrot_znacznika: "Alt+F8".into(),
             skrot_discorda: "Alt+F7".into(),
             limit_discorda_mb: 10,
-            jezyk: "auto".into(),
+            jezyk: crate::jezyk::systemowy().into(),
             tylko_gra: false,
             format_filmu: crate::film::BEZ_ZMIAN.into(),
             animowane_tlo: true,
@@ -186,7 +186,16 @@ impl Config {
             return Ok(domyslny);
         }
         let tekst = std::fs::read_to_string(&sciezka).map_err(|e| format!("Nie mogę odczytać {}: {e}", sciezka.display()))?;
-        let cfg: Config = toml::from_str(&tekst).map_err(|e| format!("Błąd w {}: {e}", sciezka.display()))?;
+        let mut cfg: Config = toml::from_str(&tekst).map_err(|e| format!("Błąd w {}: {e}", sciezka.display()))?;
+        // Pierwsze uruchomienie z językiem (config sprzed 1.5.0 albo "auto" z wersji testowej): język z Windows
+        if !JEZYKI.contains(&cfg.jezyk.as_str()) || !tekst.lines().any(|l| l.trim_start().starts_with("jezyk")) {
+            if !JEZYKI.contains(&cfg.jezyk.as_str()) {
+                cfg.jezyk = crate::jezyk::systemowy().into();
+            }
+            if let Err(e) = cfg.zapisz() {
+                crate::dziennik::blad(&format!("Nie udało się zapisać języka w ustawieniach: {e}"));
+            }
+        }
         cfg.sprawdz().map_err(|e| format!("Błąd w {}: {e}", sciezka.display()))?;
         println!("Config: {}", sciezka.display());
         Ok(cfg)

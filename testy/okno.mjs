@@ -45,7 +45,15 @@ function udawanyTauri() {
   };
   const odpowiedzi = {
     stan: () => stan,
-    jezyk: () => window.__jezyk || "pl",
+    // Język z „zapisanych ustawień” (przetrwa przeładowanie strony, jak config w rdzeniu)
+    jezyk: () => {
+      try {
+        return sessionStorage.getItem("test.jezyk") || "pl";
+      } catch {
+        return "pl";
+      }
+    },
+    tlumaczenie: () => window.__tlumaczenie,
     ustawienia: () => ({ cfg: structuredClone(cfg), autostart: false, enkodery: [["auto", "Automatycznie"]], formaty_filmu: [["bez_zmian", "Pełna jakość — bez zmian (największy plik)"], ["hevc", "Mniejszy plik — HEVC, ok. połowa rozmiaru"], ["av1", "Najmniejszy plik — AV1, ok. 1/3 rozmiaru"]], wersja: "test", repozytorium: "" }),
     mikrofony: () => [
       { id: "m1", nazwa: "Mikrofon (USB)", domyslny: true },
@@ -62,6 +70,9 @@ function udawanyTauri() {
     },
     zapisz_ustawienia: (a) => {
       window.__zapisane = a;
+      try {
+        sessionStorage.setItem("test.jezyk", a.cfg.jezyk);
+      } catch {}
     },
     info_klipu: () => ({ dlugosc: 20, sciezki_audio: 3, fps: 60, szerokosc: 192, wysokosc: 108, webp: true, ...window.__info }),
     kopiuj_klip: (a) => {
@@ -107,6 +118,8 @@ const strona = await przegladarka.newPage({ viewport: { width: 1200, height: 800
 strona.on("pageerror", (e) => bledy.push(`błąd skryptu: ${e.message}`));
 strona.on("console", (m) => m.type() === "error" && bledy.push(`konsola: ${m.text()}`));
 await strona.addInitScript(udawanyTauri);
+const slownikEn = readFileSync(ui + "en.json", "utf8");
+await strona.addInitScript((t) => (window.__tlumaczenie = t), slownikEn);
 await strona.addInitScript((d) => (window.__dzwiek = d), readFileSync(new URL("dzwiek.webm", import.meta.url)).toString("base64"));
 await strona.goto(pathToFileURL(ui + "index.html").href);
 await strona.waitForTimeout(500);
@@ -935,12 +948,13 @@ await strona.waitForTimeout(50);
 sprawdz((await strona.evaluate(() => window.__wsparcie)) === 1, "przycisk wsparcia nie woła otworz_wsparcie");
 sprawdz(!(await strona.isVisible("#pasek-zapisu")), "kliknięcie wsparcia pokazało pasek niezapisanych zmian");
 
-// 3. Okno po angielsku: słownik en.json (fetch potrzebuje http, nie file://) i brak polskich napisów
+// 3. Okno po angielsku, z polityką bezpieczeństwa z tauri.conf.json (jak w Tauri): przełączenie
+// w Ustawieniach i brak polskich napisów
 const serwer = createServer((zad, odp) => {
   try {
     const plik = decodeURIComponent(new URL(zad.url, "http://x").pathname).replace(/^\/+/, "") || "index.html";
     const typ = { html: "text/html", js: "text/javascript", css: "text/css", json: "application/json", svg: "image/svg+xml" }[plik.split(".").pop()];
-    odp.writeHead(200, typ ? { "Content-Type": typ + "; charset=utf-8" } : {});
+    odp.writeHead(200, { ...(typ ? { "Content-Type": typ + "; charset=utf-8" } : {}), "Content-Security-Policy": csp });
     odp.end(readFileSync(ui + plik));
   } catch {
     odp.writeHead(404);
@@ -951,10 +965,23 @@ await new Promise((r) => serwer.listen(0, "127.0.0.1", r));
 const en = await przegladarka.newPage({ viewport: { width: 1200, height: 800 } });
 en.on("pageerror", (e) => bledy.push(`EN: błąd skryptu: ${e.message}`));
 await en.addInitScript(udawanyTauri);
-await en.addInitScript(() => (window.__jezyk = "en"));
+await en.addInitScript((t) => (window.__tlumaczenie = t), slownikEn);
 await en.goto(`http://127.0.0.1:${serwer.address().port}/index.html`);
+await en.waitForTimeout(500);
+sprawdz((await en.getAttribute("html", "lang")) !== "en", "EN: okno jest po angielsku, choć w ustawieniach jest polski");
+// Tak jak użytkownik: Ustawienia → Język → English → Zapisz
+await en.evaluate(() => document.querySelector('[data-zakladka="ustawienia"]')?.click());
+await en.waitForTimeout(200);
+sprawdz((await en.locator("#jezyk option").evaluateAll((o) => o.map((x) => x.value).join(","))) === "pl,en", "EN: lista języków to nie Polski i English");
+await en.selectOption("#jezyk", "en");
+await en.click("#zapisz-ustawienia");
 await en.waitForTimeout(800);
-sprawdz((await en.getAttribute("html", "lang")) === "en", "EN: okno nie przełączyło się na angielski");
+sprawdz((await en.evaluate(() => window.__zapisane?.cfg?.jezyk)) === "en", "EN: zapis ustawień nie wysłał języka angielskiego");
+sprawdz((await en.getAttribute("html", "lang")) === "en", "EN: okno nie przełączyło się na angielski po zapisaniu");
+// Po ponownym otwarciu okno od razu jest po angielsku
+await en.reload();
+await en.waitForTimeout(800);
+sprawdz((await en.getAttribute("html", "lang")) === "en", "EN: po ponownym otwarciu okno wróciło do polskiego");
 sprawdz((await en.textContent("#zakladka-ustawienia").catch(() => "")).includes("Settings") || (await en.locator("text=Settings").count()) > 0, "EN: zakładka Ustawienia nie jest przetłumaczona");
 // Każdy widoczny tekst z polskimi literami w Klipach i Ustawieniach to brak w słowniku
 const polskie = new Set();
