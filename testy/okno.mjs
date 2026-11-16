@@ -346,15 +346,25 @@ if (await druga.count()) await druga.click();
 await strona.waitForTimeout(100);
 sprawdz((await strona.evaluate(() => window.__wybranaGra?.proces)) === "druga.exe", "wybór gry z paska nie trafił do rdzenia");
 
-// Ustawienia: wybór mikrofonu działa także przy wyłączonym „Mój mikrofon”
+// Ustawienia: w prostym widoku „Który mikrofon” jest tylko przy włączonym mikrofonie; „Dla nerdów” widać
+// listę zawsze, a wybór urządzenia przy wyłączonym „Mój mikrofon” go włącza
 await strona.click('[data-zakladka="ustawienia"]');
 await strona.waitForTimeout(300);
 await zrzut("2-ustawienia");
 const mik = strona.locator("#mikrofon-urzadzenie");
+sprawdz(!(await strona.isChecked("#mikrofon")) && (await mik.isHidden()), "prosty widok pokazuje „Który mikrofon” przy wyłączonym mikrofonie");
+await strona.click('label[for="dla-nerdow"]');
+await strona.waitForTimeout(100);
 sprawdz(!(await mik.isDisabled()), "lista mikrofonów jest wyłączona");
 sprawdz((await mik.locator("option").count()) === 3, "lista mikrofonów nie ma wszystkich urządzeń");
-if (!(await mik.isDisabled())) await mik.selectOption("m2");
+if (await mik.isVisible()) await mik.selectOption("m2");
 sprawdz(await strona.isChecked("#mikrofon"), "wybranie mikrofonu nie włączyło „Mój mikrofon”");
+await strona.click('label[for="dla-nerdow"]');
+await strona.waitForTimeout(100);
+sprawdz(await mik.isVisible(), "prosty widok nie pokazuje „Który mikrofon” przy włączonym mikrofonie");
+// Skróty mają własną sekcję i krótkie nazwy (bez „Skrót do…”)
+sprawdz((await strona.locator(".grupa:has(#skrot) > h2").textContent()) === "Skróty", "skróty nie mają osobnej sekcji „Skróty”");
+sprawdz(!/Skrót do/.test(await strona.textContent("#formularz")), "w ustawieniach zostało „Skrót do…”");
 sprawdz((await strona.locator("#gra").count()) === 0, "pole „Gra” zostało w ustawieniach");
 
 // „Mój głos”: dwa przyciski zamiast przełącznika
@@ -913,10 +923,11 @@ await v(() => zamknijOdtwarzacz());
 sprawdz((await v(() => $("skrot-znacznika").dataset.wartosc)) === "Alt+F8", "w ustawieniach nie ma domyślnego skrótu znacznika Alt+F8");
 
 
-// Pasek górny mieści się przy każdej szerokości, także z widocznym przyciskiem „Aktualizuj do X”
+// Pasek górny mieści się przy każdej szerokości w jednym rzędzie (bez nachodzenia), także z widocznym
+// przyciskiem „Aktualizuj do X”
 for (const aktualizacja of [true, false]) {
   await strona.evaluate((a) => pokazAktualizacje(a ? { wersja: "10.11.12" } : null), aktualizacja);
-  for (const szerokosc of [1680, 1600, 1366, 1200, 1100, 1024, 980, 900, 860, 780, 640]) {
+  for (const szerokosc of [1680, 1600, 1366, 1200, 1100, 1024, 1000, 980, 900, 860, 780, 700, 640, 560, 480]) {
     await strona.setViewportSize({ width: szerokosc, height: 800 });
     await strona.waitForTimeout(30);
     const wynik = await strona.evaluate(() => {
@@ -926,11 +937,20 @@ for (const aktualizacja of [true, false]) {
         const r = el.getBoundingClientRect();
         return r.right > window.innerWidth + 1 || r.left < -1;
       });
-      return { przelew: g.scrollWidth - g.clientWidth, poza: poza.map((el) => el.id || el.className) };
+      // Kolejne widoczne elementy paska: każdy zaczyna się za poprzednim i wszystkie w jednym rzędzie
+      const els = [...g.querySelectorAll(".marka, .zakladki, .akcje > *")].filter((e) => !e.hidden && getComputedStyle(e).display !== "none" && e.getClientRects().length);
+      const rs = els.map((e) => e.getBoundingClientRect());
+      const nachodzi = [];
+      for (let i = 1; i < rs.length; i++) if (rs[i].left < rs[i - 1].right - 1) nachodzi.push(`${els[i - 1].id || els[i - 1].className} / ${els[i].id || els[i].className}`);
+      const srodki = rs.map((r) => r.top + r.height / 2);
+      const rzedy = Math.max(...srodki) - Math.min(...srodki) > 12 ? 2 : 1;
+      return { przelew: g.scrollWidth - g.clientWidth, poza: poza.map((el) => el.id || el.className), nachodzi, rzedy };
     });
     const opis = aktualizacja ? "z przyciskiem aktualizacji" : "bez przycisku aktualizacji";
     sprawdz(wynik.przelew <= 1, `pasek górny nie mieści się (${opis}, ${szerokosc} px): wystaje ${wynik.przelew} px`);
     sprawdz(wynik.poza.length === 0, `elementy paska poza oknem (${opis}, ${szerokosc} px): ${wynik.poza.join(", ")}`);
+    sprawdz(wynik.nachodzi.length === 0, `elementy paska nachodzą na siebie (${opis}, ${szerokosc} px): ${wynik.nachodzi.join(", ")}`);
+    sprawdz(wynik.rzedy === 1, `pasek górny łamie się na dwa rzędy (${opis}, ${szerokosc} px)`);
   }
 }
 await strona.evaluate(() => pokazAktualizacje(null));

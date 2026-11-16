@@ -2,7 +2,15 @@
 
 ## 1.5.0
 
-Angielski interfejs, „Nagrywaj tylko grę”, znikający mikrofon wykrywany i naprawiany, napis „Clipeon” z cząsteczek i wsparcie przez Ko-fi. (Wersje 1.4.10–1.4.12 nie były wydawane osobno — wszystko jest tutaj.)
+Angielski interfejs, „Nagrywaj tylko grę”, czystsze ustawienia, znikający mikrofon wykrywany i naprawiany, napis „Clipeon” z cząsteczek i wsparcie przez Ko-fi. (Wersje 1.4.10–1.4.12 nie były wydawane osobno — wszystko jest tutaj.)
+
+### Czystsze ustawienia i pasek górny
+
+- **Pasek górny zawsze w jednym rzędzie.** Przy zwężaniu okna nic na siebie nie wchodzi: najpierw chowają się napisy (zostają ikony z podpowiedzią), a w bardzo wąskim oknie wybór gry i pauza.
+- **Osobna sekcja „Skróty”** z krótkimi nazwami: Zapisz klip, Nagraj film, Znacznik w filmie.
+- Ustawienia zawsze w dwóch równych kolumnach. Karty jakości nie ucinają przycisków: w węższym oknie Filmy schodzą pod Grę i Pulpit, a w bardzo wąskim karty są jedna pod drugą.
+- W prostym widoku „Który mikrofon” widać tylko przy włączonym mikrofonie, a „Gra osobno od Discorda” tylko przy włączonym dźwięku z gry. „Dla nerdów” pokazuje wszystko jak dawniej.
+- Przycisk Ko-fi na dole Ustawień jest większy.
 
 ### Angielski interfejs
 

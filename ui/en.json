@@ -314,7 +314,10 @@
   "Pobieranie aktualizacji…": "Downloading the update…",
   "Wybrana gra": "Selected game",
   "Nagrywaj tylko grę": "Record only the game",
-  "Po Alt+Tab obraz zatrzymuje się na ostatniej klatce gry, więc Discord ani przeglądarka nie trafią do klipu. Dźwięk nagrywa się dalej.": "After Alt+Tab the picture freezes on the last game frame, so Discord or your browser never end up in a clip. Sound keeps recording."
+  "Po Alt+Tab obraz zatrzymuje się na ostatniej klatce gry, więc Discord ani przeglądarka nie trafią do klipu. Dźwięk nagrywa się dalej.": "After Alt+Tab the picture freezes on the last game frame, so Discord or your browser never end up in a clip. Sound keeps recording.",
+  "Zapisz klip": "Save clip",
+  "Znacznik w filmie": "Film marker",
+  "Skróty": "Shortcuts"
  },
  "wzory": [
   [
