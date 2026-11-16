@@ -132,6 +132,50 @@ pub fn na_pierwszym_planie(monitor: &str) -> Option<Gra> {
     z_okna(okno)
 }
 
+/// Pilnuje, czy na nagrywanym ekranie jest gra (ustawienie „Nagrywaj tylko grę”). Wołane przy każdej
+/// klatce, więc okno na wierzchu ocenia od nowa tylko wtedy, gdy się zmieniło (i raz na pół sekundy,
+/// gdyby gra zminimalizowała się bez zmiany okna na wierzchu).
+pub struct TylkoGra {
+    monitor: String,
+    /// Wybrana w ustawieniach gra (pusta = każdy program, który może być grą)
+    wybrana: String,
+    okno: isize,
+    sprawdzone: std::time::Instant,
+    gra: bool,
+}
+
+impl TylkoGra {
+    pub fn nowe(monitor: &str, wybrana: &str) -> Self {
+        TylkoGra {
+            monitor: monitor.to_string(),
+            wybrana: wybrana.to_string(),
+            okno: 0,
+            sprawdzone: std::time::Instant::now(),
+            gra: true,
+        }
+    }
+
+    /// Czy obraz z ekranu można teraz nagrywać. Fałsz, gdy na wierzchu nagrywanego ekranu jest
+    /// coś innego niż gra (Discord, przeglądarka, pulpit, przełącznik Alt+Tab, okno Clipeona).
+    pub fn mozna_nagrywac(&mut self) -> bool {
+        let okno = unsafe { GetForegroundWindow() };
+        // Przez ułamek sekundy w trakcie przełączania okien nic nie jest na wierzchu — zostaje poprzednia ocena
+        if okno.is_invalid() {
+            return self.gra;
+        }
+        let numer = okno.0 as isize;
+        if numer == self.okno && self.sprawdzone.elapsed() < std::time::Duration::from_millis(500) {
+            return self.gra;
+        }
+        self.okno = numer;
+        self.sprawdzone = std::time::Instant::now();
+        // Okno na innym monitorze nie zasłania gry na nagrywanym
+        self.gra = !na_monitorze(okno, &self.monitor)
+            || z_okna(okno).is_some_and(|g| self.wybrana.is_empty() || ten_sam(&g.proces, &self.wybrana));
+        self.gra
+    }
+}
+
 /// Numer procesu programu (dla nagrywania dźwięku samej gry). Gdy program ma kilka procesów o tej samej
 /// nazwie (np. przeglądarkowy silnik gry), bierzemy główny — ten, którego rodzic nie jest tym samym
 /// programem; dźwięk procesów potomnych Windows i tak dołącza.
@@ -316,7 +360,7 @@ fn na_monitorze(okno: HWND, monitor: &str) -> bool {
 
 #[cfg(test)]
 mod testy {
-    use super::{glowny, mozliwa_gra, ten_sam};
+    use super::{POMIJANE, glowny, mozliwa_gra, ten_sam};
 
     #[test]
     fn dzwiek_gry_bierze_glowny_proces_programu() {

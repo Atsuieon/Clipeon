@@ -35,6 +35,9 @@ pub struct Config {
     pub limit_discorda_mb: u32,
     /// Język okna i dymków: "auto" (jak Windows), "pl" albo "en"
     pub jezyk: String,
+    /// Nagrywaj tylko grę: gdy na wierzchu jest coś innego (Alt+Tab do Discorda, przeglądarki), obraz
+    /// zatrzymuje się na ostatniej klatce gry. Nie dotyczy trybu „Pulpit”.
+    pub tylko_gra: bool,
     /// W jakim formacie film zostaje na dysku: "bez_zmian" albo mniejszy plik ("hevc", "av1")
     pub format_filmu: String,
     /// Animowane tło okna (znaki ASCII i smuga za ruchem myszki)
@@ -105,6 +108,7 @@ impl Default for Config {
             skrot_discorda: "Alt+F7".into(),
             limit_discorda_mb: 10,
             jezyk: "auto".into(),
+            tylko_gra: false,
             format_filmu: crate::film::BEZ_ZMIAN.into(),
             animowane_tlo: true,
             kolorowy_napis: true,
@@ -136,6 +140,11 @@ pub static PRZENIESIONO: std::sync::atomic::AtomicBool = std::sync::atomic::Atom
 impl Config {
     pub fn pulpit(&self) -> bool {
         self.tryb == TRYB_PULPIT
+    }
+
+    /// Czy obraz ma się zatrzymywać, gdy na wierzchu nie ma gry (w trybie „Pulpit” nagrywamy wszystko).
+    pub fn tylko_gra(&self) -> bool {
+        self.tylko_gra && !self.pulpit()
     }
 
     /// Gra, na którą czeka nagrywanie (nazwa pliku programu). W trybie Pulpit zawsze pusta:

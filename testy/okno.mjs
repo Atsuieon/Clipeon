@@ -36,7 +36,7 @@ function udawanyTauri() {
     sprawdzaj_aktualizacje: true, monitor: "", monitor_id: "", tryb: "gra", monitor_pulpitu: "",
     monitor_pulpitu_id: "", fps_pulpitu: 30, bitrate_pulpitu_mbps: 12, metoda_przechwytywania: "auto",
     mikrofon_urzadzenie: "", gra: "", gra_nazwa: "", skrot_filmu: "Alt+F9", animowane_tlo: true, kolorowy_napis: true,
-    format_filmu: "bez_zmian", skrot_znacznika: "Alt+F8", skrot_discorda: "Alt+F7", limit_discorda_mb: 10, jezyk: "pl",
+    format_filmu: "bez_zmian", skrot_znacznika: "Alt+F8", skrot_discorda: "Alt+F7", limit_discorda_mb: 10, jezyk: "pl", tylko_gra: false,
   };
   const stan = {
     nagrywa: true, pauza: false, bledy: [], wznawianie: null, przelaczanie: null, tryb: "gra", ekran: "Ekran 1", monitor: "",

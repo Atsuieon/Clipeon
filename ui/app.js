@@ -1957,6 +1957,7 @@ const POLA = [
   ["mikrofon-urzadzenie", "mikrofon_urzadzenie", "tekst"],
   ["limit-discorda", "limit_discorda_mb", "liczba"],
   ["jezyk", "jezyk", "tekst"],
+  ["tylko-gra", "tylko_gra", "tak"],
 ];
 
 function wpiszPola(c) {
@@ -2124,7 +2125,7 @@ const NAZWY_USTAWIEN = {
   ikona_przy_zegarze: "Ikona przy zegarze", sprawdzaj_aktualizacje: "Sprawdzanie nowej wersji", animowane_tlo: "Animowane tło",
   kolorowy_napis: "Napis z cząsteczek", enkoder: "Format wideo", metoda_przechwytywania: "Sposób przechwytywania obrazu",
   skrot: "Skrót do zapisania klipu", skrot_filmu: "Skrót do nagrywania filmu", skrot_znacznika: "Skrót znacznika w filmie", skrot_discorda: "Skrót klipu na Discorda",
-  limit_discorda_mb: "Limit plików na Discordzie", jezyk: "Język", folder_klipow: "Gdzie zapisywać klipy",
+  limit_discorda_mb: "Limit plików na Discordzie", jezyk: "Język", tylko_gra: "Nagrywaj tylko grę", folder_klipow: "Gdzie zapisywać klipy",
   sprzatanie_dni: "Usuwanie starych klipów", sprzatanie_gb: "Limit miejsca na klipy", autostart: "Uruchamianie razem z Windows",
 };
 
