@@ -1,13 +1,21 @@
 // Język dymków i menu przy zegarze (okno tłumaczy się samo — ui/jezyk.js). Teksty w kodzie są po polsku,
-// a po angielsku podmienia je słownik z ui/en.json: ten sam, którego używa okno.
+// a po angielsku podmienia je słownik z ui/en.js: ten sam, którego używa okno.
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static EN: AtomicBool = AtomicBool::new(false);
 
-/// Słownik polski → angielski (ten sam plik dostaje okno przez komendę `tlumaczenie`).
-pub const SLOWNIK_EN: &str = include_str!("../ui/en.json");
+/// Słownik polski → angielski: skrypt okna `window.SLOWNIK_EN = {…};` — JSON to wszystko od pierwszego
+/// „{” do ostatniego „}”.
+const SLOWNIK_EN: &str = include_str!("../ui/en.js");
+
+fn json_slownika(skrypt: &str) -> &str {
+    match (skrypt.find('{'), skrypt.rfind('}')) {
+        (Some(a), Some(b)) if a < b => &skrypt[a..=b],
+        _ => "{}",
+    }
+}
 
 /// Ustawia język z configu: "pl" albo "en".
 pub fn ustaw(z_configu: &str) {
@@ -17,11 +25,6 @@ pub fn ustaw(z_configu: &str) {
 /// Czy dymki i menu mają być po angielsku.
 pub fn en() -> bool {
     EN.load(Ordering::Relaxed)
-}
-
-/// Kod języka dla okna: "pl" albo "en".
-pub fn kod() -> &'static str {
-    if en() { "en" } else { "pl" }
 }
 
 /// Język na pierwsze uruchomienie: polski przy polskim Windows, inaczej angielski.
@@ -41,7 +44,7 @@ fn slownik() -> &'static HashMap<String, String> {
         struct Plik {
             teksty: HashMap<String, String>,
         }
-        serde_json::from_str::<Plik>(SLOWNIK_EN).map(|p| p.teksty).unwrap_or_default()
+        serde_json::from_str::<Plik>(json_slownika(SLOWNIK_EN)).map(|p| p.teksty).unwrap_or_default()
     })
 }
 

@@ -1,5 +1,10 @@
 # Zmiany
 
+## 1.5.1
+
+- **Zmiana języka na angielski działa.** Przełączanie zostało napisane od nowa: słownik jest częścią okna (nic nie jest doczytywane w trakcie), język zmienia się od razu po zapisaniu ustawień, w obie strony i bez przeładowania okna. Teksty, które pojawiają się później (komunikaty, status, lista klipów z datami), też są w wybranym języku.
+- Błędy w oknie Clipeona trafiają teraz do dziennika zdarzeń (`clipeon.log`), więc da się zobaczyć, co poszło nie tak.
+
 ## 1.5.0
 
 Angielski interfejs, „Nagrywaj tylko grę”, czystsze ustawienia, znikający mikrofon wykrywany i naprawiany, napis „Clipeon” z cząsteczek i wsparcie przez Ko-fi. (Wersje 1.4.10–1.4.12 nie były wydawane osobno — wszystko jest tutaj.)

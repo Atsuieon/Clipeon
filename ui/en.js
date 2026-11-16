@@ -1,5 +1,7 @@
-{
- "_opis": "Tłumaczenie okna, dymków i menu Clipeona na angielski. Klucze to polskie teksty (bez zbędnych spacji); wzory łapią teksty z liczbami i nazwami — grupy $1.. też są tłumaczone.",
+// Słownik polski → angielski. Plik jest zwykłym skryptem okna (bez pobierania w trakcie działania),
+// a rdzeń wczytuje ten sam plik przy kompilacji (src/jezyk.rs): wszystko między pierwszym „{” a ostatnim „}” to JSON.
+window.SLOWNIK_EN = {
+ "_opis": "Słownik polski → angielski dla okna (jezyk.js) i rdzenia (src/jezyk.rs). Klucz = polski tekst z okna albo z kodu Rust, „wzory” = wyrażenia regularne z $1, $2 (części są tłumaczone dalej).",
  "teksty": {
   "Minimalizuj": "Minimize",
   "Maksymalizuj": "Maximize",
@@ -621,4 +623,4 @@
    "$1 h $2"
   ]
  ]
-}
+};
