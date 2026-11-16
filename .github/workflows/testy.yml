@@ -44,28 +44,12 @@ jobs:
   # Playwright podłącza się do okna przez port debugowania WebView2 i zmienia język jak użytkownik.
   prawdziwe-okno:
     runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # v1.5.0 tylko dla porównania (tam angielski nie działał) — test ma to wyłapać
-        wersja: [ta-galaz, v1.5.0]
     steps:
       - uses: actions/checkout@v7
-      - name: Kod wydania ${{ matrix.wersja }} (z testem z tej gałęzi)
-        if: matrix.wersja != 'ta-galaz'
-        shell: pwsh
-        run: |
-          Copy-Item testy/prawdziwe-okno.mjs $env:RUNNER_TEMP/
-          git fetch --depth 1 origin "refs/tags/${{ matrix.wersja }}:refs/tags/${{ matrix.wersja }}"
-          git checkout "${{ matrix.wersja }}"
-          Copy-Item $env:RUNNER_TEMP/prawdziwe-okno.mjs testy/
-          # Stare wydanie nie zna CLIPEON_PORT_TESTU — port debugowania dopisujemy wprost
-          $p = "src/aplikacja.rs"
-          (Get-Content $p -Raw).Replace('--disable-direct-composition-video-overlays"', '--disable-direct-composition-video-overlays --remote-debugging-port=9222"') | Set-Content $p -NoNewline
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          key: prawdziwe-okno-${{ matrix.wersja }}
+          key: prawdziwe-okno
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -81,6 +65,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: prawdziwe-okno-${{ matrix.wersja }}
+          name: prawdziwe-okno
           path: zrzuty-prawdziwe
           if-no-files-found: ignore
