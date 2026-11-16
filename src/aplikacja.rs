@@ -575,10 +575,17 @@ async fn wybierz_folder(app: AppHandle) -> Option<String> {
     app.dialog().file().set_title("Folder klipów").blocking_pick_folder().map(|f| f.to_string())
 }
 
-/// Język okna: "pl" albo "en" („Jak Windows” rozstrzyga rdzeń).
+/// Język okna: "pl" albo "en".
 #[tauri::command]
 fn jezyk() -> &'static str {
     crate::jezyk::kod()
+}
+
+/// Słownik tłumaczenia dla okna (en.json). Przez komendę, a nie fetch: polityka bezpieczeństwa okna
+/// (connect-src) wpuszcza tylko połączenia z rdzeniem.
+#[tauri::command]
+fn tlumaczenie() -> &'static str {
+    crate::jezyk::SLOWNIK_EN
 }
 
 #[tauri::command]
@@ -898,7 +905,8 @@ pub fn uruchom() {
             zainstaluj_aktualizacje,
             otworz_repozytorium,
             otworz_wsparcie,
-            jezyk
+            jezyk,
+            tlumaczenie
         ])
         .setup(move |app| {
             let (cfg, blad_cfg) = match Config::wczytaj() {

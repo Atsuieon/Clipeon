@@ -12,7 +12,8 @@ Klip na Discorda jednym skrótem, angielski interfejs, „Nagrywaj tylko grę”
 
 ### Angielski interfejs
 
-- Ustawienia → System → **Język**: „Jak Windows” (domyślnie), Polski albo English. Po angielsku jest okno, dymki i menu przy zegarze. Windows w innym języku niż polski dostaje od razu angielski.
+- Ustawienia → System → **Język**: Polski albo English. Po angielsku jest okno, dymki i menu przy zegarze.
+- Przy pierwszym uruchomieniu Clipeon sam ustawia język jak w Windows (polski Windows → polski, każdy inny → angielski), potem zostaje ten wybrany w Ustawieniach.
 
 ### Nagrywaj tylko grę
 

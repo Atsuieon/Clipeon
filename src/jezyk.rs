@@ -6,9 +6,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 static EN: AtomicBool = AtomicBool::new(false);
 
-/// Ustawia język z configu: "pl", "en" albo "auto" (polski tylko przy polskim Windows).
+/// Słownik polski → angielski (ten sam plik dostaje okno przez komendę `tlumaczenie`).
+pub const SLOWNIK_EN: &str = include_str!("../ui/en.json");
+
+/// Ustawia język z configu: "pl" albo "en".
 pub fn ustaw(z_configu: &str) {
-    EN.store(kod_dla(z_configu, windows_po_polsku()) == "en", Ordering::Relaxed);
+    EN.store(z_configu == "en", Ordering::Relaxed);
 }
 
 /// Czy dymki i menu mają być po angielsku.
@@ -21,19 +24,14 @@ pub fn kod() -> &'static str {
     if en() { "en" } else { "pl" }
 }
 
-fn kod_dla(z_configu: &str, windows_po_polsku: bool) -> &'static str {
-    match z_configu {
-        "pl" => "pl",
-        "en" => "en",
-        _ if windows_po_polsku => "pl",
-        _ => "en",
-    }
+/// Język na pierwsze uruchomienie: polski przy polskim Windows, inaczej angielski.
+pub fn systemowy() -> &'static str {
+    kod_dla_windows(unsafe { windows::Win32::Globalization::GetUserDefaultUILanguage() })
 }
 
-/// Język interfejsu Windows to polski (podstawowy identyfikator języka 0x15).
-fn windows_po_polsku() -> bool {
-    let id = unsafe { windows::Win32::Globalization::GetUserDefaultUILanguage() };
-    id & 0x3ff == 0x15
+/// Polski, gdy podstawowy identyfikator języka Windows to 0x15.
+fn kod_dla_windows(id: u16) -> &'static str {
+    if id & 0x3ff == 0x15 { "pl" } else { "en" }
 }
 
 fn slownik() -> &'static HashMap<String, String> {
@@ -43,7 +41,7 @@ fn slownik() -> &'static HashMap<String, String> {
         struct Plik {
             teksty: HashMap<String, String>,
         }
-        serde_json::from_str::<Plik>(include_str!("../ui/en.json")).map(|p| p.teksty).unwrap_or_default()
+        serde_json::from_str::<Plik>(SLOWNIK_EN).map(|p| p.teksty).unwrap_or_default()
     })
 }
 
@@ -62,14 +60,13 @@ pub fn wybierz(pl: String, en: String) -> String {
 
 #[cfg(test)]
 mod testy {
-    use super::{kod_dla, slownik};
+    use super::{kod_dla_windows, slownik};
 
     #[test]
-    fn jezyk_z_configu_i_z_windows() {
-        assert_eq!(kod_dla("pl", false), "pl");
-        assert_eq!(kod_dla("en", true), "en");
-        assert_eq!(kod_dla("auto", true), "pl");
-        assert_eq!(kod_dla("auto", false), "en");
+    fn jezyk_z_windows() {
+        assert_eq!(kod_dla_windows(0x0415), "pl"); // polski
+        assert_eq!(kod_dla_windows(0x0409), "en"); // angielski (USA)
+        assert_eq!(kod_dla_windows(0x0407), "en"); // niemiecki
     }
 
     #[test]

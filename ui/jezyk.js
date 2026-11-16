@@ -74,7 +74,8 @@
 
   async function wczytajSlownik() {
     if (J.slownik) return;
-    const d = await (await fetch("en.json")).json();
+    // Przez rdzeń, nie fetch("en.json"): polityka bezpieczeństwa okna blokuje fetch plików okna
+    const d = JSON.parse(await window.__TAURI__.core.invoke("tlumaczenie"));
     J.wzory = d.wzory.map(([w, z]) => [new RegExp(w, "u"), z]);
     J.slownik = d.teksty;
   }
@@ -104,7 +105,7 @@
   const potwierdz = window.confirm.bind(window);
   window.confirm = (tekst) => potwierdz(t(tekst));
 
-  // Pytamy rdzeń o język z ustawień („Jak Windows” rozstrzyga rdzeń). Zanim odpowie, okno ostatnio było
+  // Pytamy rdzeń o język z ustawień. Zanim odpowie, okno ostatnio było
   // po angielsku — chowamy je na chwilę, żeby nie mignęło po polsku.
   async function sprawdz() {
     let kod = czytaj() || "pl";

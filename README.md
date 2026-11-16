@@ -110,7 +110,7 @@ Clipeon keeps the last seconds of your gameplay in memory and saves them as an M
 **Alt+F9** starts and stops a long recording with no time limit, which can then be re-encoded to HEVC or AV1 in the background to save space.
 GPU capture and encoding (AMD / NVIDIA / Intel), a desktop recording mode, separate game / Discord / mic tracks, film markers, crash recovery for long recordings, trimming, shrink-to-size for Discord,
 drag-and-drop or copy-paste clips into other apps, **Alt+F7** to save a clip already shrunk to Discord's upload limit and copied to the clipboard, and a "Record only the game" switch that freezes the picture when you Alt+Tab away. Windows 10 2004+ / 11. [Download the latest release](https://github.com/Atsuieon/Clipeon/releases/latest)
-— the installer is unsigned, so SmartScreen may warn: *More info → Run anyway*. The interface is in English or Polish (Settings → System → Language; by default it follows Windows).
+— the installer is unsigned, so SmartScreen may warn: *More info → Run anyway*. The interface is in English or Polish (set from the Windows language on first start; change it in Settings → System → Language).
 
 ## Wsparcie
 
