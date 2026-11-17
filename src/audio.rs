@@ -370,7 +370,7 @@ impl Koder {
                 _ => "dźwięk gry",
             },
         )
-        .map_err(|e| Blad::Inny(format!("nie udało się uruchomić ffmpeg: {e}")))?;
+        .map_err(|e| Blad::Inny(crate::ffmpeg::blad_uruchomienia(&e)))?;
         let wejscie = ffmpeg.stdin.take().unwrap();
         let mut wyjscie = ffmpeg.stdout.take().unwrap();
         let t0 = teraz_100ns();

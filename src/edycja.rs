@@ -158,7 +158,7 @@ pub fn uruchom_z_postepem(mut cmd: std::process::Command, args: &[String], dlugo
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Nie udało się uruchomić ffmpeg: {e}"))?;
+        .map_err(|e| crate::ffmpeg::blad_uruchomienia(&e))?;
     let mut bledy = proces.stderr.take().unwrap();
     // stderr czytamy w tle, żeby ffmpeg nie zablokował się na pełnym potoku
     let watek_bledow = std::thread::spawn(move || {

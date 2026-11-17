@@ -640,7 +640,7 @@ fn dokoncz(mut cmd: std::process::Command, gra: Option<&str>, wyjscie: &Path, sz
 }
 
 fn wykonaj(mut cmd: std::process::Command) -> Result<(), String> {
-    let wynik = cmd.output().map_err(|e| format!("Nie udało się uruchomić ffmpeg: {e}"))?;
+    let wynik = cmd.output().map_err(|e| crate::ffmpeg::blad_uruchomienia(&e))?;
     if wynik.status.success() {
         return Ok(());
     }

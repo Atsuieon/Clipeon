@@ -50,6 +50,55 @@ pub fn odcisk() -> String {
         .unwrap_or_else(|_| "brak".into())
 }
 
+/// Kody błędów Windows przy uruchamianiu pliku, który zablokowały zasady kontroli aplikacji: Smart App
+/// Control, App Control for Business (WDAC) albo AppLocker. Smart App Control pyta chmurę Microsoftu o każdy
+/// niepodpisany program, więc mało znany ffmpeg.exe bywa raz wpuszczany, a raz nie (dziennik testera
+/// z 2026-11-16: nagrywanie ruszyło o 15:14, a zapis klipu o 18:48 już nie, kod 4551).
+const KODY_ZASAD: [i32; 9] = [
+    4551, // ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION
+    4556, // ERROR_SYSTEM_INTEGRITY_REPUTATION_MALICIOUS
+    4557, // ERROR_SYSTEM_INTEGRITY_REPUTATION_PUA
+    4558, // ERROR_SYSTEM_INTEGRITY_REPUTATION_DANGEROUS_EXT
+    4559, // ERROR_SYSTEM_INTEGRITY_REPUTATION_OFFLINE
+    4580, // ERROR_SYSTEM_INTEGRITY_REPUTATION_UNFRIENDLY_FILE
+    4581, // ERROR_SYSTEM_INTEGRITY_REPUTATION_UNATTAINABLE
+    4582, // ERROR_SYSTEM_INTEGRITY_REPUTATION_EXPLICIT_DENY_FILE
+    1260, // ERROR_ACCESS_DISABLED_BY_POLICY (AppLocker, zasady ograniczeń oprogramowania)
+];
+/// Antywirus uznał plik za groźny (ERROR_VIRUS_INFECTED, ERROR_VIRUS_DELETED).
+const KODY_ANTYWIRUSA: [i32; 2] = [225, 226];
+
+/// Strona z instrukcją, co zrobić, gdy Windows blokuje ffmpeg (dymek po kliknięciu ją otwiera).
+pub const POMOC_BLOKADY: &str = "https://github.com/Atsuieon/Clipeon/blob/main/docs/windows-blokuje-ffmpeg.md";
+
+/// Znak rozpoznawczy blokady w opisie błędu (po polsku i po angielsku): dymek z nim otwiera `POMOC_BLOKADY`.
+const ZNAK_BLOKADY: &str = "Smart App Control";
+
+/// Opis błędu uruchomienia ffmpeg: blokada przez Windows albo antywirusa po ludzku, z kodem do dziennika;
+/// każdy inny błąd jak dotąd („Nie udało się uruchomić ffmpeg: …”).
+pub fn blad_uruchomienia(e: &std::io::Error) -> String {
+    match e.raw_os_error() {
+        Some(kod) if KODY_ZASAD.contains(&kod) => crate::jezyk::wybierz(
+            format!(
+                "Windows zablokował ffmpeg, którego Clipeon używa do zapisu ({ZNAK_BLOKADY} albo inne zasady kontroli aplikacji, kod {kod}). Kliknij, żeby zobaczyć, co zrobić."
+            ),
+            format!(
+                "Windows blocked ffmpeg, which Clipeon uses to save clips ({ZNAK_BLOKADY} or another app control policy, code {kod}). Click to see what to do."
+            ),
+        ),
+        Some(kod) if KODY_ANTYWIRUSA.contains(&kod) => crate::jezyk::wybierz(
+            format!("Antywirus zablokował ffmpeg, którego Clipeon używa do zapisu (kod {kod}). Dodaj folder Clipeona do wyjątków antywirusa."),
+            format!("Your antivirus blocked ffmpeg, which Clipeon uses to save clips (code {kod}). Add the Clipeon folder to its exclusions."),
+        ),
+        _ => format!("Nie udało się uruchomić ffmpeg: {e}"),
+    }
+}
+
+/// Czy opis błędu to blokada ffmpeg przez zasady kontroli aplikacji (z `blad_uruchomienia`).
+pub fn to_blokada(opis: &str) -> bool {
+    opis.contains(ZNAK_BLOKADY)
+}
+
 /// Nowe polecenie ffmpeg z ukrytym oknem konsoli.
 pub fn komenda() -> Command {
     komenda_z_flagami(0)
@@ -152,4 +201,25 @@ pub fn wersja() -> String {
         .ok()
         .and_then(|o| String::from_utf8_lossy(&o.stdout).lines().next().map(str::to_string))
         .unwrap_or_else(|| "nie udało się uruchomić ffmpeg".into())
+}
+
+#[cfg(test)]
+mod testy {
+    use super::{blad_uruchomienia, to_blokada};
+
+    #[test]
+    fn blokada_przez_zasady_jest_rozpoznawana() {
+        let opis = blad_uruchomienia(&std::io::Error::from_raw_os_error(4551));
+        assert!(to_blokada(&opis), "{opis}");
+        assert!(opis.contains("4551"));
+        assert!(to_blokada(&blad_uruchomienia(&std::io::Error::from_raw_os_error(1260))));
+    }
+
+    #[test]
+    fn zwykly_blad_zostaje_jak_dawniej() {
+        let opis = blad_uruchomienia(&std::io::Error::from_raw_os_error(2));
+        assert!(opis.starts_with("Nie udało się uruchomić ffmpeg: "), "{opis}");
+        assert!(!to_blokada(&opis));
+        assert!(!to_blokada(&blad_uruchomienia(&std::io::Error::from_raw_os_error(225))));
+    }
 }

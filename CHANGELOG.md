@@ -7,6 +7,8 @@
 - Błędy w oknie Clipeona trafiają teraz do dziennika zdarzeń (`clipeon.log`), więc da się zobaczyć, co poszło nie tak.
 - Zmiana języka jest sprawdzana testem na prawdziwym Windows: zbudowany Clipeon, prawdziwe okno i config, przełączanie w obie strony i ponowne uruchomienie.
 - Strona projektu na GitHubie (README) jest teraz po angielsku, a krótsza wersja po polsku jest na dole.
+- **Gdy Windows blokuje ffmpeg, Clipeon mówi to po ludzku.** Smart App Control (albo zasady firmy/szkoły) potrafi nie pozwolić uruchomić niepodpisanego ffmpeg — wtedy klip się nie zapisywał, a dymek pokazywał tylko „Zasady kontroli aplikacji zablokowały ten plik (os error 4551)”. Teraz dymek mówi, co się stało, a kliknięcie otwiera instrukcję: [Windows blokuje ffmpeg](docs/windows-blokuje-ffmpeg.md). To samo przy antywirusie.
+- Zablokowana próba enkodera nie nadpisuje już zapamiętanych wyników prób i nie jest powtarzana — blokada nic nie mówi o karcie graficznej.
 
 ## 1.5.0
 

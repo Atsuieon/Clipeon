@@ -62,6 +62,13 @@ The installer is built automatically from the code in this repository.
 </details>
 
 <details>
+<summary><b>Clips don't save: "Windows blocked ffmpeg" / "An Application Control policy has blocked this file".</b></summary>
+
+Windows 11 **Smart App Control** (or a work/school policy) won't start the unsigned ffmpeg that Clipeon uses to save clips. It has no per-app exceptions.
+What to do: [Windows blocks ffmpeg](docs/windows-blokuje-ffmpeg.md#windows-blocks-ffmpeg-an-application-control-policy-has-blocked-this-file).
+</details>
+
+<details>
 <summary><b>Where are my clips?</b></summary>
 
 In `Videos\Clipeon`, in a subfolder for the month (e.g. `2026-11`); older clips sit directly in the folder. You can change the folder in Settings.
@@ -132,6 +139,7 @@ oraz „Nagrywaj tylko grę”, które po Alt+Tab zatrzymuje obraz na ostatniej 
 Klik w ikonę otwiera bibliotekę klipów, a język zmienisz w Ustawienia → System → Język.
 
 - **„System Windows ochronił ten komputer”** — instalator nie jest podpisany płatnym certyfikatem: **Więcej informacji → Uruchom mimo to**.
+- **„Windows zablokował ffmpeg” / „Zasady kontroli aplikacji zablokowały ten plik”** — to Smart App Control w Windows 11; co zrobić: [Windows blokuje ffmpeg](docs/windows-blokuje-ffmpeg.md).
 - **Gdzie są klipy?** — w `Wideo\Clipeon`, w podfolderze z miesiącem. Odinstalowanie nie usuwa klipów.
 - **Błąd?** — Ustawienia → Zaawansowane → **Kopiuj diagnostykę** i wklej do [zgłoszenia](https://github.com/Atsuieon/Clipeon/issues/new/choose).
 - **Prywatność** — wszystko zostaje na Twoim komputerze; jedyne połączenie to sprawdzanie aktualizacji na GitHubie (można wyłączyć).

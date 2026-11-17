@@ -153,7 +153,7 @@ pub fn miniatura(klip: &Path) -> Result<Miniatura, String> {
         .args(["-frames:v", "1", "-vf", "scale=480:-2", "-q:v", "4"])
         .arg(&obraz)
         .output()
-        .map_err(|e| format!("Nie udało się uruchomić ffmpeg: {e}"))?;
+        .map_err(|e| crate::ffmpeg::blad_uruchomienia(&e))?;
     if !std::fs::metadata(&obraz).is_ok_and(|m| m.len() > 0) {
         let _ = std::fs::remove_file(&obraz);
         return Err("Nie udało się wygenerować miniatury".into());
@@ -382,7 +382,7 @@ pub fn info(klip: &Path) -> Result<Info, String> {
         .args(["-hide_banner", "-i"])
         .arg(klip)
         .output()
-        .map_err(|e| format!("Nie udało się uruchomić ffmpeg: {e}"))?;
+        .map_err(|e| crate::ffmpeg::blad_uruchomienia(&e))?;
     let opis = String::from_utf8_lossy(&wynik.stderr);
     let dlugosc = dlugosc_z_opisu(&opis).ok_or("Nie udało się odczytać długości klipu")?;
     let sciezki_audio = opis.lines().filter(|l| l.contains("Stream #") && l.contains("Audio:")).count() as u32;
@@ -465,7 +465,7 @@ pub fn fala(klip: &Path, nr: u32, kubelki: usize) -> Result<Vec<u8>, String> {
         .arg(klip)
         .args(["-map", &format!("0:a:{nr}"), "-vn", "-ac", "1", "-ar", "4000", "-f", "s16le", "pipe:1"])
         .output()
-        .map_err(|e| format!("Nie udało się uruchomić ffmpeg: {e}"))?;
+        .map_err(|e| crate::ffmpeg::blad_uruchomienia(&e))?;
     if !wynik.status.success() {
         return Err("ffmpeg nie odczytał ścieżki dźwięku".into());
     }
@@ -500,7 +500,7 @@ pub fn dzwiek_podgladu(klip: &Path, nr: u32) -> Result<Vec<u8>, String> {
         .args(["-map", &format!("0:a:{nr}"), "-vn", "-c:a", "copy", "-movflags", "+faststart", "-f", "mp4"])
         .arg(&plik)
         .status()
-        .map_err(|e| format!("Nie udało się uruchomić ffmpeg: {e}"))?;
+        .map_err(|e| crate::ffmpeg::blad_uruchomienia(&e))?;
     let dane = if status.success() { std::fs::read(&plik).map_err(|e| e.to_string()) } else { Err("ffmpeg nie wyciągnął ścieżki dźwięku".into()) };
     let _ = std::fs::remove_file(&plik);
     dane
