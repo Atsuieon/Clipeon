@@ -39,3 +39,32 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Test okna
         run: node testy/okno.mjs
+
+  # Prawdziwy Clipeon na Windows: zbudowany program, prawdziwe okno WebView2 i config.
+  # Playwright podłącza się do okna przez port debugowania WebView2 i zmienia język jak użytkownik.
+  prawdziwe-okno:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: prawdziwe-okno
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Build jak w instalatorze
+        run: cargo build --release --locked --features tauri/custom-protocol
+      - name: Playwright (bez przeglądarki — podłączamy się do WebView2)
+        run: npm install --no-save playwright@1.63.0
+      - name: Zmiana języka w prawdziwym oknie
+        env:
+          CLIPEON_PORT_TESTU: "9222"
+        run: node testy/prawdziwe-okno.mjs target/release/clipeon.exe
+      - name: Zrzuty okna
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prawdziwe-okno
+          path: zrzuty-prawdziwe
+          if-no-files-found: ignore

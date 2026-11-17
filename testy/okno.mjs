@@ -45,16 +45,18 @@ function udawanyTauri() {
   };
   const odpowiedzi = {
     stan: () => stan,
-    // Język z „zapisanych ustawień” (przetrwa przeładowanie strony, jak config w rdzeniu)
-    jezyk: () => {
-      try {
-        return sessionStorage.getItem("test.jezyk") || "pl";
-      } catch {
-        return "pl";
-      }
+    // Błędy okna (jezyk.js wysyła je do dziennika rdzenia) — test wymaga, żeby ich nie było
+    blad_okna: (a) => {
+      (window.__bledyOkna ||= []).push(a.opis);
     },
-    tlumaczenie: () => window.__tlumaczenie,
-    ustawienia: () => ({ cfg: structuredClone(cfg), autostart: false, enkodery: [["auto", "Automatycznie"]], formaty_filmu: [["bez_zmian", "Pełna jakość — bez zmian (największy plik)"], ["hevc", "Mniejszy plik — HEVC, ok. połowa rozmiaru"], ["av1", "Najmniejszy plik — AV1, ok. 1/3 rozmiaru"]], wersja: "test", repozytorium: "" }),
+    // Język z „zapisanych ustawień” (przetrwa przeładowanie strony, jak config w rdzeniu)
+    ustawienia: () => ({ cfg: { ...structuredClone(cfg), jezyk: (() => {
+      try {
+        return sessionStorage.getItem("test.jezyk") || cfg.jezyk;
+      } catch {
+        return cfg.jezyk;
+      }
+    })() }, autostart: false, enkodery: [["auto", "Automatycznie"]], formaty_filmu: [["bez_zmian", "Pełna jakość — bez zmian (największy plik)"], ["hevc", "Mniejszy plik — HEVC, ok. połowa rozmiaru"], ["av1", "Najmniejszy plik — AV1, ok. 1/3 rozmiaru"]], wersja: "test", repozytorium: "" }),
     mikrofony: () => [
       { id: "m1", nazwa: "Mikrofon (USB)", domyslny: true },
       { id: "m2", nazwa: "Mikrofon (Zestaw)", domyslny: false },
@@ -118,8 +120,6 @@ const strona = await przegladarka.newPage({ viewport: { width: 1200, height: 800
 strona.on("pageerror", (e) => bledy.push(`błąd skryptu: ${e.message}`));
 strona.on("console", (m) => m.type() === "error" && bledy.push(`konsola: ${m.text()}`));
 await strona.addInitScript(udawanyTauri);
-const slownikEn = readFileSync(ui + "en.json", "utf8");
-await strona.addInitScript((t) => (window.__tlumaczenie = t), slownikEn);
 await strona.addInitScript((d) => (window.__dzwiek = d), readFileSync(new URL("dzwiek.webm", import.meta.url)).toString("base64"));
 await strona.goto(pathToFileURL(ui + "index.html").href);
 await strona.waitForTimeout(500);
@@ -985,7 +985,6 @@ await new Promise((r) => serwer.listen(0, "127.0.0.1", r));
 const en = await przegladarka.newPage({ viewport: { width: 1200, height: 800 } });
 en.on("pageerror", (e) => bledy.push(`EN: błąd skryptu: ${e.message}`));
 await en.addInitScript(udawanyTauri);
-await en.addInitScript((t) => (window.__tlumaczenie = t), slownikEn);
 await en.goto(`http://127.0.0.1:${serwer.address().port}/index.html`);
 await en.waitForTimeout(500);
 sprawdz((await en.getAttribute("html", "lang")) !== "en", "EN: okno jest po angielsku, choć w ustawieniach jest polski");
@@ -1032,8 +1031,37 @@ await en.evaluate(() => document.querySelector('[data-zakladka="ustawienia"]')?.
 await en.waitForTimeout(200);
 if (process.env.ZRZUTY) await en.screenshot({ path: `${process.env.ZRZUTY}/en-ustawienia.png`, fullPage: true });
 sprawdz(polskie.size === 0, `EN: nieprzetłumaczone teksty: ${[...polskie].join(" | ")}`);
+// Teksty wpisywane w trakcie (komunikat po zapisie, status) też są po angielsku
+await en.evaluate(() => document.querySelector('[data-zakladka="ustawienia"]')?.click());
+await en.waitForTimeout(200);
+await en.fill("#fps", "45").catch(() => {});
+await en.evaluate(() => {
+  const r = document.getElementById("bufor");
+  r.value = String(Number(r.value) + 30);
+  r.dispatchEvent(new Event("input", { bubbles: true }));
+});
+await en.click("#zapisz-ustawienia");
+await en.waitForTimeout(400);
+sprawdz((await en.textContent("#komunikat")).startsWith("Saved."), `EN: komunikat po zapisie nie jest po angielsku: ${await en.textContent("#komunikat")}`);
+// Powrót na polski: od razu, bez przeładowania okna
+const przeladowania = await en.evaluate(() => (window.__start ||= performance.timeOrigin));
+await en.selectOption("#jezyk", "pl");
+await en.click("#zapisz-ustawienia");
+await en.waitForTimeout(500);
+sprawdz((await en.getAttribute("html", "lang")) === "pl", "EN→PL: okno nie wróciło do polskiego");
+sprawdz((await en.evaluate(() => performance.timeOrigin)) === przeladowania, "EN→PL: powrót na polski przeładował okno");
+sprawdz((await en.textContent('[data-zakladka="ustawienia"]')).trim() === "Ustawienia", "EN→PL: zakładka nie wróciła do „Ustawienia”");
+sprawdz((await en.getAttribute("#okno-zamknij", "title")) === "Zamknij", "EN→PL: podpowiedź przycisku nie wróciła do polskiego");
+sprawdz(!/Saved\.|Settings|Clips\b|Recording/.test(await en.evaluate(() => document.body.innerText)), "EN→PL: w oknie zostały angielskie napisy");
+// I znowu na angielski — bez przeładowania
+await en.selectOption("#jezyk", "en");
+await en.click("#zapisz-ustawienia");
+await en.waitForTimeout(500);
+sprawdz((await en.textContent('[data-zakladka="ustawienia"]')).trim() === "Settings", "PL→EN (drugi raz): zakładka nie jest po angielsku");
+sprawdz((await en.evaluate(() => window.__bledyOkna || [])).length === 0, `EN: błędy okna: ${(await en.evaluate(() => window.__bledyOkna || [])).join(" | ")}`);
 serwer.close();
 
+sprawdz((await strona.evaluate(() => window.__bledyOkna || [])).length === 0, `błędy okna: ${(await strona.evaluate(() => window.__bledyOkna || [])).join(" | ")}`);
 await przegladarka.close();
 if (bledy.length) {
   console.error("Test okna nie przeszedł:\n- " + bledy.join("\n- "));
