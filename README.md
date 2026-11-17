@@ -4,126 +4,142 @@
 
 <h1 align="center">Clipeon</h1>
 
-<p align="center">Zapisuj najlepsze momenty z gier jednym skrótem — bez nagrywania wszystkiego na dysk.</p>
+<p align="center">Save the best moments of your games with one shortcut — without recording everything to disk.</p>
 
 <p align="center">
-  <a href="https://github.com/Atsuieon/Clipeon/releases/latest"><img alt="Pobierz dla Windows" src="https://img.shields.io/badge/Pobierz-Windows-ffffff?style=for-the-badge&labelColor=000000"></a>
-  <a href="https://github.com/Atsuieon/Clipeon/releases/latest"><img alt="Wersja" src="https://img.shields.io/github/v/release/Atsuieon/Clipeon?style=for-the-badge&label=wersja&labelColor=000000&color=1f1f1f"></a>
+  <a href="https://github.com/Atsuieon/Clipeon/releases/latest"><img alt="Download for Windows" src="https://img.shields.io/badge/Download-Windows-ffffff?style=for-the-badge&labelColor=000000"></a>
+  <a href="https://github.com/Atsuieon/Clipeon/releases/latest"><img alt="Version" src="https://img.shields.io/github/v/release/Atsuieon/Clipeon?style=for-the-badge&label=version&labelColor=000000&color=1f1f1f"></a>
 </p>
 
-<p align="center"><a href="https://ko-fi.com/L4Q62AQ99P"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Wesprzyj Clipeona na Ko-fi"></a></p>
+<p align="center"><a href="https://ko-fi.com/L4Q62AQ99P"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support Clipeon on Ko-fi"></a></p>
 
-<p align="center"><img src="docs/screenshots/biblioteka.png" width="860" alt="Biblioteka klipów Clipeona"></p>
+<p align="center"><a href="#po-polsku">🇵🇱 Po polsku — niżej</a></p>
+
+<p align="center"><img src="docs/screenshots/biblioteka.png" width="860" alt="Clipeon clip library"></p>
 
 <table>
   <tr>
-    <td width="33%"><img src="docs/screenshots/edytor.png" alt="Edytor: przycinanie i ścieżki dźwięku"><p align="center">Edytor</p></td>
-    <td width="33%"><img src="docs/screenshots/filmy.png" alt="Zakładka Filmy w trakcie nagrywania"><p align="center">Filmy</p></td>
-    <td width="33%"><img src="docs/screenshots/ustawienia.png" alt="Ustawienia"><p align="center">Ustawienia</p></td>
+    <td width="33%"><img src="docs/screenshots/edytor.png" alt="Editor: trimming and audio tracks"><p align="center">Editor</p></td>
+    <td width="33%"><img src="docs/screenshots/filmy.png" alt="Films tab during a recording"><p align="center">Films</p></td>
+    <td width="33%"><img src="docs/screenshots/ustawienia.png" alt="Settings"><p align="center">Settings</p></td>
   </tr>
 </table>
 
-## Funkcje
+## Features
 
-- **Ostatnie sekundy gry jednym skrótem** — wciśnij **Alt+F10**, a ostatnie 30 s (do ustawienia od 5 s do 10 min) zapisze się jako MP4.
-- **Filmy** — „Nagraj film” albo **Alt+F9** nagrywa bez limitu czasu, aż wciśniesz jeszcze raz. Film nie obciąża gry dodatkowo, a klipy działają w jego trakcie jak zwykle. Filmy mają własną zakładkę. **Alt+F8** w trakcie filmu dodaje znacznik, do którego skoczysz w edytorze, a film przerwany awarią Clipeon złoży przy następnym starcie.
-- **Mniejsze filmy** — po nagraniu Clipeon może w tle zapisać film od nowa jako HEVC (ok. połowa rozmiaru) albo AV1 (ok. jedna trzecia). Robi to karta graficzna.
-- **Lekki** — obraz przechwytuje i koduje karta graficzna (AMD, NVIDIA, Intel), bez kopiowania klatek przez procesor; nic nie trafia na dysk, dopóki nie zapiszesz.
-- **Tryb pulpitu** — przełącznik „Gra | Pulpit” na pasku: pulpit ma własny ekran i lżejsze ustawienia (domyślnie 30 FPS, 12 Mb/s), a ekran wybierzesz jednym kliknięciem.
-- **Gra, Discord i mikrofon osobno** — w edytorze trzy ścieżki z wykresem dźwięku: „Gra”, „Discord i reszta” i „Mikrofon”. Ściszysz albo wyciszysz każdą z nich i od razu to słychać.
-- **Edytor** — przycinanie, kadrowanie, zmniejszanie do 10 / 20 / 50 / 100 MB i zapis jako zapętlony GIF / WebP, np. pod Discorda. Głośność słychać od razu, a `←` / `→` przewijają o 5 s, `,` / `.` o klatkę.
-- **Nagrywaj tylko grę** — po Alt+Tab obraz zatrzymuje się na ostatniej klatce gry, więc Discord ani przeglądarka nie trafią do klipu.
-- **Przeciągnij albo skopiuj** — gotowy klip przeciągasz prosto do Discorda, przeglądarki albo folderu, albo klikasz „Kopiuj” i wklejasz Ctrl+V.
-- **Biblioteka** — klipy pogrupowane według dni, zaznaczanie wielu naraz, usuwanie do Kosza.
-- **Nie przestaje nagrywać po cichu** — sam wznawia nagrywanie po problemie ze sterownikiem, przechodzi na inny sposób przechwytywania, gdy któryś nie działa, i ostrzega, gdy coś jest nie tak.
+- **The last seconds of your game with one shortcut** — press **Alt+F10** and the last 30 s (adjustable from 5 s to 10 min) are saved as an MP4.
+- **Films** — "Record film" or **Alt+F9** records with no time limit until you press it again. A film adds no extra load on the game, and clips keep working while it records. Films have their own tab. **Alt+F8** during a film adds a marker you can jump to in the editor, and a film cut short by a crash is put back together on the next start.
+- **Smaller films** — after recording, Clipeon can re-encode the film in the background as HEVC (about half the size) or AV1 (about a third). The graphics card does the work.
+- **Lightweight** — the graphics card (AMD, NVIDIA, Intel) captures and encodes the picture; nothing touches the disk until you save.
+- **Desktop mode** — the "Game | Desktop" switch in the top bar: the desktop has its own screen and lighter settings (30 FPS, 12 Mb/s by default), and you pick the screen with one click.
+- **Game, Discord and mic separately** — the editor has three tracks with a waveform: "Game", "Discord and the rest" and "Microphone". Turn each one down or mute it and hear the result right away.
+- **Editor** — trimming, cropping, shrinking to 10 / 20 / 50 / 100 MB and saving as a looping GIF / WebP, e.g. for Discord. `←` / `→` skip 5 s, `,` / `.` step one frame.
+- **Record only the game** — after Alt+Tab the picture stays on the last frame of the game, so Discord or your browser never end up in a clip.
+- **Drag or copy** — drag a finished clip straight into Discord, a browser or a folder, or click "Copy" and paste with Ctrl+V.
+- **Library** — clips grouped by day, select many at once, delete to the Recycle Bin.
+- **Doesn't silently stop recording** — it resumes on its own after a driver problem, switches to another capture method when one fails, and warns you when something is wrong.
+- **English or Polish** — picked from the Windows language on first start; change it in Settings → System → Language.
 
-## Wymagania
+## Requirements
 
-- Windows 10 (wersja 2004 lub nowsza) albo Windows 11, 64-bit
-- Zalecana karta graficzna AMD Radeon RX 400+, NVIDIA GTX 600+ lub grafika Intel HD 500+ (bez niej Clipeon koduje procesorem)
+- Windows 10 (version 2004 or newer) or Windows 11, 64-bit
+- Recommended: AMD Radeon RX 400+, NVIDIA GTX 600+ or Intel HD 500+ graphics (without one Clipeon encodes on the CPU)
 
-## Szybki start
+## Quick start
 
-1. Pobierz `Clipeon_x.y.z_x64-setup.exe` z [najnowszego wydania](https://github.com/Atsuieon/Clipeon/releases/latest) i zainstaluj.
-2. Clipeon działa w tle — ikona na pasku zadań, obok zegara. Kropka jest zielona, gdy nagrywa.
-3. Graj i wciśnij **Alt+F10**, gdy wydarzy się coś wartego zapisania. Klik w ikonę otwiera bibliotekę klipów.
-4. Chcesz nagrać całą rozgrywkę? Wciśnij **Alt+F9** na początku i jeszcze raz na końcu. Film znajdziesz w zakładce **Filmy**.
+1. Download `Clipeon_x.y.z_x64-setup.exe` from the [latest release](https://github.com/Atsuieon/Clipeon/releases/latest) and install it.
+2. Clipeon runs in the background — its icon sits in the taskbar next to the clock. The dot is green while it records.
+3. Play and press **Alt+F10** when something worth keeping happens. Clicking the icon opens the clip library.
+4. Want the whole session? Press **Alt+F9** at the start and again at the end. The film is in the **Films** tab.
 
-## Pytania
+## FAQ
 
 <details>
-<summary><b>Windows pokazuje „System Windows ochronił ten komputer”.</b></summary>
+<summary><b>Windows says "Windows protected your PC".</b></summary>
 
-Instalator nie jest podpisany płatnym certyfikatem, więc SmartScreen go nie zna. Kliknij **Więcej informacji → Uruchom mimo to**.
-Instalator jest budowany automatycznie z kodu w tym repozytorium.
+The installer isn't signed with a paid certificate, so SmartScreen doesn't know it. Click **More info → Run anyway**.
+The installer is built automatically from the code in this repository.
 </details>
 
 <details>
-<summary><b>Klip się nie zapisuje: „Windows zablokował ffmpeg” / „Zasady kontroli aplikacji zablokowały ten plik”.</b></summary>
+<summary><b>Clips don't save: "Windows blocked ffmpeg" / "An Application Control policy has blocked this file".</b></summary>
 
-To **Smart App Control** w Windows 11 (albo zasady firmy/szkoły) nie pozwala uruchomić niepodpisanego ffmpeg, którym Clipeon zapisuje klipy.
-Co zrobić: [Windows blokuje ffmpeg](docs/windows-blokuje-ffmpeg.md).
+Windows 11 **Smart App Control** (or a work/school policy) won't start the unsigned ffmpeg that Clipeon uses to save clips. It has no per-app exceptions.
+What to do: [Windows blocks ffmpeg](docs/windows-blokuje-ffmpeg.md#windows-blocks-ffmpeg-an-application-control-policy-has-blocked-this-file).
 </details>
 
 <details>
-<summary><b>Gdzie są moje klipy?</b></summary>
+<summary><b>Where are my clips?</b></summary>
 
-W folderze `Wideo\Clipeon`, w podfolderze z miesiącem (np. `2026-11`); starsze klipy leżą prosto w folderze. Folder zmienisz w Ustawieniach.
-Odinstalowanie nigdy nie usuwa klipów.
+In `Videos\Clipeon`, in a subfolder for the month (e.g. `2026-11`); older clips sit directly in the folder. You can change the folder in Settings.
+Uninstalling never deletes clips.
 </details>
 
 <details>
-<summary><b>Jak zmienić skrót?</b></summary>
+<summary><b>How do I change a shortcut?</b></summary>
 
-Ustawienia → Zapisywanie klipów → Skrót do zapisania klipu (albo Skrót do nagrywania filmu). Kliknij pole i wciśnij nową kombinację klawiszy.
-Na czas ustawiania skróty Clipeona są wyłączone, więc nic się przy tym nie zapisze.
+Settings → Shortcuts. Click the field and press the new key combination.
+Clipeon's shortcuts are off while you set one, so nothing gets saved by accident.
 </details>
 
 <details>
-<summary><b>Jak nagrać pulpit zamiast gry?</b></summary>
+<summary><b>How do I record the desktop instead of a game?</b></summary>
 
-Na pasku u góry okna kliknij **Pulpit** (albo w menu ikony na pasku zadań „Tryb: Pulpit”). Obok wybierzesz ekran.
-Pulpit ma osobną kartę w Ustawieniach → Jakość nagrywania (obok karty Gra), więc przełączanie nie zmienia ustawień gry.
-Klipy z pulpitu mają nazwy `Clipeon_Pulpit_…` i znaczek „Pulpit” w bibliotece.
+Click **Desktop** in the bar at the top of the window (or "Mode: Desktop" in the taskbar icon menu). Pick the screen next to it.
+The desktop has its own card in Settings → Recording quality (next to the Game card), so switching doesn't change your game settings.
+Desktop clips are named `Clipeon_Pulpit_…` and have a "Desktop" badge in the library.
 </details>
 
 <details>
-<summary><b>Filmy zajmują dużo miejsca.</b></summary>
+<summary><b>Films take up a lot of space.</b></summary>
 
-Ustawienia → Zapisywanie klipów → **Rozmiar filmów**: wybierz HEVC (ok. połowa rozmiaru) albo AV1 (ok. jedna trzecia).
-Po zakończeniu nagrania Clipeon zapisze film od nowa w tle, a do tego czasu film leży w bibliotece w pełnej jakości.
-Pod listą widać, ile zajmie godzina filmu. Opcje pojawiają się tylko wtedy, gdy Twoja karta graficzna umie dany format.
+In Settings → Recording quality → Films pick a smaller option (HEVC is about half the size, AV1 about a third).
+After a recording ends Clipeon re-encodes the film in the background; until then the full-quality film is in the library.
+The options only appear if your graphics card supports the format.
 </details>
 
 <details>
-<summary><b>Coś nie działa — jak zgłosić błąd?</b></summary>
+<summary><b>Something doesn't work — how do I report a bug?</b></summary>
 
-Ustawienia → Zaawansowane → Zgłaszanie problemów → **Kopiuj diagnostykę** i wklej tekst do [zgłoszenia](https://github.com/Atsuieon/Clipeon/issues/new/choose).
-Diagnostyka opisuje kartę graficzną, monitory, ustawienia i ostatnie zdarzenia. Nic nie jest wysyłane automatycznie.
+Settings → Advanced → Reporting problems → **Copy diagnostics** and paste the text into an [issue](https://github.com/Atsuieon/Clipeon/issues/new/choose).
+Diagnostics describe your graphics card, monitors, settings and recent events. Nothing is sent automatically.
 </details>
 
 <details>
-<summary><b>Używałem Clippera — co teraz?</b></summary>
+<summary><b>I used Clipper — what now?</b></summary>
 
-Clipeon to ta sama aplikacja pod nową nazwą. Zainstaluj go: instalator sam usunie Clippera, a ustawienia, autostart i klipy zostaną.
+Clipeon is the same app under a new name. Install it: the installer removes Clipper, and your settings, autostart and clips stay.
 </details>
 
-**Prywatność:** wszystko zostaje na Twoim komputerze — jedyne połączenie z internetem to sprawdzanie aktualizacji na GitHubie (można wyłączyć).
+**Privacy:** everything stays on your computer — the only internet connection is the update check on GitHub (you can turn it off).
 
-## English
+## Support
 
-Clipeon keeps the last seconds of your gameplay in memory and saves them as an MP4 when you press **Alt+F10**;
-**Alt+F9** starts and stops a long recording with no time limit, which can then be re-encoded to HEVC or AV1 in the background to save space.
-GPU capture and encoding (AMD / NVIDIA / Intel), a desktop recording mode, separate game / Discord / mic tracks, film markers, crash recovery for long recordings, trimming, shrink-to-size for Discord,
-drag-and-drop or copy-paste clips into other apps, and a "Record only the game" switch that freezes the picture when you Alt+Tab away. Windows 10 2004+ / 11. [Download the latest release](https://github.com/Atsuieon/Clipeon/releases/latest)
-— the installer is unsigned, so SmartScreen may warn: *More info → Run anyway*; if clips fail with “Windows blocked ffmpeg” (Smart App Control), see [this page](docs/windows-blokuje-ffmpeg.md#windows-blocks-ffmpeg-an-application-control-policy-has-blocked-this-file). The interface is in English or Polish (set from the Windows language on first start; change it in Settings → System → Language).
-
-## Wsparcie
-
-Clipeon jest darmowy i taki zostanie — bez reklam i bez płatnych funkcji. Jeśli Ci się przydaje i chcesz pomóc, możesz postawić kawę na Ko-fi (przycisk jest też na dole Ustawień w aplikacji):
+Clipeon is free and will stay that way — no ads and no paid features. If it's useful to you and you'd like to help, you can buy me a coffee on Ko-fi (the button is also at the bottom of Settings in the app):
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/L4Q62AQ99P)
 
-## Licencja
+## License
 
-[MIT](LICENSE) © 2026 Atsuieon. FFmpeg w instalatorze: LGPL 2.1+ — zob. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+[MIT](LICENSE) © 2026 Atsuieon. FFmpeg in the installer: LGPL 2.1+ — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+---
+
+<a id="po-polsku"></a>
+
+## Po polsku
+
+Clipeon trzyma w pamięci ostatnie sekundy gry i zapisuje je jako MP4, gdy wciśniesz **Alt+F10** (długość od 5 s do 10 min).
+**Alt+F9** nagrywa film bez limitu czasu (**Alt+F8** dodaje w nim znacznik), a po nagraniu może go w tle zmniejszyć do HEVC albo AV1.
+Obraz przechwytuje i koduje karta graficzna (AMD / NVIDIA / Intel). Do tego tryb pulpitu, osobne ścieżki gry, Discorda i mikrofonu,
+edytor (przycinanie, kadrowanie, zmniejszanie pod Discorda, GIF / WebP), przeciąganie i kopiowanie klipów do innych programów
+oraz „Nagrywaj tylko grę”, które po Alt+Tab zatrzymuje obraz na ostatniej klatce gry. Windows 10 2004+ / 11.
+
+**Jak zacząć:** pobierz instalator z [najnowszego wydania](https://github.com/Atsuieon/Clipeon/releases/latest), zainstaluj i graj — Clipeon działa w tle przy zegarze (zielona kropka = nagrywa).
+Klik w ikonę otwiera bibliotekę klipów, a język zmienisz w Ustawienia → System → Język.
+
+- **„System Windows ochronił ten komputer”** — instalator nie jest podpisany płatnym certyfikatem: **Więcej informacji → Uruchom mimo to**.
+- **„Windows zablokował ffmpeg” / „Zasady kontroli aplikacji zablokowały ten plik”** — to Smart App Control w Windows 11; co zrobić: [Windows blokuje ffmpeg](docs/windows-blokuje-ffmpeg.md).
+- **Gdzie są klipy?** — w `Wideo\Clipeon`, w podfolderze z miesiącem. Odinstalowanie nie usuwa klipów.
+- **Błąd?** — Ustawienia → Zaawansowane → **Kopiuj diagnostykę** i wklej do [zgłoszenia](https://github.com/Atsuieon/Clipeon/issues/new/choose).
+- **Prywatność** — wszystko zostaje na Twoim komputerze; jedyne połączenie to sprawdzanie aktualizacji na GitHubie (można wyłączyć).

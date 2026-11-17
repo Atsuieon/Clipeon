@@ -2,6 +2,11 @@
 
 ## 1.5.1
 
+- **Zmiana języka na angielski działa.** Przełączanie zostało napisane od nowa: słownik jest częścią okna (nic nie jest doczytywane w trakcie), język zmienia się od razu po zapisaniu ustawień, w obie strony i bez przeładowania okna. Teksty, które pojawiają się później (komunikaty, status, lista klipów z datami), też są w wybranym języku.
+- Komunikaty o błędach (np. „Nie nagrywa: …”) też są po angielsku — w oknie, w menu przy zegarze i w dymkach.
+- Błędy w oknie Clipeona trafiają teraz do dziennika zdarzeń (`clipeon.log`), więc da się zobaczyć, co poszło nie tak.
+- Zmiana języka jest sprawdzana testem na prawdziwym Windows: zbudowany Clipeon, prawdziwe okno i config, przełączanie w obie strony i ponowne uruchomienie.
+- Strona projektu na GitHubie (README) jest teraz po angielsku, a krótsza wersja po polsku jest na dole.
 - **Gdy Windows blokuje ffmpeg, Clipeon mówi to po ludzku.** Smart App Control (albo zasady firmy/szkoły) potrafi nie pozwolić uruchomić niepodpisanego ffmpeg — wtedy klip się nie zapisywał, a dymek pokazywał tylko „Zasady kontroli aplikacji zablokowały ten plik (os error 4551)”. Teraz dymek mówi, co się stało, a kliknięcie otwiera instrukcję: [Windows blokuje ffmpeg](docs/windows-blokuje-ffmpeg.md). To samo przy antywirusie.
 - Zablokowana próba enkodera nie nadpisuje już zapamiętanych wyników prób i nie jest powtarzana — blokada nic nie mówi o karcie graficznej.
 

@@ -498,6 +498,7 @@ version = "1.5.1"
 dependencies = [
  "base64 0.22.1",
  "drag",
+ "regex",
  "serde",
  "serde_json",
  "tauri",

@@ -2173,7 +2173,8 @@ async function zapiszUstawienia() {
   $("komunikat").textContent = "Zapisuję…";
   try {
     await invoke("zapisz_ustawienia", { cfg: nowy, autostart });
-    window.Jezyk?.sprawdz();
+    // Język od razu z formularza — to ta sama wartość, którą właśnie zapisał rdzeń
+    window.Jezyk?.ustaw(nowy.jezyk);
     cfg = nowy;
     zapisane = { ...nowy, autostart };
     p.classList.add("zapisano");
@@ -2392,6 +2393,8 @@ odswiezPrzyciskGraj();
 pokazZakladke(location.hash.slice(1));
 invoke("ustawienia").then((u) => {
   cfg ??= u.cfg;
+  // Język z ustawień (jezyk.js zaczął od zapamiętanego w oknie)
+  window.Jezyk?.ustaw(u.cfg.jezyk);
   odswiezPrzyciskZapisu();
   pokazFilm(stan);
 });
@@ -2475,6 +2478,10 @@ invoke("aktualizacja").then(pokazAktualizacje);
 listen("aktualizacja", (e) => pokazAktualizacje(e.payload));
 
 listen("zakladka", (e) => pokazZakladke(e.payload));
+// Zmiana języka: daty na liście klipów są pisane w języku okna — lista od nowa
+document.addEventListener("zmiana-jezyka", () => {
+  if (!$("widok-klipy").hidden) wczytajKlipy();
+});
 listen("klip-zapisany", () => {
   dymek("Klip zapisany");
   if (!$("widok-klipy").hidden) wczytajKlipy();
