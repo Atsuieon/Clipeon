@@ -1,5 +1,11 @@
 # Zmiany
 
+## 1.5.2
+
+- **Klip zapisany głosem.** Ustawienia → Skróty → **Zapisz klip głosem**: mówisz swoją frazę, np. „record video”, i Clipeon zapisuje klip jak po Alt+F10. Przy włączaniu klikasz „Naucz frazy” i mówisz ją 3 razy — Clipeon uczy się Twojego głosu, więc akcent nie ma znaczenia, a fraza może być dowolna (też po polsku).
+- Wszystko dzieje się na Twoim komputerze: bez internetu, bez konta, bez pobierania modelu mowy (instalator nie rośnie). Rozpoznawanie słucha mikrofonu, który i tak się nagrywa, i zajmuje ok. 0,1% jednego rdzenia procesora.
+- Domyślnie wyłączone. Działa, gdy nagrywa się „Mój mikrofon”. Dla nerdów: czułość (mniej pomyłek / zwykła / łatwiej rozpoznaje), a w dzienniku zdarzeń każde rozpoznanie i „prawie” z wynikiem — do dobrania czułości.
+
 ## 1.5.1
 
 - **Zmiana języka na angielski działa.** Przełączanie zostało napisane od nowa: słownik jest częścią okna (nic nie jest doczytywane w trakcie), język zmienia się od razu po zapisaniu ustawień, w obie strony i bez przeładowania okna. Teksty, które pojawiają się później (komunikaty, status, lista klipów z datami), też są w wybranym języku.

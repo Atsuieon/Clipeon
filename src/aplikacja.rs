@@ -428,6 +428,8 @@ struct Ustawienia {
     formaty_filmu: Vec<(String, String)>,
     wersja: &'static str,
     repozytorium: &'static str,
+    /// Czy komenda głosowa ma nauczoną frazę
+    glos_nauczona: bool,
 }
 
 /// Sprawdza aktualizacje i pokazuje wynik w oknie i menu zasobnika. `w_tle` = sprawdzenie
@@ -511,6 +513,7 @@ async fn ustawienia(app: AppHandle) -> Result<Ustawienia, String> {
         formaty_filmu: crate::film::formaty(),
         wersja: crate::aktualizacje::WERSJA,
         repozytorium: crate::aktualizacje::REPOZYTORIUM,
+        glos_nauczona: crate::glos::nauczona(),
     })
     .await
     .map_err(|e| e.to_string())
@@ -729,6 +732,18 @@ fn przenies_autostart_z_clippera(app: &AppHandle) {
     }
 }
 
+/// Nauka komendy głosowej: czeka (do 8 s), aż użytkownik powie frazę. Po trzeciej próbce fraza działa.
+#[tauri::command]
+async fn glos_probka(od_nowa: bool) -> Result<crate::glos::Nauka, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::glos::nagraj_probke(od_nowa)).await.map_err(|e| e.to_string())?
+}
+
+/// Komenda głosowa: zapomnij nauczoną frazę.
+#[tauri::command]
+fn glos_usun() {
+    crate::glos::usun();
+}
+
 /// Podłączone mikrofony do wyboru w ustawieniach.
 #[tauri::command]
 async fn mikrofony() -> Vec<crate::audio::Mikrofon> {
@@ -859,6 +874,8 @@ pub fn uruchom() {
             stan,
             ustawienia,
             mikrofony,
+            glos_probka,
+            glos_usun,
             gry,
             zapisz_ustawienia,
             wybierz_folder,
@@ -992,6 +1009,9 @@ pub fn uruchom() {
             let uchwyt = app.handle().clone();
             let rdzen = Rdzen::nowy(cfg, move |z| obsluz_zdarzenie(&uchwyt, z));
             app.manage(rdzen.clone());
+            // Komenda głosowa: przed `uruchom`, które ją włącza według ustawień
+            let r = rdzen.clone();
+            crate::glos::uruchom(move || r.zapisz_klip());
             rdzen.uruchom();
             rdzen.uruchom_straznika();
             if po_awarii {

@@ -624,6 +624,8 @@ fn przechwytuj(
             let czas = (qpc != 0 && flagi & AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR.0 as u32 == 0).then_some(qpc as i64);
             if let Some((c, _)) = czujnik.as_mut() {
                 c.pakiet(k.format.bity, probki);
+                // Komenda głosowa słucha tego samego mikrofonu (nic nie robi, gdy jest wyłączona)
+                crate::glos::probki(k.format.czestotliwosc, k.format.kanaly as u16, k.format.bity, probki, ramek);
             }
             let w = k.zegar.pakiet(&mut k.wejscie, czas, ramek as i64, probki);
             unsafe { przechwyt.ReleaseBuffer(ramek)? };
