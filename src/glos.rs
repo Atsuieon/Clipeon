@@ -3,7 +3,7 @@
 // Próbki przychodzą ze ścieżki „Mikrofon”, która i tak się nagrywa (`audio::przechwytuj`) — Clipeon nie
 // otwiera mikrofonu drugi raz. Wątek dźwięku tylko kopiuje pakiet do kanału (gdy funkcja jest włączona),
 // a liczenie odbywa się w osobnym wątku „glos”.
-use crate::rozpoznawanie::{self as rozp, Przelicznik, Ramka, Sluchacz};
+use crate::rozpoznawanie::{self as rozp, Przelicznik, Ramka, Sluchacz, Wypowiedz};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -20,8 +20,13 @@ const CZEKANIE_NA_PROBKE: Duration = Duration::from_secs(8);
 const CZEKANIE_NA_MIKROFON: Duration = Duration::from_millis(1500);
 /// Przerwa w dopływie próbek dłuższa niż to (pauza, restart nagrywania) = słuchamy od nowa
 const PRZERWA_STRUMIENIA: Duration = Duration::from_secs(1);
-/// Próbki, które za bardzo różnią się od siebie (kaszel, ktoś wszedł w słowo), nie nadają się na wzorzec
-const NAJWIEKSZY_ROZRZUT: f32 = 12.0;
+/// Próbka, która pasuje do pozostałych tyle razy gorzej niż one do siebie (kaszel, ktoś wszedł w słowo),
+/// nie nadaje się na wzorzec
+const ODSTAJE_RAZY: f32 = 1.8;
+/// Gdy jest ten folder, Clipeon zapisuje w nim dźwięk prób (nauka i rozpoznawanie, ostatnie 40) — do
+/// dostrojenia rozpoznawania na prawdziwym głosie. Nikt go nie tworzy sam.
+const FOLDER_NAGRAN: &str = "glos-nagrania";
+const NAGRAN_NAJWYZEJ: usize = 40;
 
 /// Czy wątek dźwięku ma przysyłać próbki mikrofonu (włączona funkcja z nauczoną frazą albo trwa nauka)
 static SLUCHA: AtomicBool = AtomicBool::new(false);
@@ -40,7 +45,7 @@ enum Wiadomosc {
     Ustaw { wlaczona: bool, czulosc: u32 },
     Wzorce(Option<Wzorce>),
     /// Następna wypowiedź idzie do nauki zamiast do rozpoznawania (None = koniec czekania)
-    Nauka(Option<mpsc::Sender<Vec<Ramka>>>),
+    Nauka(Option<mpsc::Sender<Wypowiedz>>),
 }
 
 /// Nauczona fraza: znormalizowane cechy każdej próbki i ich rozrzut (podstawa progu).
@@ -50,8 +55,41 @@ struct Wzorce {
     rozrzut: f32,
 }
 
+fn folder() -> Option<PathBuf> {
+    std::env::var_os("APPDATA").map(|a| PathBuf::from(a).join("Clipeon"))
+}
+
 fn sciezka() -> Option<PathBuf> {
-    std::env::var_os("APPDATA").map(|a| PathBuf::from(a).join("Clipeon").join("glos.json"))
+    folder().map(|f| f.join("glos.json"))
+}
+
+/// Zapisuje dźwięk próby do `glos-nagrania` (tylko gdy ten folder istnieje) jako WAV 16 kHz mono.
+fn zapisz_nagranie(nazwa: &str, probki: &[f32]) {
+    let Some(f) = folder().map(|f| f.join(FOLDER_NAGRAN)).filter(|f| f.is_dir()) else { return };
+    let mut dane = Vec::with_capacity(44 + probki.len() * 2);
+    let bajty = (probki.len() * 2) as u32;
+    dane.extend_from_slice(b"RIFF");
+    dane.extend_from_slice(&(36 + bajty).to_le_bytes());
+    dane.extend_from_slice(b"WAVEfmt ");
+    for x in [16u32, 1 | (1 << 16), rozp::CZESTOTLIWOSC, rozp::CZESTOTLIWOSC * 2, 2 | (16 << 16)] {
+        dane.extend_from_slice(&x.to_le_bytes());
+    }
+    dane.extend_from_slice(b"data");
+    dane.extend_from_slice(&bajty.to_le_bytes());
+    for p in probki {
+        dane.extend_from_slice(&((p.clamp(-1.0, 1.0) * 32_767.0) as i16).to_le_bytes());
+    }
+    // Milisekundy od 1970: nazwy układają się po kolei
+    let znacznik = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+    let _ = std::fs::write(f.join(format!("{znacznik}_{nazwa}.wav")), dane);
+    // Najstarsze nagrania znikają
+    if let Ok(lista) = std::fs::read_dir(&f) {
+        let mut pliki: Vec<PathBuf> = lista.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "wav")).collect();
+        pliki.sort();
+        for stary in pliki.iter().take(pliki.len().saturating_sub(NAGRAN_NAJWYZEJ)) {
+            let _ = std::fs::remove_file(stary);
+        }
+    }
 }
 
 fn wczytaj() -> Option<Wzorce> {
@@ -137,22 +175,26 @@ pub fn nagraj_probke(od_nowa: bool) -> Result<Nauka, String> {
         }
     };
     wyslij(Wiadomosc::Nauka(None));
-    let ramki = wynik?;
+    let wypowiedz = wynik?;
     let mut nauka = NAUKA.lock().unwrap_or_else(|e| e.into_inner());
-    nauka.push(rozp::normalizuj(ramki));
+    zapisz_nagranie(&format!("nauka{}", nauka.len() + 1), &wypowiedz.probki);
+    nauka.push(rozp::normalizuj(wypowiedz.ramki));
     if nauka.len() < PROBEK_NAUKI {
         return Ok(Nauka { zebrane: nauka.len(), gotowe: false });
     }
     let wzorce = std::mem::take(&mut *nauka);
     drop(nauka);
     let dlugosci: Vec<usize> = wzorce.iter().map(|w| w.len()).collect();
-    let rozrzut = rozp::rozrzut(&wzorce);
+    // Każda próbka względem pozostałych: jedna dużo gorsza od reszty = coś ją przerwało
+    let wyniki = rozp::wyniki_nauki(&wzorce);
+    let rozrzut = wyniki.iter().copied().fold(0.0, f32::max);
+    let najlepszy = wyniki.iter().copied().fold(f32::INFINITY, f32::min);
     crate::dziennik::info(&format!(
-        "Komenda głosowa: nauka — długości próbek {:?} (×10 ms), rozrzut {rozrzut:.2}",
-        dlugosci
+        "Komenda głosowa: nauka — długości próbek {dlugosci:?} (×10 ms), dopasowania {:?}, rozrzut {rozrzut:.2}",
+        wyniki.iter().map(|w| (w * 100.0).round() / 100.0).collect::<Vec<_>>()
     ));
     let (min, max) = (dlugosci.iter().min().copied().unwrap_or(0), dlugosci.iter().max().copied().unwrap_or(0));
-    if max > min * 2 || rozrzut > NAJWIEKSZY_ROZRZUT {
+    if max > min * 2 || rozrzut > najlepszy * ODSTAJE_RAZY {
         return Err("Te trzy powtórzenia za bardzo się różnią (może coś przerwało). Spróbuj jeszcze raz, w ciszy.".into());
     }
     let w = Wzorce { wzorce, rozrzut };
@@ -197,7 +239,7 @@ fn petla(rx: mpsc::Receiver<Wiadomosc>, mut wzorce: Option<Wzorce>, przy_frazie:
     let mut przelicznik: Option<(u32, Przelicznik)> = None;
     let mut wlaczona = false;
     let mut czulosc = 2;
-    let mut nauka: Option<mpsc::Sender<Vec<Ramka>>> = None;
+    let mut nauka: Option<mpsc::Sender<Wypowiedz>> = None;
     let mut ostatnie_probki = Instant::now();
     let mut ostatnio_rozpoznana: Option<Instant> = None;
     let mut mono16 = Vec::with_capacity(2048);
@@ -240,15 +282,16 @@ fn petla(rx: mpsc::Receiver<Wiadomosc>, mut wzorce: Option<Wzorce>, przy_frazie:
         }
         let mut gotowe = Vec::new();
         sluchacz.dodaj(&mono16, |r| gotowe.push(r));
-        for ramki in gotowe {
+        for wypowiedz in gotowe {
             // Nauka: wypowiedź idzie do okna, nie do rozpoznawania
             if let Some(n) = nauka.take() {
-                let _ = n.send(ramki);
+                let _ = n.send(wypowiedz);
                 continue;
             }
             let Some(wz) = wzorce.as_ref().filter(|_| wlaczona) else { continue };
-            let wynik = rozp::wynik(&wz.wzorce, &ramki);
+            let wynik = rozp::wynik(&wz.wzorce, &wypowiedz.ramki);
             let prog = rozp::prog(wz.rozrzut, czulosc);
+            zapisz_nagranie(&format!("wynik{wynik:.2}_prog{prog:.2}"), &wypowiedz.probki);
             if wynik <= prog {
                 if ostatnio_rozpoznana.is_some_and(|t| t.elapsed() < PRZERWA_PO_ROZPOZNANIU) {
                     continue;

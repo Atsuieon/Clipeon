@@ -27,6 +27,15 @@ const HISTORIA_SZUMU: usize = 150;
 
 pub type Ramka = [f32; CECHY];
 
+/// Brzegi wypowiedzi cichsze o tyle od jej najgłośniejszej ramki są obcinane (oddech, stuknięcie, szum)
+const BRZEG_DB: f32 = 30.0;
+
+/// Wypowiedź odcięta ciszą: cechy ramek i jej dźwięk (mono 16 kHz, do zapisu próbek przy dostrajaniu)
+pub struct Wypowiedz {
+    pub ramki: Vec<Ramka>,
+    pub probki: Vec<f32>,
+}
+
 /// Liczy cechy z ciągłego strumienia próbek 16 kHz i tnie go na wypowiedzi według głośności.
 pub struct Sluchacz {
     probki: Vec<f32>,
@@ -35,10 +44,10 @@ pub struct Sluchacz {
     dct: Vec<[f32; PASMA]>,
     /// Głośność ostatnich ramek (dB) do oceny szumu tła
     historia_db: std::collections::VecDeque<f32>,
-    /// Ostatnie ramki przed początkiem mowy (zapas)
-    przed: std::collections::VecDeque<Ramka>,
+    /// Ostatnie ramki przed początkiem mowy (zapas): cechy, głośność i nowe próbki tej ramki
+    przed: std::collections::VecDeque<(Ramka, f32, Vec<f32>)>,
     /// Trwająca wypowiedź
-    mowa: Option<Vec<Ramka>>,
+    mowa: Option<Vec<(Ramka, f32, Vec<f32>)>>,
     mowy_z_rzedu: usize,
     ciszy_z_rzedu: usize,
 }
@@ -90,13 +99,14 @@ impl Sluchacz {
 
     /// Dokłada próbki (mono, 16 kHz, -1..1). Każdą wypowiedź, która właśnie się skończyła (surowe cechy),
     /// oddaje do `gotowa`.
-    pub fn dodaj(&mut self, probki: &[f32], mut gotowa: impl FnMut(Vec<Ramka>)) {
+    pub fn dodaj(&mut self, probki: &[f32], mut gotowa: impl FnMut(Wypowiedz)) {
         self.probki.extend_from_slice(probki);
         let mut start = 0;
         while self.probki.len() - start >= OKNO {
             let (ramka, db) = self.ramka(start);
+            let nowe = self.probki[start + OKNO - KROK..start + OKNO].to_vec();
             start += KROK;
-            if let Some(w) = self.krok(ramka, db) {
+            if let Some(w) = self.krok(ramka, db, nowe) {
                 gotowa(w);
             }
         }
@@ -136,7 +146,7 @@ impl Sluchacz {
         self.historia_db.iter().copied().fold(f32::INFINITY, f32::min)
     }
 
-    fn krok(&mut self, ramka: Ramka, db: f32) -> Option<Vec<Ramka>> {
+    fn krok(&mut self, ramka: Ramka, db: f32, nowe: Vec<f32>) -> Option<Wypowiedz> {
         // Poziom szumu = najcichsza ramka z ostatnich 1,5 s (w mowie zawsze trafiają się przerwy)
         self.historia_db.push_back(db);
         if self.historia_db.len() > HISTORIA_SZUMU {
@@ -146,7 +156,7 @@ impl Sluchacz {
         match &mut self.mowa {
             None => {
                 self.mowy_z_rzedu = if mowa { self.mowy_z_rzedu + 1 } else { 0 };
-                self.przed.push_back(ramka);
+                self.przed.push_back((ramka, db, nowe));
                 if self.przed.len() > ZAPAS {
                     self.przed.pop_front();
                 }
@@ -157,7 +167,7 @@ impl Sluchacz {
                 None
             }
             Some(w) => {
-                w.push(ramka);
+                w.push((ramka, db, nowe));
                 if w.len() > MAX_RAMEK + CISZA_KONCA {
                     w.remove(0);
                 }
@@ -169,7 +179,16 @@ impl Sluchacz {
                 self.mowy_z_rzedu = 0;
                 // Z ciszy na końcu zostaje tyle, co zapasu na początku
                 w.truncate(w.len() - CISZA_KONCA + ZAPAS);
-                (w.len() >= MIN_RAMEK).then_some(w)
+                // Ciche brzegi (oddech przed, szum po) wydłużają wypowiedź i psują dopasowanie
+                let szczyt = w.iter().map(|x| x.1).fold(f32::NEG_INFINITY, f32::max);
+                let glosna = |x: &(Ramka, f32, Vec<f32>)| x.1 >= szczyt - BRZEG_DB;
+                let od = w.iter().position(glosna).unwrap_or(0).saturating_sub(3);
+                let do_ = (w.iter().rposition(glosna).unwrap_or(w.len()) + 4).min(w.len());
+                let w = &w[od..do_];
+                (w.len() >= MIN_RAMEK).then(|| Wypowiedz {
+                    ramki: w.iter().map(|x| x.0).collect(),
+                    probki: w.iter().flat_map(|x| x.2.iter().copied()).collect(),
+                })
             }
         }
     }
@@ -262,12 +281,17 @@ fn wynik_jednego(wzorce: &[Vec<Ramka>], wypowiedz: &[Ramka]) -> f32 {
 /// Rozrzut próbek z nauki: jak bardzo różnią się między sobą powtórzenia tej samej frazy (najgorsze
 /// dopasowanie jednej próbki do pozostałych). Z niego wychodzi próg rozpoznania.
 pub fn rozrzut(wzorce: &[Vec<Ramka>]) -> f32 {
-    let mut najgorszy: f32 = 0.0;
-    for (i, a) in wzorce.iter().enumerate() {
-        let inne: Vec<Vec<Ramka>> = wzorce.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, w)| w.clone()).collect();
-        najgorszy = najgorszy.max(wynik_jednego(&inne, a));
-    }
-    najgorszy
+    wyniki_nauki(wzorce).into_iter().fold(0.0, f32::max)
+}
+
+/// Dopasowanie każdej próbki z nauki do pozostałych.
+pub fn wyniki_nauki(wzorce: &[Vec<Ramka>]) -> Vec<f32> {
+    (0..wzorce.len())
+        .map(|i| {
+            let inne: Vec<Vec<Ramka>> = wzorce.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, w)| w.clone()).collect();
+            wynik_jednego(&inne, &wzorce[i])
+        })
+        .collect()
 }
 
 /// Próg rozpoznania: rozrzut z zapasem. Czułość 1 = mniej pomyłek, 2 = zwykła, 3 = łatwiej rozpoznaje.
@@ -381,7 +405,10 @@ mod testy {
         let mut s = Sluchacz::nowy();
         let mut w = Vec::new();
         for kawalek in probki.chunks(480) {
-            s.dodaj(kawalek, |x| w.push(x));
+            s.dodaj(kawalek, |x| {
+                assert_eq!(x.probki.len(), x.ramki.len() * KROK);
+                w.push(x.ramki)
+            });
         }
         w
     }
