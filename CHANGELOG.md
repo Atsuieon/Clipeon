@@ -1,5 +1,10 @@
 # Zmiany
 
+## 1.5.3
+
+- **Zapis klipu głosem nie zapisuje już klipów, gdy nic nie mówisz.** W 1.5.2 ciche szumy z mikrofonu i klikanie klawiatury potrafiły wyjść „podobne do frazy” i w kilka minut robiło się kilkadziesiąt klipów. Teraz Clipeon bierze pod uwagę tylko dźwięk prawie tak głośny jak Twoja fraza przy nauce i z dłuższym, ciągłym dźwiękiem (samogłoską), a nie krótkie trzaski. Próg dopasowania jest też ostrzejszy.
+- Frazę nauczoną w 1.5.2 trzeba nauczyć jeszcze raz (Ustawienia → Skróty → „Naucz frazy”) — stara nie pamięta, jak głośno mówisz.
+
 ## 1.5.2
 
 - **Klip zapisany głosem** (troll funkcja — pewnie nie zawsze zadziała, ale jest dla beki). Ustawienia → Skróty → **Zapisz klip głosem**: mówisz swoją frazę, np. „record video”, i Clipeon zapisuje klip jak po Alt+F10. Przy włączaniu klikasz „Naucz frazy” i mówisz ją 3 razy — Clipeon uczy się Twojego głosu, więc akcent nie ma znaczenia, a fraza może być dowolna (też po polsku).
