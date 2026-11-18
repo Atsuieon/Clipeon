@@ -321,7 +321,7 @@ window.SLOWNIK_EN = {
   "Znacznik w filmie": "Film marker",
   "Skróty": "Shortcuts",
   "Zapisz klip głosem": "Save a clip by voice",
-  "troll opcja": "troll option",
+  "eksperyment": "may explode",
   "Bardzo wadliwe — to bardziej żart niż prawdziwa funkcja.": "Very buggy — more of a joke than a real feature.",
   "Troll opcja (most likely will explode or something). Jest dla beki i nie działa poprawnie: potrafi zapisać klip, gdy nic nie mówisz, albo nie zareagować na frazę.": "Troll option (most likely will explode or something). It's just for fun and doesn't work properly: it can save a clip when you say nothing, or ignore your phrase.",
   "Powiedz swoją frazę, np. „record video”, a Clipeon zapisze klip. Uczy się Twojego głosu na tym komputerze — bez internetu i bez konta.": "Say your phrase, e.g. “record video”, and Clipeon saves a clip. It learns your voice on this computer — no internet, no account.",
