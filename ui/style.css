@@ -1018,3 +1018,5 @@ h1 { font-size: clamp(30px, 4.2vw, 44px); }
   .status #status-tekst { display: none; }
   .status { margin-right: 0; }
 }
+/* Komenda głosowa to zabawa: mały znaczek przy nazwie */
+.znaczek-beka { display: inline-block; margin-left: 6px; padding: 1px 7px; border: 1px solid var(--ramka-pola); border-radius: 999px; font-size: 11px; color: var(--pomoc); vertical-align: middle; }

@@ -2,7 +2,7 @@
 
 ## 1.5.2
 
-- **Klip zapisany głosem.** Ustawienia → Skróty → **Zapisz klip głosem**: mówisz swoją frazę, np. „record video”, i Clipeon zapisuje klip jak po Alt+F10. Przy włączaniu klikasz „Naucz frazy” i mówisz ją 3 razy — Clipeon uczy się Twojego głosu, więc akcent nie ma znaczenia, a fraza może być dowolna (też po polsku).
+- **Klip zapisany głosem** (troll funkcja — pewnie nie zawsze zadziała, ale jest dla beki). Ustawienia → Skróty → **Zapisz klip głosem**: mówisz swoją frazę, np. „record video”, i Clipeon zapisuje klip jak po Alt+F10. Przy włączaniu klikasz „Naucz frazy” i mówisz ją 3 razy — Clipeon uczy się Twojego głosu, więc akcent nie ma znaczenia, a fraza może być dowolna (też po polsku).
 - Wszystko dzieje się na Twoim komputerze: bez internetu, bez konta, bez pobierania modelu mowy (instalator nie rośnie). Rozpoznawanie słucha mikrofonu, który i tak się nagrywa, i zajmuje ok. 0,1% jednego rdzenia procesora.
 - Domyślnie wyłączone. Działa, gdy nagrywa się „Mój mikrofon”. Dla nerdów: czułość (mniej pomyłek / zwykła / łatwiej rozpoznaje), a w dzienniku zdarzeń każde rozpoznanie i „prawie” z wynikiem — do dobrania czułości.
 

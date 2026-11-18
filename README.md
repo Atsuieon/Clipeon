@@ -28,7 +28,7 @@
 ## Features
 
 - **The last seconds of your game with one shortcut** — press **Alt+F10** and the last 30 s (adjustable from 5 s to 10 min) are saved as an MP4.
-- **Save a clip by voice** — say your own phrase, e.g. "record video", and Clipeon saves a clip. You teach it by saying the phrase 3 times, so any accent or language works. Off by default; runs offline on your PC at about 0.1% of one CPU core.
+- **Save a clip by voice** (a troll feature, just for fun — it won't always work) — say your own phrase, e.g. "record video", and Clipeon saves a clip. You teach it by saying the phrase 3 times, so any accent or language works. Off by default; runs offline on your PC at about 0.1% of one CPU core.
 - **Films** — "Record film" or **Alt+F9** records with no time limit until you press it again. A film adds no extra load on the game, and clips keep working while it records. Films have their own tab. **Alt+F8** during a film adds a marker you can jump to in the editor, and a film cut short by a crash is put back together on the next start.
 - **Smaller films** — after recording, Clipeon can re-encode the film in the background as HEVC (about half the size) or AV1 (about a third). The graphics card does the work.
 - **Lightweight** — the graphics card (AMD, NVIDIA, Intel) captures and encodes the picture; nothing touches the disk until you save.
