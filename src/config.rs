@@ -77,6 +77,10 @@ pub struct Config {
     /// Gra do nagrywania: nazwa pliku programu, np. „Cyberpunk2077.exe”
     /// (pusta = nagrywaj zawsze, bez względu na to, co jest na wierzchu)
     pub gra: String,
+    /// Komenda głosowa: powiedziana fraza (nauczona w ustawieniach) zapisuje klip. Słucha nagrywanego mikrofonu
+    pub glos: bool,
+    /// Czułość komendy głosowej: 1 = mniej pomyłek, 2 = zwykła, 3 = łatwiej rozpoznaje
+    pub glos_czulosc: u32,
     /// Ładna nazwa wybranej gry (żeby pokazać „Czekam na …”, zanim gra wystartuje)
     pub gra_nazwa: String,
 }
@@ -123,6 +127,8 @@ impl Default for Config {
             mikrofon_urzadzenie: String::new(),
             gra: String::new(),
             gra_nazwa: String::new(),
+            glos: false,
+            glos_czulosc: 2,
             sprawdzaj_aktualizacje: true,
         }
     }
@@ -271,6 +277,9 @@ impl Config {
         }
         if !JEZYKI.contains(&self.jezyk.as_str()) {
             return Err(format!("Nieznany język \"{}\"", self.jezyk));
+        }
+        if !(1..=3).contains(&self.glos_czulosc) {
+            return Err("Czułość komendy głosowej musi wynosić od 1 do 3".into());
         }
         Ok(())
     }

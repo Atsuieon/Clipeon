@@ -1955,6 +1955,8 @@ const POLA = [
   ["mikrofon-urzadzenie", "mikrofon_urzadzenie", "tekst"],
   ["jezyk", "jezyk", "tekst"],
   ["tylko-gra", "tylko_gra", "tak"],
+  ["glos", "glos", "tak"],
+  ["glos-czulosc", "glos_czulosc", "liczba"],
 ];
 
 function wpiszPola(c) {
@@ -2021,6 +2023,8 @@ async function wczytajUstawienia() {
   $("folder").textContent = cfg.folder_klipow;
   $("autostart").checked = u.autostart;
   $("wersja").textContent = u.wersja;
+  glosNauczona = u.glos_nauczona;
+  if (!naukaGlosu) pokazStanGlosu();
   zapisane = { ...zebraneUstawienia(), autostart: u.autostart };
   $("pasek-zapisu").classList.remove("blad", "zapisano");
   odswiezFormularz();
@@ -2031,6 +2035,7 @@ function odswiezFormularz() {
   $("sprz-dni").disabled = !$("sprz-dni-wl").checked;
   $("sprz-gb").disabled = !$("sprz-gb-wl").checked;
   $("mikrofon-uwaga").textContent = $("mikrofon").checked ? "" : "Mikrofon jest wyłączony. Wybranie urządzenia go włączy.";
+  odswiezUwageGlosu();
   const uwagi = {
     hevc_amf: "Podgląd w Clipeonie wymaga rozszerzenia HEVC z Microsoft Store, a Discord w przeglądarce może takiego klipu nie odtworzyć.",
     av1_amf: "Karty Radeon RX 7000 zapisują ten format w 1920×1082 — na dole klipu są 2 czarne linie.",
@@ -2120,6 +2125,7 @@ const NAZWY_USTAWIEN = {
   ikona_przy_zegarze: "Ikona przy zegarze", sprawdzaj_aktualizacje: "Sprawdzanie nowej wersji", animowane_tlo: "Animowane tło",
   kolorowy_napis: "Napis z cząsteczek", enkoder: "Format wideo", metoda_przechwytywania: "Sposób przechwytywania obrazu",
   skrot: "Skrót do zapisania klipu", skrot_filmu: "Skrót do nagrywania filmu", skrot_znacznika: "Skrót znacznika w filmie",
+  glos: "Zapisz klip głosem", glos_czulosc: "Czułość komendy głosowej",
   jezyk: "Język", tylko_gra: "Nagrywaj tylko grę", folder_klipow: "Gdzie zapisywać klipy",
   sprzatanie_dni: "Usuwanie starych klipów", sprzatanie_gb: "Limit miejsca na klipy", autostart: "Uruchamianie razem z Windows",
 };
@@ -2274,6 +2280,64 @@ $("formularz").addEventListener("input", () => {
 }
 
 // Wybrany mikrofon ma być słychać, więc wybór urządzenia włącza „Mój mikrofon”
+// Komenda głosowa: nauka frazy (3 powtórzenia) i uwagi pod przełącznikiem.
+// Nauka nie zmienia ustawień — fraza zapisuje się od razu po trzecim powtórzeniu.
+let glosNauczona = false;
+let naukaGlosu = false;
+
+function pokazStanGlosu(tekst) {
+  $("glos-stan").textContent = tekst ?? (glosNauczona
+    ? "Nauczona. Powiedz ją w grze, a Clipeon zapisze klip. Możesz też nauczyć go nowej."
+    : "Kliknij „Naucz frazy” i powiedz ją 3 razy, z krótką przerwą przed i po.");
+  $("glos-naucz").textContent = glosNauczona ? "Naucz od nowa" : "Naucz frazy";
+  $("glos-usun").hidden = !glosNauczona;
+  odswiezUwageGlosu();
+}
+
+function odswiezUwageGlosu() {
+  const uwaga = !$("glos").checked ? ""
+    : !$("mikrofon").checked ? "Działa tylko, gdy nagrywa się „Mój mikrofon” (Ustawienia → Dźwięk)."
+    : !glosNauczona ? "Najpierw naucz Clipeona swojej frazy — przycisk poniżej."
+    : "";
+  $("glos-uwaga").textContent = uwaga;
+  $("glos-uwaga").hidden = !uwaga;
+}
+
+$("glos-naucz").addEventListener("click", async () => {
+  if (naukaGlosu) return;
+  naukaGlosu = true;
+  $("glos-naucz").disabled = true;
+  $("glos-usun").disabled = true;
+  try {
+    for (let i = 0; i < 3; i++) {
+      pokazStanGlosu(`Powiedz teraz swoją frazę (${i + 1} z 3)…`);
+      const w = await invoke("glos_probka", { odNowa: i === 0 });
+      if (w.gotowe) glosNauczona = true;
+    }
+    pokazStanGlosu("Gotowe! Powiedz frazę w grze, a Clipeon zapisze klip.");
+    if (!$("glos").checked) {
+      $("glos").checked = true;
+      odswiezFormularz();
+      $("glos-stan").textContent = "Gotowe! Zapisz zmiany, żeby włączyć zapisywanie klipu głosem.";
+    }
+  } catch (e) {
+    pokazStanGlosu(String(e?.message || e));
+  } finally {
+    naukaGlosu = false;
+    $("glos-naucz").disabled = false;
+    $("glos-usun").disabled = false;
+    $("glos-naucz").textContent = glosNauczona ? "Naucz od nowa" : "Naucz frazy";
+  }
+});
+
+$("glos-usun").addEventListener("click", async () => {
+  await invoke("glos_usun");
+  glosNauczona = false;
+  pokazStanGlosu();
+});
+
+$("glos").addEventListener("change", odswiezUwageGlosu);
+
 $("mikrofon-urzadzenie").addEventListener("change", () => {
   $("mikrofon").checked = true;
   odswiezFormularz();

@@ -1011,9 +1011,12 @@ h1 { font-size: clamp(30px, 4.2vw, 44px); }
 }
 /* Prosty widok: ustawienie, które nic nie zmienia, znika razem z wyłączoną opcją nadrzędną */
 #widok-ustawienia:not(.nerd) .karta:has(#mikrofon:not(:checked)) .ust:has(#mikrofon-urzadzenie),
-#widok-ustawienia:not(.nerd) .karta:has(#dzwiek:not(:checked)) .ust:has(#dzwiek-osobno) { display: none; }
+#widok-ustawienia:not(.nerd) .karta:has(#dzwiek:not(:checked)) .ust:has(#dzwiek-osobno),
+#widok-ustawienia:not(.nerd) .karta:has(#glos:not(:checked)) #glos-nauka { display: none; }
 /* Status przy wąskim pasku: sama kropka (pełny opis jest w podpowiedzi), zamiast uciętego „Nagrywa: …” */
 @media (max-width: 940px) {
   .status #status-tekst { display: none; }
   .status { margin-right: 0; }
 }
+/* Komenda głosowa to zabawa: mały znaczek przy nazwie */
+.znaczek-beka { display: inline-block; margin-left: 6px; padding: 1px 7px; border: 1px solid var(--ramka-pola); border-radius: 999px; font-size: 11px; color: var(--pomoc); vertical-align: middle; }

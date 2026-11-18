@@ -36,7 +36,7 @@ function udawanyTauri() {
     sprawdzaj_aktualizacje: true, monitor: "", monitor_id: "", tryb: "gra", monitor_pulpitu: "",
     monitor_pulpitu_id: "", fps_pulpitu: 30, bitrate_pulpitu_mbps: 12, metoda_przechwytywania: "auto",
     mikrofon_urzadzenie: "", gra: "", gra_nazwa: "", skrot_filmu: "Alt+F9", animowane_tlo: true, kolorowy_napis: true,
-    format_filmu: "bez_zmian", skrot_znacznika: "Alt+F8", jezyk: "pl", tylko_gra: false,
+    format_filmu: "bez_zmian", skrot_znacznika: "Alt+F8", jezyk: "pl", tylko_gra: false, glos: false, glos_czulosc: 2,
   };
   const stan = {
     nagrywa: true, pauza: false, bledy: [], wznawianie: null, przelaczanie: null, tryb: "gra", ekran: "Ekran 1", monitor: "",
@@ -91,6 +91,14 @@ function udawanyTauri() {
     eksportuj: (a) => {
       window.__zlecenia = [...(window.__zlecenia || []), a.zlecenie];
       return { sciezka: a.zlecenie.format === "gif" ? "C:\\Klipy\\klip_cut.gif" : a.sciezka, rozmiar: 1234567 };
+    },
+    // Nauka komendy głosowej: każde wywołanie to jedno powiedzenie frazy
+    glos_probka: (a) => {
+      window.__probkiGlosu = a.odNowa ? 1 : (window.__probkiGlosu || 0) + 1;
+      return { zebrane: window.__probkiGlosu, gotowe: window.__probkiGlosu === 3 };
+    },
+    glos_usun: () => {
+      window.__glosUsuniety = true;
     },
     otworz_wsparcie: () => {
       window.__wsparcie = (window.__wsparcie || 0) + 1;
@@ -395,6 +403,28 @@ sprawdz(!(await strona.isChecked("#dla-nerdow")), "„Dla nerdów” jest domyś
   sprawdz(proste.folder, "w prostym widoku nie widać folderu klipów");
 }
 await zrzut("2b-ustawienia-proste");
+// Komenda głosowa: w prostym widoku nauka widoczna dopiero po włączeniu; 3 powtórzenia frazy włączają
+// przełącznik (niezapisana zmiana), a nauczoną frazę można zapomnieć
+sprawdz(await strona.isHidden("#glos-nauka"), "nauka frazy widoczna przy wyłączonej komendzie głosowej");
+await strona.click('label:has(#glos)');
+sprawdz(await strona.isVisible("#glos-nauka") && await strona.isVisible("#glos-uwaga"), "po włączeniu komendy głosowej nie widać nauki i uwagi o mikrofonie");
+await strona.click('label:has(#glos)');
+sprawdz(!(await strona.isChecked("#glos")), "przełącznik komendy głosowej się zaciął");
+const mikrofonPrzed = await strona.isChecked("#mikrofon");
+await strona.evaluate(() => { $("glos").checked = true; $("mikrofon").checked = true; odswiezFormularz(); });
+await strona.click("#glos-naucz");
+await strona.waitForFunction(() => /Gotowe/.test(document.getElementById("glos-stan").textContent), null, { timeout: 3000 }).catch(() => {});
+sprawdz(/Gotowe/.test(await strona.textContent("#glos-stan")), `nauka frazy się nie skończyła: ${await strona.textContent("#glos-stan")}`);
+sprawdz((await strona.evaluate(() => window.__probkiGlosu)) === 3, "nauka frazy nie wzięła 3 powtórzeń");
+sprawdz(await strona.isHidden("#glos-uwaga"), "po nauce została uwaga o komendzie głosowej");
+await strona.locator("#glos-nauka").scrollIntoViewIfNeeded();
+await zrzut("2c-komenda-glosowa");
+sprawdz((await strona.textContent("#glos-naucz")) === "Naucz od nowa" && await strona.isVisible("#glos-usun"), "po nauce brak „Naucz od nowa” i „Zapomnij frazę”");
+sprawdz((await strona.evaluate(() => zmienioneUstawienia())).includes("glos"), "włączenie komendy głosowej nie jest niezapisaną zmianą");
+await strona.click("#glos-usun");
+await strona.waitForTimeout(50);
+sprawdz((await strona.evaluate(() => window.__glosUsuniety)) && await strona.isHidden("#glos-usun"), "„Zapomnij frazę” nie działa");
+await strona.evaluate((m) => { $("glos").checked = false; $("mikrofon").checked = m; odswiezFormularz(); }, mikrofonPrzed);
 // Rozmiar filmów przyciskiem: zmienia ukryte pole i daje niezapisaną zmianę
 await strona.click('#presety-filmu .segment[data-format="av1"]');
 sprawdz((await strona.inputValue("#format-filmu")) === "av1" && (await strona.locator('#presety-filmu .segment.wybrany[data-format="av1"]').count()) === 1, "przycisk rozmiaru filmów nie zmienia wyboru");

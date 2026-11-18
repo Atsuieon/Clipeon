@@ -410,6 +410,8 @@ impl Rdzen {
         let mut w = self.zamek();
         w.czeka_na_gre = czeka;
         let pokolenie = w.pokolenie;
+        // Komenda głosowa słucha ścieżki „Mikrofon”, więc bez nagrywania mikrofonu nie działa
+        crate::glos::ustaw(w.cfg.glos && w.cfg.mikrofon, w.cfg.glos_czulosc);
 
         self.zarejestruj_skroty(&mut w);
         if !w.pauza && !czeka {

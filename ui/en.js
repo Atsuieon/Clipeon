@@ -319,9 +319,35 @@ window.SLOWNIK_EN = {
   "Po Alt+Tab obraz zatrzymuje się na ostatniej klatce gry, więc Discord ani przeglądarka nie trafią do klipu. Dźwięk nagrywa się dalej.": "After Alt+Tab the picture freezes on the last game frame, so Discord or your browser never end up in a clip. Sound keeps recording.",
   "Zapisz klip": "Save clip",
   "Znacznik w filmie": "Film marker",
-  "Skróty": "Shortcuts"
+  "Skróty": "Shortcuts",
+  "Zapisz klip głosem": "Save a clip by voice",
+  "dla beki": "just for fun",
+  "Troll funkcja: pewnie nie zawsze zadziała, ale jest dla beki. Powiedz swoją frazę, np. „record video”, a Clipeon zapisze klip. Uczy się Twojego głosu na tym komputerze — bez internetu i bez konta.": "Troll feature: it probably won't always work, but it's just for fun. Say your phrase, e.g. “record video”, and Clipeon saves a clip. It learns your voice on this computer — no internet, no account.",
+  "Twoja fraza": "Your phrase",
+  "Naucz frazy": "Teach phrase",
+  "Naucz od nowa": "Teach again",
+  "Zapomnij frazę": "Forget phrase",
+  "Czułość komendy głosowej": "Voice command sensitivity",
+  "Gdy klip zapisuje się sam, choć nic nie mówisz — mniej. Gdy Clipeon nie reaguje na frazę — więcej.": "If clips save on their own when you didn't say it — lower. If Clipeon ignores your phrase — higher.",
+  "Mniej pomyłek": "Fewer mistakes",
+  "Zwykła": "Normal",
+  "Łatwiej rozpoznaje": "Recognizes more easily",
+  "Nauczona. Powiedz ją w grze, a Clipeon zapisze klip. Możesz też nauczyć go nowej.": "Learned. Say it in game and Clipeon saves a clip. You can also teach a new one.",
+  "Kliknij „Naucz frazy” i powiedz ją 3 razy, z krótką przerwą przed i po.": "Click “Teach phrase” and say it 3 times, with a short pause before and after.",
+  "Działa tylko, gdy nagrywa się „Mój mikrofon” (Ustawienia → Dźwięk).": "Works only while “My microphone” is being recorded (Settings → Audio).",
+  "Najpierw naucz Clipeona swojej frazy — przycisk poniżej.": "First teach Clipeon your phrase — button below.",
+  "Gotowe! Powiedz frazę w grze, a Clipeon zapisze klip.": "Done! Say the phrase in game and Clipeon saves a clip.",
+  "Gotowe! Zapisz zmiany, żeby włączyć zapisywanie klipu głosem.": "Done! Save changes to turn on saving clips by voice.",
+  "Rozpoznawanie mowy nie działa": "Voice recognition is not working",
+  "Mikrofon się nie nagrywa. Włącz „Mój mikrofon” i zapisz ustawienia, a potem spróbuj jeszcze raz.": "The microphone isn't being recorded. Turn on “My microphone”, save settings, then try again.",
+  "Nic nie usłyszałem. Powiedz frazę wyraźnie, z krótką przerwą przed i po.": "I didn't hear anything. Say the phrase clearly, with a short pause before and after.",
+  "Te trzy powtórzenia za bardzo się różnią (może coś przerwało). Spróbuj jeszcze raz, w ciszy.": "These three takes differ too much (maybe something interrupted). Try again somewhere quiet."
  },
  "wzory": [
+  [
+   "^Powiedz teraz swoją frazę \\((\\d) z 3\\)…$",
+   "Say your phrase now ($1 of 3)…"
+  ],
   [
    "^Nie nagrywa: (.+) — ponawiam…$",
    "Not recording: $1 — retrying…"

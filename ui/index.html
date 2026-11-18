@@ -253,6 +253,37 @@
                   </div>
                   <div class="pole"><button type="button" class="pole-skrotu" id="skrot-znacznika" data-skrot data-pusty="Bez skrótu"></button></div>
                 </div>
+                <div class="ust">
+                  <div class="opis">
+                    <label for="glos">Zapisz klip głosem <span class="znaczek-beka">dla beki</span></label>
+                    <p class="pomoc">Troll funkcja: pewnie nie zawsze zadziała, ale jest dla beki. Powiedz swoją frazę, np. „record video”, a Clipeon zapisze klip. Uczy się Twojego głosu na tym komputerze — bez internetu i bez konta.</p>
+                    <p class="pomoc uwaga" id="glos-uwaga" hidden></p>
+                  </div>
+                  <div class="pole"><label class="przelacznik"><input type="checkbox" id="glos"><span class="suwak"></span></label></div>
+                </div>
+                <div class="ust ust-pod" id="glos-nauka">
+                  <div class="opis">
+                    <span>Twoja fraza</span>
+                    <p class="pomoc" id="glos-stan" role="status"></p>
+                  </div>
+                  <div class="pole">
+                    <button type="button" class="przycisk drugorzedny" id="glos-naucz">Naucz frazy</button>
+                    <button type="button" class="przycisk drugorzedny" id="glos-usun" hidden>Zapomnij frazę</button>
+                  </div>
+                </div>
+                <div class="ust tylko-nerd">
+                  <div class="opis">
+                    <label for="glos-czulosc">Czułość komendy głosowej</label>
+                    <p class="pomoc">Gdy klip zapisuje się sam, choć nic nie mówisz — mniej. Gdy Clipeon nie reaguje na frazę — więcej.</p>
+                  </div>
+                  <div class="pole">
+                    <select id="glos-czulosc">
+                      <option value="1">Mniej pomyłek</option>
+                      <option value="2">Zwykła</option>
+                      <option value="3">Łatwiej rozpoznaje</option>
+                    </select>
+                  </div>
+                </div>
               </div>
             </section>
 
