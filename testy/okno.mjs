@@ -403,6 +403,8 @@ sprawdz(!(await strona.isChecked("#dla-nerdow")), "„Dla nerdów” jest domyś
   sprawdz(proste.folder, "w prostym widoku nie widać folderu klipów");
 }
 await zrzut("2b-ustawienia-proste");
+// Komenda głosowa to „troll opcja”: w prostym widoku krótkie ostrzeżenie, dla nerdów pełne
+sprawdz(await strona.isVisible("p.beka-ostrzezenie.tylko-prosty") && await strona.isHidden("p.pomoc.beka-ostrzezenie"), "w prostym widoku nie widać ostrzeżenia „Bardzo wadliwe” przy komendzie głosowej");
 // Komenda głosowa: w prostym widoku nauka widoczna dopiero po włączeniu; 3 powtórzenia frazy włączają
 // przełącznik (niezapisana zmiana), a nauczoną frazę można zapomnieć
 sprawdz(await strona.isHidden("#glos-nauka"), "nauka frazy widoczna przy wyłączonej komendzie głosowej");
@@ -441,6 +443,7 @@ await strona.click('label[for="dla-nerdow"]');
 sprawdz(await strona.isVisible("#fps") && await strona.isVisible("#enkoder") && await strona.isVisible("#ram"), "„Dla nerdów” nie pokazuje pól i Zaawansowanych");
 sprawdz((await strona.evaluate(() => zmienioneUstawienia().join())) === zmianyPrzed, "„Dla nerdów” udaje niezapisaną zmianę ustawień");
 sprawdz((await strona.evaluate(() => localStorage.getItem("clipeon.dlaNerdow"))) === "1", "„Dla nerdów” nie jest zapamiętane");
+sprawdz(await strona.isVisible("p.pomoc.beka-ostrzezenie") && await strona.isHidden("p.beka-ostrzezenie.tylko-prosty"), "dla nerdów nie widać pełnego ostrzeżenia o troll opcji (albo zostało krótkie)");
 
 // „Zaawansowane” leżą zaraz pod Systemem (ta sama kolumna) i widać je w trybie „Dla nerdów”
 sprawdz(await strona.isVisible("#enkoder"), "„Zaawansowane” nie są widoczne w trybie „Dla nerdów”");
