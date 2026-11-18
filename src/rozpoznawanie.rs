@@ -280,6 +280,7 @@ fn wynik_jednego(wzorce: &[Vec<Ramka>], wypowiedz: &[Ramka]) -> f32 {
 
 /// Rozrzut próbek z nauki: jak bardzo różnią się między sobą powtórzenia tej samej frazy (najgorsze
 /// dopasowanie jednej próbki do pozostałych). Z niego wychodzi próg rozpoznania.
+#[cfg(test)]
 pub fn rozrzut(wzorce: &[Vec<Ramka>]) -> f32 {
     wyniki_nauki(wzorce).into_iter().fold(0.0, f32::max)
 }
