@@ -34,7 +34,24 @@ const BRZEG_DB: f32 = 30.0;
 pub struct Wypowiedz {
     pub ramki: Vec<Ramka>,
     pub probki: Vec<f32>,
+    /// Najgłośniejsza ramka (dBFS)
+    pub szczyt_db: f32,
+    /// Najdłuższy ciąg ramek najwyżej 15 dB ciszej od szczytu (samogłoska trwa ≥ 120 ms bez przerwy,
+    /// a stuknięcie klawisza 2–3 ramki)
+    pub glosny_ciag: usize,
 }
+
+impl Wypowiedz {
+    /// Czy to w ogóle może być powiedziana fraza: dość głośno (`najcichszy_szczyt_db`) i dość długo.
+    /// Odsiewa ciche szumy, brum i klikanie klawiatury, które przy samym dopasowaniu potrafiły wyjść
+    /// podobne do frazy.
+    pub fn moze_byc_mowa(&self, najcichszy_szczyt_db: f32) -> bool {
+        self.szczyt_db >= najcichszy_szczyt_db && self.glosny_ciag >= MIN_GLOSNEGO_CIAGU
+    }
+}
+
+/// Fraza ma co najmniej tyle ramek (120 ms) z rzędu blisko swojego szczytu głośności
+const MIN_GLOSNEGO_CIAGU: usize = 12;
 
 /// Liczy cechy z ciągłego strumienia próbek 16 kHz i tnie go na wypowiedzi według głośności.
 pub struct Sluchacz {
@@ -188,6 +205,15 @@ impl Sluchacz {
                 (w.len() >= MIN_RAMEK).then(|| Wypowiedz {
                     ramki: w.iter().map(|x| x.0).collect(),
                     probki: w.iter().flat_map(|x| x.2.iter().copied()).collect(),
+                    szczyt_db: szczyt,
+                    glosny_ciag: w
+                        .iter()
+                        .scan(0, |ciag, x| {
+                            *ciag = if x.1 >= szczyt - 15.0 { *ciag + 1 } else { 0 };
+                            Some(*ciag)
+                        })
+                        .max()
+                        .unwrap_or(0),
                 })
             }
         }
@@ -297,13 +323,14 @@ pub fn wyniki_nauki(wzorce: &[Vec<Ramka>]) -> Vec<f32> {
 
 /// Próg rozpoznania: rozrzut z zapasem. Czułość 1 = mniej pomyłek, 2 = zwykła, 3 = łatwiej rozpoznaje.
 /// Zapas sprawdzony na syntezie mowy: inne zdania tego samego głosu wychodzą zwykle ponad 2,5× rozrzutu,
-/// a fraza w hałasie (ok. 25 dB ponad szum) do ok. 1,2×.
+/// a fraza w hałasie (ok. 25 dB ponad szum) do ok. 1,2×. Na prawdziwym głosie (1.5.2) fraza wyszła 1,0×,
+/// a ciche szumy i klikanie od 1,2× — te odsiewa teraz `Wypowiedz::moze_byc_mowa`.
 pub fn prog(rozrzut: f32, czulosc: u32) -> f32 {
     rozrzut
         * match czulosc {
-            1 => 1.35,
-            3 => 1.9,
-            _ => 1.6,
+            1 => 1.2,
+            3 => 1.6,
+            _ => 1.4,
         }
 }
 
@@ -490,6 +517,28 @@ mod testy {
         // Coś zupełnie innego
         let inna = wypowiedzi(&nagranie(&sylaby(0.9, 900.0, 0.3), &mut z));
         assert!(wynik(&wzorce, &inna[0]) > prog, "{} <= {prog}", wynik(&wzorce, &inna[0]));
+    }
+
+    #[test]
+    fn ciche_szumy_i_klikanie_to_nie_mowa() {
+        let mut z = 3;
+        let mowa = wypowiedzi_pelne(&nagranie(&sylaby(0.9, 300.0, 0.3), &mut z));
+        assert!(mowa[0].moze_byc_mowa(-30.0), "szczyt {} ciąg {}", mowa[0].szczyt_db, mowa[0].glosny_ciag);
+        let cicha = wypowiedzi_pelne(&nagranie(&sylaby(0.9, 300.0, 0.01), &mut z));
+        assert!(cicha.iter().all(|w| !w.moze_byc_mowa(-30.0)));
+        // Klawiatura: krótkie trzaski co 150 ms
+        let klik: Vec<f32> = (0..16_000).map(|i| if i % 2_400 < 24 { 0.5 * (((i * 7_919) % 13) as f32 / 6.0 - 1.0) } else { 0.0 }).collect();
+        let kliki = wypowiedzi_pelne(&nagranie(&klik, &mut z));
+        assert!(kliki.iter().all(|w| !w.moze_byc_mowa(-30.0)));
+    }
+
+    fn wypowiedzi_pelne(probki: &[f32]) -> Vec<Wypowiedz> {
+        let mut s = Sluchacz::nowy();
+        let mut w = Vec::new();
+        for kawalek in probki.chunks(480) {
+            s.dodaj(kawalek, |x| w.push(x));
+        }
+        w
     }
 
     #[test]

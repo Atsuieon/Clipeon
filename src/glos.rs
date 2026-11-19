@@ -37,6 +37,8 @@ static PROBKI_PRZYSZLY: AtomicBool = AtomicBool::new(false);
 static NADAJNIK: OnceLock<mpsc::Sender<Wiadomosc>> = OnceLock::new();
 /// Próbki zebrane w trwającej nauce
 static NAUKA: Mutex<Vec<Vec<Ramka>>> = Mutex::new(Vec::new());
+/// Szczyty głośności tych próbek (dBFS)
+static NAUKA_SZCZYTY: Mutex<Vec<f32>> = Mutex::new(Vec::new());
 
 enum Wiadomosc {
     Probki { czestotliwosc: u32, kanaly: u16, bity: u16, dane: Vec<u8> },
@@ -53,7 +55,15 @@ enum Wiadomosc {
 struct Wzorce {
     wzorce: Vec<Vec<Ramka>>,
     rozrzut: f32,
+    /// Szczyt głośności frazy przy nauce (dBFS); nie ma go w plikach z 1.5.2
+    #[serde(default)]
+    szczyt_db: Option<f32>,
 }
+
+/// Rozpoznawana wypowiedź musi być najwyżej tyle dB ciszej niż fraza przy nauce
+const CISZEJ_NIZ_NAUKA_DB: f32 = 12.0;
+/// Bez zapisanej głośności z nauki (plik z 1.5.2) i przy samej nauce: najcichszy szczyt mowy
+const NAJCICHSZA_MOWA_DB: f32 = -30.0;
 
 fn folder() -> Option<PathBuf> {
     std::env::var_os("APPDATA").map(|a| PathBuf::from(a).join("Clipeon"))
@@ -95,7 +105,12 @@ fn zapisz_nagranie(nazwa: &str, probki: &[f32]) {
 fn wczytaj() -> Option<Wzorce> {
     let tekst = std::fs::read_to_string(sciezka()?).ok()?;
     match serde_json::from_str::<Wzorce>(&tekst) {
-        Ok(w) if w.wzorce.len() >= 2 && w.rozrzut.is_finite() => Some(w),
+        Ok(w) if w.wzorce.len() >= 2 && w.rozrzut.is_finite() && w.szczyt_db.is_some() => Some(w),
+        // Fraza z 1.5.2 nie pamięta głośności, a bez niej szumy i klikanie zapisywały klipy
+        Ok(_) => {
+            crate::dziennik::info("Komenda głosowa: fraza z poprzedniej wersji — naucz jej od nowa");
+            None
+        }
         _ => {
             crate::dziennik::blad("Komenda głosowa: plik z nauczoną frazą jest uszkodzony — naucz frazy od nowa");
             None
@@ -178,6 +193,8 @@ pub fn nagraj_probke(od_nowa: bool) -> Result<Nauka, String> {
     let wypowiedz = wynik?;
     let mut nauka = NAUKA.lock().unwrap_or_else(|e| e.into_inner());
     zapisz_nagranie(&format!("nauka{}", nauka.len() + 1), &wypowiedz.probki);
+    NAUKA_SZCZYTY.lock().unwrap_or_else(|e| e.into_inner()).truncate(nauka.len());
+    NAUKA_SZCZYTY.lock().unwrap_or_else(|e| e.into_inner()).push(wypowiedz.szczyt_db);
     nauka.push(rozp::normalizuj(wypowiedz.ramki));
     if nauka.len() < PROBEK_NAUKI {
         return Ok(Nauka { zebrane: nauka.len(), gotowe: false });
@@ -197,7 +214,11 @@ pub fn nagraj_probke(od_nowa: bool) -> Result<Nauka, String> {
     if max > min * 2 || rozrzut > najlepszy * ODSTAJE_RAZY {
         return Err("Te trzy powtórzenia za bardzo się różnią (może coś przerwało). Spróbuj jeszcze raz, w ciszy.".into());
     }
-    let w = Wzorce { wzorce, rozrzut };
+    // Głośność frazy: środkowa z trzech prób
+    let mut szczyty = std::mem::take(&mut *NAUKA_SZCZYTY.lock().unwrap_or_else(|e| e.into_inner()));
+    szczyty.sort_by(|a, b| a.total_cmp(b));
+    let szczyt_db = szczyty.get(szczyty.len() / 2).copied();
+    let w = Wzorce { wzorce, rozrzut, szczyt_db };
     let sciezka = sciezka().ok_or("Brak zmiennej APPDATA")?;
     let tekst = serde_json::to_string(&w).map_err(|e| e.to_string())?;
     std::fs::write(&sciezka, tekst).map_err(|e| format!("Nie mogę zapisać {}: {e}", sciezka.display()))?;
@@ -284,11 +305,20 @@ fn petla(rx: mpsc::Receiver<Wiadomosc>, mut wzorce: Option<Wzorce>, przy_frazie:
         sluchacz.dodaj(&mono16, |r| gotowe.push(r));
         for wypowiedz in gotowe {
             // Nauka: wypowiedź idzie do okna, nie do rozpoznawania
-            if let Some(n) = nauka.take() {
-                let _ = n.send(wypowiedz);
+            if nauka.is_some() {
+                // Przy nauce stuknięcie albo szum nie mogą zostać wzorcem — czekamy na prawdziwą mowę
+                if wypowiedz.moze_byc_mowa(NAJCICHSZA_MOWA_DB)
+                    && let Some(n) = nauka.take()
+                {
+                    let _ = n.send(wypowiedz);
+                }
                 continue;
             }
             let Some(wz) = wzorce.as_ref().filter(|_| wlaczona) else { continue };
+            let najcichsza = wz.szczyt_db.map_or(NAJCICHSZA_MOWA_DB, |s| s - CISZEJ_NIZ_NAUKA_DB);
+            if !wypowiedz.moze_byc_mowa(najcichsza) {
+                continue;
+            }
             let wynik = rozp::wynik(&wz.wzorce, &wypowiedz.ramki);
             let prog = rozp::prog(wz.rozrzut, czulosc);
             zapisz_nagranie(&format!("wynik{wynik:.2}_prog{prog:.2}"), &wypowiedz.probki);
