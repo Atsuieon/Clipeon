@@ -123,7 +123,8 @@ function udawanyTauri() {
   };
 }
 
-const przegladarka = await chromium.launch();
+// Zwykłe paski przewijania jak w oknie Windows (bez tej flagi Chromium bez okna ma niewidoczne paski o zerowej szerokości)
+const przegladarka = await chromium.launch({ ignoreDefaultArgs: ["--hide-scrollbars"] });
 const strona = await przegladarka.newPage({ viewport: { width: 1200, height: 800 } });
 strona.on("pageerror", (e) => bledy.push(`błąd skryptu: ${e.message}`));
 strona.on("console", (m) => m.type() === "error" && bledy.push(`konsola: ${m.text()}`));
@@ -954,6 +955,34 @@ await strona.waitForTimeout(300);
 sprawdz((await strona.locator("#os .os-znacznik").count()) === 0, "kreski znaczników zostały po poprzednim filmie");
 await v(() => zamknijOdtwarzacz());
 sprawdz((await v(() => $("skrot-znacznika").dataset.wartosc)) === "Alt+F8", "w ustawieniach nie ma domyślnego skrótu znacznika Alt+F8");
+
+// Okienko edytora nie mruga paskiem przewijania (1.5.4). Przy niektórych wysokościach okna pasek pojawiał się
+// i znikał w kółko: z paskiem węższe wideo mieści się bez przewijania, bez paska szersze już nie — a całe
+// okienko skakało w bok o szerokość paska. Szukamy wysokości na granicy przewijania i patrzymy przez 12 klatek.
+await strona.evaluate((k) => odtworz(k), klip);
+await strona.waitForTimeout(300);
+await strona.click('[data-format="webp"]');
+const mruga = [];
+for (const [szer, od, doo] of [[1860, 1040, 1090], [1200, 996, 1046], [960, 860, 910]]) {
+  for (let wys = od; wys <= doo; wys += 2) {
+    await strona.setViewportSize({ width: szer, height: wys });
+    const szerokosci = await strona.evaluate(() => new Promise((gotowe) => {
+      const okno = document.querySelector(".okno-odtwarzacza");
+      const widziane = new Set();
+      let n = 0;
+      const krok = () => {
+        widziane.add(okno.clientWidth);
+        if (++n < 12) requestAnimationFrame(krok);
+        else gotowe([...widziane]);
+      };
+      requestAnimationFrame(krok);
+    }));
+    if (szerokosci.length > 1) mruga.push(`${szer}×${wys}: ${szerokosci.join("/")} px`);
+  }
+}
+sprawdz(mruga.length === 0, `okienko edytora mruga paskiem przewijania i skacze w bok: ${mruga.join(", ")}`);
+await v(() => zamknijOdtwarzacz());
+await strona.setViewportSize({ width: 1200, height: 800 });
 
 
 // Pasek górny mieści się przy każdej szerokości w jednym rzędzie (bez nachodzenia), także z widocznym
