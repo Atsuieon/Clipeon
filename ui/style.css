@@ -253,6 +253,9 @@ section.grupa > .karta { flex: 1 1 100%; }
 .ust.ust-suwak .kreski i { position: absolute; top: 0; width: 1px; height: 4px; background: var(--ramka-pola); }
 .ust.ust-suwak .kreski i.duza { height: 7px; background: var(--pomoc); }
 .ust.ust-suwak > .pomoc { margin-top: 0; }
+/* „Zajmuje to ok. … RAM” zmienia długość razem z suwakiem — dwie linie zarezerwowane, żeby przy łamaniu tekstu
+   wiersz nie rósł i wszystko pod nim nie podskakiwało (1.5.4) */
+#ram { min-height: 2lh; }
 .ust .pole input[type="number"] { width: 86px; }
 .ust .pole.pola { display: grid; grid-template-columns: auto auto; gap: 10px; }
 .ust .pole.pola label { display: flex; flex-direction: row; align-items: center; gap: 8px; color: var(--pomoc); font-size: 12.5px; }

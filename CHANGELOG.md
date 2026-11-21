@@ -3,6 +3,7 @@
 ## 1.5.4
 
 - **Okienko edytora klipu nie skacze już w bok.** Przy niektórych rozmiarach okna (np. po wybraniu WebP lub GIF, gdy znikają ścieżki dźwięku) pasek przewijania z prawej pojawiał się i znikał w kółko, a całe okienko z filmem drgało o kilka pikseli. Teraz miejsce na pasek jest zarezerwowane na stałe, więc nic się nie przesuwa. Pasek przewijania w edytorze jest też cienki i ciemny jak w reszcie programu.
+- W Ustawieniach (dla nerdów) tekst „Zajmuje to ok. … pamięci RAM” pod suwakiem „Ile ostatnich sekund” nie przeskakuje już do drugiej linii przy przesuwaniu suwaka, więc reszta ustawień pod nim nie podskakuje.
 - Opis wydania na GitHubie nie ma już zdania „Masz już Clipeona 1.2.0 lub nowszego?”.
 
 ## 1.5.3
