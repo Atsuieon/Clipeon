@@ -13,7 +13,7 @@
 
 <p align="center"><a href="https://ko-fi.com/L4Q62AQ99P"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support Clipeon on Ko-fi"></a></p>
 
-<p align="center"><a href="#po-polsku">🇵🇱 Po polsku — niżej</a></p>
+<p align="center"><a href="#po-polsku">po polsku — niżej</a></p>
 
 <p align="center"><img src="docs/screenshots/biblioteka.png" width="860" alt="Clipeon clip library"></p>
 
