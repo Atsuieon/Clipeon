@@ -169,6 +169,19 @@ await strona.evaluate(() => pokazStan({ ...stan, uwaga_mikrofonu: null }));
 sprawdz(await strona.isHidden("#status-mik"), "żółty mikrofon został po zniknięciu uwagi");
 await strona.evaluate(() => pokazStan({ ...stan, tryb: "gra", pauza: false, czeka_na_gre: false, bledy: [], wznawianie: null, nagrywa: true, film: null, film_zapis: false, droga: "dda", ramka: false, skrot_filmu_blad: null }));
 
+// Czarny obraz (Windows oddaje puste klatki, 1.5.5): żółty pasek z wyjaśnieniem, nagrywanie dalej trwa
+await strona.evaluate(() => pokazStan({ ...stan, uwaga_obrazu: "Od kilkudziesięciu sekund Clipeon nagrywa sam czarny obraz." }));
+sprawdz(
+  (await strona.isVisible("#baner")) &&
+    (await strona.textContent("#baner-tytul")) === "Nagranie jest czarne" &&
+    (await strona.textContent("#baner-opis")).includes("czarny obraz") &&
+    (await strona.locator("#baner-kropka.wznawianie").count()) === 1,
+  "brak żółtego paska przy czarnym obrazie",
+);
+await zrzut("0-czarny-obraz");
+await strona.evaluate(() => pokazStan({ ...stan, uwaga_obrazu: null }));
+sprawdz(await strona.isHidden("#baner"), "pasek o czarnym obrazie został po powrocie obrazu");
+
 // Windows zmienił urządzenie dźwięku (np. po zamknięciu gry): żółta kropka z napisem, bez paska z błędem
 await strona.evaluate(() => pokazStan({ ...stan, przelaczanie: "dźwięk" }));
 sprawdz((await strona.textContent("#status-tekst")) === "Przełączam…", "przełączanie dźwięku nie zmienia napisu przy kropce");

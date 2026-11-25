@@ -1,5 +1,11 @@
 # Zmiany
 
+## 1.5.5
+
+- **Clipeon wykrywa czarny obraz w nagraniu.** Po starcie komputera Windows potrafił oddawać Clipeonowi same czarne klatki — enkoder pracował normalnie, więc Clipeon nic nie zgłaszał, a wszystkie klipy przez kilka godzin wychodziły czarne. Teraz Clipeon dwa razy na sekundę sprawdza, czy nagrywany obraz nie jest całkiem czarny. Po 10 s czerni uruchamia przechwytywanie od nowa, a gdy dalej jest czarno, przechodzi na drugą metodę nagrywania (Desktop Duplication zamiast Windows Graphics Capture albo odwrotnie) i ostrzega: dymek z dźwiękiem i żółty pasek „Nagranie jest czarne” w oknie. Gdy obraz wróci, ostrzeżenie znika samo.
+- Czarny ekran ładowania gry z kursorem albo kręciołkiem nie liczy się jako czerń — liczy się tylko obraz, na którym nie ma ani jednego jaśniejszego piksela.
+- Dla nerdów: wpis „Statystyki (60 s)” w dzienniku mówi, od ilu sekund obraz jest całkiem czarny.
+
 ## 1.5.4
 
 - **Okienko edytora klipu nie skacze już w bok.** Przy niektórych rozmiarach okna (np. po wybraniu WebP lub GIF, gdy znikają ścieżki dźwięku) pasek przewijania z prawej pojawiał się i znikał w kółko, a całe okienko z filmem drgało o kilka pikseli. Teraz miejsce na pasek jest zarezerwowane na stałe, więc nic się nie przesuwa. Pasek przewijania w edytorze jest też cienki i ciemny jak w reszcie programu.

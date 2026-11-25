@@ -197,10 +197,15 @@ function pokazStan(s) {
                 ? `Nagrywa: ${s.gra}`
                 : "Nagrywa";
   // Pasek z wyjaśnieniem i przyciskami, gdy coś nie działa
-  const problem = s.bledy[0] || (s.wznawianie && `Wznawiam nagrywanie: ${s.wznawianie}`);
+  // Czarny obraz to ostrzeżenie (żółte): nagrywanie działa, ale Windows może oddawać puste klatki
+  const problem = s.bledy[0] || (s.wznawianie && `Wznawiam nagrywanie: ${s.wznawianie}`) || s.uwaga_obrazu;
   $("baner").hidden = !problem;
   if (problem) {
-    $("baner-tytul").textContent = s.bledy.length ? "Clipeon ma problem" : "Clipeon wznawia nagrywanie";
+    $("baner-tytul").textContent = s.bledy.length
+      ? "Clipeon ma problem"
+      : s.wznawianie
+        ? "Clipeon wznawia nagrywanie"
+        : "Nagranie jest czarne";
     $("baner-opis").textContent = problem;
     $("baner-kropka").className = "kropka " + (s.bledy.length ? "blad" : "wznawianie");
   }

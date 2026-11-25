@@ -250,6 +250,16 @@ fn obsluz_zdarzenie(app: &AppHandle, z: Zdarzenie) {
             }
             pokaz_dymek(app, "Problem z mikrofonem", &opis, true, false);
         }
+        // Obraz z ekranu jest całkiem czarny: dźwięk ostrzeżenia i dymek; gdy wróci, krótki dymek bez dźwięku
+        Zdarzenie::UwagaObrazu(Some(opis)) => {
+            if cfg.dzwiek_zapisu {
+                crate::dzwiek::zagraj_uwage();
+            }
+            pokaz_dymek(app, "Nagranie jest czarne", &opis, true, false);
+        }
+        Zdarzenie::UwagaObrazu(None) => {
+            pokaz_dymek(app, "Obraz znów się nagrywa", "Na nagrywanym ekranie znów coś widać", false, false);
+        }
         Zdarzenie::Alarm(None) => {
             crate::powiadomienie::ukryj();
             pokaz_dymek(app, "Nagrywanie znów działa", "Clipeon sam wznowił nagrywanie", false, false);
