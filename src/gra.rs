@@ -105,6 +105,14 @@ const POMIJANE: &[&str] = &[
     "code.exe",
     "systemsettings.exe",
     "clipeon.exe",
+    "clipper.exe",
+    // Asystenci AI i notatki (u mnie: aplikacja Claude nagrywana jako „gra”)
+    "claude.exe",
+    "chatgpt.exe",
+    "obsidian.exe",
+    // Celowniki i panele karty dźwiękowej — małe okna na wierzchu gry
+    "crosshairx.exe",
+    "creative.sbcommand.exe",
 ];
 
 /// Czy ten program może być grą (nazwa pliku, bez względu na wielkość liter).
@@ -383,6 +391,8 @@ mod testy {
         assert!(!mozliwa_gra("Discord.exe"));
         assert!(!mozliwa_gra("Spotify.exe"));
         assert!(!mozliwa_gra("steamwebhelper.exe"));
+        assert!(!mozliwa_gra("claude.exe"));
+        assert!(!mozliwa_gra("CrosshairX.exe"));
         assert!(POMIJANE.iter().all(|p| *p == p.to_ascii_lowercase()));
         assert!(mozliwa_gra("Cyberpunk2077.exe"));
         assert!(mozliwa_gra("csgo.exe"));

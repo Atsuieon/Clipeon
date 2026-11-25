@@ -96,6 +96,8 @@ pub enum Zdarzenie {
 
 /// Po tylu sekundach bez nowych klatek strażnik uznaje, że nagrywanie stoi
 const BEZ_KLATEK: i64 = 3;
+/// Tyle nowa sesja może czekać na pierwszą zakodowaną klatkę
+const PIERWSZA_KLATKA_DO: Duration = Duration::from_secs(10);
 /// Po tylu sekundach nieprzerwanego problemu pokazujemy alarm
 const ALARM_PO: Duration = Duration::from_secs(5);
 /// …a przy chwilowej utracie dostępu do ekranu (okno UAC, ekran blokady) dopiero po tylu
@@ -1150,6 +1152,11 @@ impl Rdzen {
         self.zamek().gra_dzwieku = nazwa;
     }
 
+    /// Sesja działa, ale enkoder nie oddał jeszcze ani jednej klatki (rozruch).
+    fn czeka_na_pierwsza_klatke(&self) -> bool {
+        self.zamek().sesja.as_ref().is_some_and(|s| s.wideo.droga != Droga::Gfx && s.wideo.statystyki.pakiety.load(Ordering::Relaxed) == 0)
+    }
+
     /// Co nie działa w nagrywaniu obrazu (None = działa albo jest wstrzymane).
     fn problem_nagrywania(&self, po_uspieniu: bool) -> Option<String> {
         let w = self.zamek();
@@ -1175,13 +1182,19 @@ impl Rdzen {
             return Some(b.clone());
         }
         // Rozruch enkodera: nie oceniamy świeżo uruchomionej sesji
-        if w.start_sesji.is_some_and(|t| t.elapsed() < Duration::from_secs(4)) {
+        let wiek = w.start_sesji.map(|t| t.elapsed()).unwrap_or_default();
+        if wiek < Duration::from_secs(4) {
             return None;
         }
         // Windows Graphics Capture w ffmpeg nie daje klatek, gdy ekran się nie zmienia — wtedy brak
         // klatek to nie awaria (proces ffmpeg pilnuje wątek odczytu, który zgłosi jego koniec)
         if sesja.wideo.droga == Droga::Gfx {
             return None;
+        }
+        // Pierwsza klatka: tuż po starcie komputera AMF potrafi rozkręcać się dłużej niż 4 s. Dawniej
+        // strażnik zabijał go po 4 s, więc przez pół minuty nagrywanie restartowało się w kółko.
+        if sesja.wideo.statystyki.pakiety.load(Ordering::Relaxed) == 0 {
+            return (wiek >= PIERWSZA_KLATKA_DO).then(|| format!("enkoder nie dał ani jednej klatki przez {} s", wiek.as_secs()));
         }
         let ostatnia = sesja.bufor_wideo.zablokuj().ostatni_czas();
         let teraz = crate::bufor::teraz_100ns();
@@ -1253,6 +1266,9 @@ impl Rdzen {
                         }
                         r.wyslij_stan();
                     }
+                } else if r.czeka_na_pierwsza_klatke() {
+                    // Restart jeszcze nie dał obrazu: nie ogłaszamy „znów działa” (dawniej padało to po
+                    // sekundzie i zerowało odstęp między restartami, choć enkoder nic jeszcze nie zakodował)
                 } else {
                     if od_problemu.take().is_some() {
                         crate::dziennik::info("Strażnik: nagrywanie znów działa");

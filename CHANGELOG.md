@@ -5,6 +5,11 @@
 - **Clipeon wykrywa czarny obraz w nagraniu.** Po starcie komputera Windows potrafił oddawać Clipeonowi same czarne klatki — enkoder pracował normalnie, więc Clipeon nic nie zgłaszał, a wszystkie klipy przez kilka godzin wychodziły czarne. Teraz Clipeon dwa razy na sekundę sprawdza, czy nagrywany obraz nie jest całkiem czarny. Po 10 s czerni uruchamia przechwytywanie od nowa, a gdy dalej jest czarno, przechodzi na drugą metodę nagrywania (Desktop Duplication zamiast Windows Graphics Capture albo odwrotnie) i ostrzega: dymek z dźwiękiem i żółty pasek „Nagranie jest czarne” w oknie. Gdy obraz wróci, ostrzeżenie znika samo.
 - Czarny ekran ładowania gry z kursorem albo kręciołkiem nie liczy się jako czerń — liczy się tylko obraz, na którym nie ma ani jednego jaśniejszego piksela.
 - Dla nerdów: wpis „Statystyki (60 s)” w dzienniku mówi, od ilu sekund obraz jest całkiem czarny.
+- **Usuwanie klipu pyta, zanim przeniesie go do Kosza.** Okienko „Przenieść klip do Kosza?” w ogóle się nie pokazywało (brak uprawnienia w oknie), a klip i tak szedł do Kosza — także zaznaczone klipy. Teraz pytanie się pojawia, a „Anuluj” naprawdę anuluje.
+- Aplikacja Claude, ChatGPT, Obsidian, CrosshairX i panel Sound Blastera nie są już brane za grę (dźwięk „Gra” nagrywał np. `claude.exe` zamiast gry).
+- Clipeon nie kasuje już Twoich pustych podfolderów w folderze klipów — przy każdym starcie znikał każdy pusty folder, a miały znikać tylko puste foldery miesięcy (np. `2026-11`).
+- Tuż po starcie komputera nagrywanie nie restartuje się już w kółko: enkoder ma 10 s na pierwszą klatkę (było 4 s), a strażnik nie pisze „nagrywanie znów działa”, zanim naprawdę przyjdzie obraz.
+- Porządki: usunięte nieużywane style okna.
 
 ## 1.5.4
 
