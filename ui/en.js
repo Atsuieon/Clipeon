@@ -294,7 +294,7 @@ window.SLOWNIK_EN = {
   "Clipeon nie nagrywa": "Clipeon is not recording",
   "Problem z mikrofonem": "Microphone problem",
   "Nagranie jest czarne": "The recording is black",
-  "Od kilkudziesięciu sekund Clipeon nagrywa sam czarny obraz. Jeśli na ekranie coś widać, Windows nie oddaje obrazu — Clipeon próbuje innej metody nagrywania. Klipy z tego czasu mogą być czarne.": "For the last few dozen seconds Clipeon has been recording only a black picture. If something is on your screen, Windows isn't handing over the picture — Clipeon is trying another recording method. Clips from this time may be black.",
+  "Od 10 s Clipeon nagrywa sam czarny obraz. Jeśli na ekranie coś widać, Windows nie oddaje obrazu — za chwilę Clipeon uruchomi nagrywanie od nowa, a potem spróbuje innej metody. Klipy z tego czasu mogą być czarne.": "For 10 s Clipeon has been recording only a black picture. If something is on your screen, Windows isn't handing over the picture — Clipeon will soon restart recording and then try another method. Clips from this time may be black.",
   "Obraz znów się nagrywa": "The picture is recording again",
   "Na nagrywanym ekranie znów coś widać": "Something is visible on the recorded screen again",
   "Nagrywanie znów działa": "Recording works again",

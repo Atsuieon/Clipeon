@@ -120,11 +120,12 @@ const PRZELACZANIE_WIDAC: Duration = Duration::from_secs(2);
 /// Dymek o problemie z mikrofonem pokazujemy najwyżej raz na tyle czasu (uwaga przy statusie zostaje)
 const DYMEK_MIKROFONU_CO: Duration = Duration::from_secs(30 * 60);
 /// Ostrzeżenie przy czarnym obrazie (pasek w oknie i dymek)
-const UWAGA_CZARNY_OBRAZ: &str = "Od kilkudziesięciu sekund Clipeon nagrywa sam czarny obraz. Jeśli na ekranie coś widać, Windows nie oddaje obrazu — Clipeon próbuje innej metody nagrywania. Klipy z tego czasu mogą być czarne.";
-/// Po tylu sekundach całkiem czarnego obrazu (drogi przez RAM) strażnik uznaje, że Windows oddaje puste
-/// klatki: najpierw uruchamia przechwytywanie od nowa, a gdy dalej jest czarno, bierze drugą drogę przez RAM
-/// i ostrzega. Krócej nie warto — czarny ekran ładowania gry bywa prawdziwy.
+const UWAGA_CZARNY_OBRAZ: &str = "Od 10 s Clipeon nagrywa sam czarny obraz. Jeśli na ekranie coś widać, Windows nie oddaje obrazu — za chwilę Clipeon uruchomi nagrywanie od nowa, a potem spróbuje innej metody. Klipy z tego czasu mogą być czarne.";
+/// Czarny obraz (drogi przez RAM). W grach czarny ekran bywa prawdziwy (ładowanie, przerywnik), więc
+/// po CZARNY_OBRAZ_PO tylko ostrzeżenie (dymek z dźwiękiem, żółty pasek), po CZARNY_RESTART_PO restart
+/// przechwytywania, a gdy nowa sesja też da CZARNY_OBRAZ_PO czerni — druga droga przez RAM.
 const CZARNY_OBRAZ_PO: Duration = Duration::from_secs(10);
+const CZARNY_RESTART_PO: Duration = Duration::from_secs(20);
 /// Po tylu sekundach bez problemów zapamiętujemy drogę jako działającą
 const DROGA_DZIALA_PO: Duration = Duration::from_secs(30);
 
@@ -185,7 +186,7 @@ struct Wnetrze {
     przelaczanie: BTreeMap<&'static str, (Instant, bool)>,
     /// Uwaga o mikrofonie od wątku dźwięku (patrz `Stan.uwaga_mikrofonu`)
     uwaga_mikrofonu: Option<String>,
-    /// Ile razy z rzędu strażnik zaradzał czarnemu obrazowi (0 = obraz jest; 1 = restart; 2 = druga droga)
+    /// Co strażnik zrobił przy trwającej czerni (0 = obraz jest; 1 = ostrzeżenie; 2 = restart; 3 = druga droga)
     czarny_obraz: u8,
     /// Droga, która dała czarny obraz na monitorze: do końca uruchomienia najpierw próbujemy jej zastępstwa
     czarna_droga: Option<(String, Droga)>,
@@ -1474,87 +1475,69 @@ impl Rdzen {
     }
 
     /// Obraz z ekranu jest całkiem czarny (Windows oddaje puste klatki, choć enkoder pracuje normalnie —
-    /// strażnik patrzący tylko na enkoder tego nie widzi): restart przechwytywania, potem druga droga przez
-    /// RAM i ostrzeżenie. Gdy znów coś widać, ostrzeżenie znika.
+    /// strażnik patrzący tylko na enkoder tego nie widzi). Czarny ekran bywa też prawdziwy (ładowanie gry),
+    /// więc najpierw tylko ostrzeżenie, a ruchy dopiero później: patrz `krok_czarnego_obrazu`.
     fn pilnuj_czarnego_obrazu(&self) {
-        enum Akcja {
-            Nic,
-            Restart(String),
-            Zastepstwo(String),
-            Uwaga,
-            Wrocil(bool),
-        }
-        let akcja = {
+        let (krok, droga) = {
             let mut w = self.zamek();
             let Some(s) = &w.sesja else { return };
             let (droga, monitor, obraz) = (s.wideo.droga, s.monitor.clone(), s.wideo.statystyki.obraz());
-            match (obraz, w.czarny_obraz) {
-                (wideo::Obraz::Widac, 1..) => {
+            let krok = krok_czarnego_obrazu(obraz, w.czarny_obraz);
+            match krok {
+                KrokCzerni::Nic => return,
+                KrokCzerni::Wrocil => {
                     w.czarny_obraz = 0;
-                    Akcja::Wrocil(w.uwaga_obrazu.take().is_some())
+                    w.uwaga_obrazu = None;
                 }
-                (wideo::Obraz::Czarny(t), proby) if t >= CZARNY_OBRAZ_PO => {
-                    let s = t.as_secs();
-                    match proby {
-                        0 => {
-                            w.czarny_obraz = 1;
-                            Akcja::Restart(format!(
-                                "obraz z ekranu jest całkiem czarny od {s} s (droga „{}”) — uruchamiam przechwytywanie od nowa",
-                                droga.nazwa()
-                            ))
-                        }
-                        1 => {
-                            w.czarny_obraz = 2;
-                            w.uwaga_obrazu = Some(UWAGA_CZARNY_OBRAZ.into());
-                            match droga.zapasowa() {
-                                Some(z) => {
-                                    w.czarna_droga = Some((monitor, droga));
-                                    Akcja::Zastepstwo(format!(
-                                        "obraz z ekranu dalej jest całkiem czarny (droga „{}”) — próbuję drogi „{}”",
-                                        droga.nazwa(),
-                                        z.nazwa()
-                                    ))
-                                }
-                                None => Akcja::Uwaga,
-                            }
-                        }
-                        // Zastępstwo też daje czerń: może ekran naprawdę jest czarny — zostaje ostrzeżenie
-                        _ => {
-                            if w.uwaga_obrazu.is_none() {
-                                w.uwaga_obrazu = Some(UWAGA_CZARNY_OBRAZ.into());
-                                Akcja::Uwaga
-                            } else {
-                                Akcja::Nic
-                            }
-                        }
+                KrokCzerni::Uwaga => {
+                    w.czarny_obraz = 1;
+                    w.uwaga_obrazu = Some(UWAGA_CZARNY_OBRAZ.into());
+                }
+                KrokCzerni::Restart => w.czarny_obraz = 2,
+                KrokCzerni::Zastepstwo => {
+                    w.czarny_obraz = 3;
+                    if droga.zapasowa().is_some() {
+                        w.czarna_droga = Some((monitor, droga));
                     }
                 }
-                _ => Akcja::Nic,
             }
+            (krok, droga)
         };
-        match akcja {
-            Akcja::Nic => {}
-            Akcja::Restart(opis) => {
-                crate::dziennik::info(&format!("Strażnik: {opis}"));
-                self.uruchom();
+        match krok {
+            KrokCzerni::Nic => {}
+            KrokCzerni::Wrocil => {
+                crate::dziennik::info("Strażnik: na nagrywanym obrazie znów coś widać");
+                (self.powiadom)(Zdarzenie::UwagaObrazu(None));
+                self.wyslij_stan();
             }
-            Akcja::Zastepstwo(opis) => {
-                crate::dziennik::blad(&format!("Strażnik: {opis}"));
-                (self.powiadom)(Zdarzenie::UwagaObrazu(Some(UWAGA_CZARNY_OBRAZ.into())));
-                self.uruchom();
-            }
-            Akcja::Uwaga => {
-                crate::dziennik::blad("Strażnik: obraz z ekranu jest całkiem czarny, a drugiej drogi nie ma — ostrzegam");
+            KrokCzerni::Uwaga => {
+                crate::dziennik::blad(&format!(
+                    "Strażnik: obraz z ekranu jest całkiem czarny od {} s (droga „{}”) — ostrzegam, na razie bez zmian",
+                    CZARNY_OBRAZ_PO.as_secs(),
+                    droga.nazwa()
+                ));
                 (self.powiadom)(Zdarzenie::UwagaObrazu(Some(UWAGA_CZARNY_OBRAZ.into())));
                 self.wyslij_stan();
             }
-            Akcja::Wrocil(byla_uwaga) => {
-                crate::dziennik::info("Strażnik: na nagrywanym obrazie znów coś widać");
-                if byla_uwaga {
-                    (self.powiadom)(Zdarzenie::UwagaObrazu(None));
-                    self.wyslij_stan();
-                }
+            KrokCzerni::Restart => {
+                crate::dziennik::info(&format!(
+                    "Strażnik: obraz z ekranu jest całkiem czarny od {} s (droga „{}”) — uruchamiam przechwytywanie od nowa",
+                    CZARNY_RESTART_PO.as_secs(),
+                    droga.nazwa()
+                ));
+                self.uruchom();
             }
+            KrokCzerni::Zastepstwo => match droga.zapasowa() {
+                Some(z) => {
+                    crate::dziennik::info(&format!(
+                        "Strażnik: po restarcie obraz dalej jest całkiem czarny (droga „{}”) — próbuję drogi „{}”",
+                        droga.nazwa(),
+                        z.nazwa()
+                    ));
+                    self.uruchom();
+                }
+                None => crate::dziennik::info("Strażnik: po restarcie obraz dalej jest całkiem czarny, a innej drogi nie ma"),
+            },
         }
     }
 
@@ -1680,6 +1663,32 @@ fn brak_sesji(w: &Wnetrze, zeby: &str) -> String {
         format!("Clipeon czeka na {} — nagrywanie ruszy, gdy gra wystartuje", nazwa_wybranej(&w.cfg))
     } else {
         "Nagrywanie teraz nie działa — Clipeon próbuje je wznowić".to_string()
+    }
+}
+
+/// Co strażnik robi z czarnym obrazem.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum KrokCzerni {
+    Nic,
+    /// Obraz wrócił: zdjąć ostrzeżenie
+    Wrocil,
+    /// Ostrzeżenie (dymek z dźwiękiem, żółty pasek), bez ruszania nagrywania
+    Uwaga,
+    /// Przechwytywanie od nowa
+    Restart,
+    /// Druga droga przez RAM
+    Zastepstwo,
+}
+
+/// `kroki` = co już zrobiono przy tej czerni (0 nic, 1 ostrzeżenie, 2 restart, 3 zastępstwo).
+/// Czas czerni liczy się od nowa w każdej sesji (restart zaczyna go od zera).
+fn krok_czarnego_obrazu(obraz: wideo::Obraz, kroki: u8) -> KrokCzerni {
+    match (obraz, kroki) {
+        (wideo::Obraz::Widac, 1..) => KrokCzerni::Wrocil,
+        (wideo::Obraz::Czarny(t), 0) if t >= CZARNY_OBRAZ_PO => KrokCzerni::Uwaga,
+        (wideo::Obraz::Czarny(t), 1) if t >= CZARNY_RESTART_PO => KrokCzerni::Restart,
+        (wideo::Obraz::Czarny(t), 2) if t >= CZARNY_OBRAZ_PO => KrokCzerni::Zastepstwo,
+        _ => KrokCzerni::Nic,
     }
 }
 
@@ -1856,6 +1865,28 @@ mod testy {
         // Tryb zgodności nie ma dokąd przejść
         assert_eq!(co_z_droga(Some(Droga::Potok), None, true, true, t0), Decyzja::Nic);
         assert_eq!(co_z_droga(None, None, false, false, t0), Decyzja::Nic);
+    }
+
+    #[test]
+    fn czarny_obraz_najpierw_ostrzezenie_potem_ruchy() {
+        use wideo::Obraz::*;
+        let s = Duration::from_secs;
+        // Krótka czerń (ładowanie gry): nic
+        assert_eq!(krok_czarnego_obrazu(Czarny(s(9)), 0), KrokCzerni::Nic);
+        assert_eq!(krok_czarnego_obrazu(Widac, 0), KrokCzerni::Nic);
+        // 10 s: tylko ostrzeżenie; restart dopiero po 20 s
+        assert_eq!(krok_czarnego_obrazu(Czarny(s(10)), 0), KrokCzerni::Uwaga);
+        assert_eq!(krok_czarnego_obrazu(Czarny(s(15)), 1), KrokCzerni::Nic);
+        assert_eq!(krok_czarnego_obrazu(Czarny(s(20)), 1), KrokCzerni::Restart);
+        // Nowa sesja liczy od zera: zastępstwo po jej 10 s czerni, potem już nic
+        assert_eq!(krok_czarnego_obrazu(Czarny(s(5)), 2), KrokCzerni::Nic);
+        assert_eq!(krok_czarnego_obrazu(Czarny(s(10)), 2), KrokCzerni::Zastepstwo);
+        assert_eq!(krok_czarnego_obrazu(Czarny(s(600)), 3), KrokCzerni::Nic);
+        // Obraz wrócił na każdym etapie: ostrzeżenie znika
+        for k in 1..=3 {
+            assert_eq!(krok_czarnego_obrazu(Widac, k), KrokCzerni::Wrocil);
+        }
+        assert_eq!(krok_czarnego_obrazu(Nieznany, 1), KrokCzerni::Nic);
     }
 
     #[test]
