@@ -99,9 +99,19 @@ pub fn sprzataj(folder: &Path, dni: u32, gb: u32) -> usize {
     usuniete
 }
 
-/// Kasuje puste podfoldery miesięcy, żeby po sprzątaniu nie zostawały same nazwy.
+/// Czy to nazwa podfolderu miesiąca, który zakłada Clipeon („2026-11”).
+fn folder_miesiaca(nazwa: &str) -> bool {
+    let b = nazwa.as_bytes();
+    b.len() == 7 && b[4] == b'-' && b.iter().enumerate().all(|(i, c)| i == 4 || c.is_ascii_digit())
+}
+
+/// Kasuje puste podfoldery miesięcy, żeby po sprzątaniu nie zostawały same nazwy. Tylko miesiące:
+/// do 1.5.4 znikał każdy pusty podfolder folderu klipów (także założony przez Ciebie), przy każdym starcie.
 fn usun_puste_miesiace(folder: &Path) {
     for podfolder in podfoldery(folder) {
+        if !podfolder.file_name().and_then(|n| n.to_str()).is_some_and(folder_miesiaca) {
+            continue;
+        }
         if std::fs::read_dir(&podfolder).is_ok_and(|mut d| d.next().is_none()) {
             let _ = std::fs::remove_dir(&podfolder);
         }
@@ -110,7 +120,17 @@ fn usun_puste_miesiace(folder: &Path) {
 
 #[cfg(test)]
 mod testy {
-    use super::wynik_edycji;
+    use super::{folder_miesiaca, wynik_edycji};
+
+    #[test]
+    fn tylko_foldery_miesiecy() {
+        assert!(folder_miesiaca("2026-11"));
+        assert!(!folder_miesiaca("Moje"));
+        assert!(!folder_miesiaca(".nagrywanie"));
+        assert!(!folder_miesiaca("2026-1"));
+        assert!(!folder_miesiaca("2026_11"));
+        assert!(!folder_miesiaca("20261-1"));
+    }
 
     #[test]
     fn rozpoznaje_wyniki_edycji() {

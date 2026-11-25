@@ -1,5 +1,16 @@
 # Zmiany
 
+## 1.5.5
+
+- **Clipeon wykrywa czarny obraz w nagraniu.** Po starcie komputera Windows potrafił oddawać Clipeonowi same czarne klatki — enkoder pracował normalnie, więc Clipeon nic nie zgłaszał, a wszystkie klipy przez kilka godzin wychodziły czarne. Teraz Clipeon dwa razy na sekundę sprawdza, czy nagrywany obraz nie jest całkiem czarny. W grach czarny ekran bywa prawdziwy, więc po 10 s czerni Clipeon tylko ostrzega (dymek z dźwiękiem i żółty pasek „Nagranie jest czarne” w oknie). Po 20 s uruchamia przechwytywanie od nowa, a gdy dalej jest czarno, po kolejnych 10 s przechodzi na drugą metodę nagrywania (Desktop Duplication zamiast Windows Graphics Capture albo odwrotnie). Gdy obraz wróci, ostrzeżenie znika samo.
+- Czarny ekran ładowania gry z kursorem albo kręciołkiem nie liczy się jako czerń — liczy się tylko obraz, na którym nie ma ani jednego jaśniejszego piksela.
+- Dla nerdów: wpis „Statystyki (60 s)” w dzienniku mówi, od ilu sekund obraz jest całkiem czarny.
+- **Usuwanie klipu pyta, zanim przeniesie go do Kosza.** Okienko „Przenieść klip do Kosza?” w ogóle się nie pokazywało (brak uprawnienia w oknie), a klip i tak szedł do Kosza — także zaznaczone klipy. Teraz pytanie się pojawia, a „Anuluj” naprawdę anuluje.
+- Aplikacja Claude, ChatGPT, Obsidian, CrosshairX i panel Sound Blastera nie są już brane za grę (dźwięk „Gra” nagrywał np. `claude.exe` zamiast gry).
+- Clipeon nie kasuje już Twoich pustych podfolderów w folderze klipów — przy każdym starcie znikał każdy pusty folder, a miały znikać tylko puste foldery miesięcy (np. `2026-11`).
+- Tuż po starcie komputera nagrywanie nie restartuje się już w kółko: enkoder ma 10 s na pierwszą klatkę (było 4 s), a strażnik nie pisze „nagrywanie znów działa”, zanim naprawdę przyjdzie obraz.
+- Porządki: usunięte nieużywane style okna.
+
 ## 1.5.4
 
 - **Okienko edytora klipu nie skacze już w bok.** Przy niektórych rozmiarach okna (np. po wybraniu WebP lub GIF, gdy znikają ścieżki dźwięku) pasek przewijania z prawej pojawiał się i znikał w kółko, a całe okienko z filmem drgało o kilka pikseli. Teraz miejsce na pasek jest zarezerwowane na stałe, więc nic się nie przesuwa. Pasek przewijania w edytorze jest też cienki i ciemny jak w reszcie programu.

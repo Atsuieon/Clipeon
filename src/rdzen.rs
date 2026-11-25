@@ -48,6 +48,8 @@ pub struct Stan {
     /// Mikrofon nagrywa, ale coś jest nie tak (cisza, zamarzł, zapasowe urządzenie, blokada w prywatności
     /// Windows) — żółty mikrofon przy statusie z wyjaśnieniem w podpowiedzi
     pub uwaga_mikrofonu: Option<String>,
+    /// Nagrywany obraz jest całkiem czarny, choć Clipeon próbował już temu zaradzić (wyjaśnienie na pasku)
+    pub uwaga_obrazu: Option<String>,
     /// Windows rysuje teraz żółtą ramkę wokół nagrywanego ekranu (droga przez Windows Graphics Capture
     /// na systemie, który nie umie jej wyłączyć)
     pub ramka: bool,
@@ -74,6 +76,8 @@ pub enum Zdarzenie {
     Uwaga { tytul: String, opis: String },
     /// Mikrofon chyba nie nagrywa głosu (krótki opis) — dymek i dźwięk ostrzeżenia
     UwagaMikrofonu(String),
+    /// Nagrywany obraz jest całkiem czarny (Some: opis — dymek i dźwięk ostrzeżenia) albo znów coś widać (None)
+    UwagaObrazu(Option<String>),
     /// Zaczęło się długie nagrywanie
     FilmStart,
     /// Długie nagrywanie się skończyło i plik jest składany; Some = skończyło się samo (powód)
@@ -92,6 +96,8 @@ pub enum Zdarzenie {
 
 /// Po tylu sekundach bez nowych klatek strażnik uznaje, że nagrywanie stoi
 const BEZ_KLATEK: i64 = 3;
+/// Tyle nowa sesja może czekać na pierwszą zakodowaną klatkę
+const PIERWSZA_KLATKA_DO: Duration = Duration::from_secs(10);
 /// Po tylu sekundach nieprzerwanego problemu pokazujemy alarm
 const ALARM_PO: Duration = Duration::from_secs(5);
 /// …a przy chwilowej utracie dostępu do ekranu (okno UAC, ekran blokady) dopiero po tylu
@@ -113,6 +119,13 @@ const POWROT_NAJPOZNIEJ_PO: Duration = Duration::from_secs(1800);
 const PRZELACZANIE_WIDAC: Duration = Duration::from_secs(2);
 /// Dymek o problemie z mikrofonem pokazujemy najwyżej raz na tyle czasu (uwaga przy statusie zostaje)
 const DYMEK_MIKROFONU_CO: Duration = Duration::from_secs(30 * 60);
+/// Ostrzeżenie przy czarnym obrazie (pasek w oknie i dymek)
+const UWAGA_CZARNY_OBRAZ: &str = "Od 10 s Clipeon nagrywa sam czarny obraz. Jeśli na ekranie coś widać, Windows nie oddaje obrazu — za chwilę Clipeon uruchomi nagrywanie od nowa, a potem spróbuje innej metody. Klipy z tego czasu mogą być czarne.";
+/// Czarny obraz (drogi przez RAM). W grach czarny ekran bywa prawdziwy (ładowanie, przerywnik), więc
+/// po CZARNY_OBRAZ_PO tylko ostrzeżenie (dymek z dźwiękiem, żółty pasek), po CZARNY_RESTART_PO restart
+/// przechwytywania, a gdy nowa sesja też da CZARNY_OBRAZ_PO czerni — druga droga przez RAM.
+const CZARNY_OBRAZ_PO: Duration = Duration::from_secs(10);
+const CZARNY_RESTART_PO: Duration = Duration::from_secs(20);
 /// Po tylu sekundach bez problemów zapamiętujemy drogę jako działającą
 const DROGA_DZIALA_PO: Duration = Duration::from_secs(30);
 
@@ -173,6 +186,12 @@ struct Wnetrze {
     przelaczanie: BTreeMap<&'static str, (Instant, bool)>,
     /// Uwaga o mikrofonie od wątku dźwięku (patrz `Stan.uwaga_mikrofonu`)
     uwaga_mikrofonu: Option<String>,
+    /// Co strażnik zrobił przy trwającej czerni (0 = obraz jest; 1 = ostrzeżenie; 2 = restart; 3 = druga droga)
+    czarny_obraz: u8,
+    /// Droga, która dała czarny obraz na monitorze: do końca uruchomienia najpierw próbujemy jej zastępstwa
+    czarna_droga: Option<(String, Droga)>,
+    /// Ostrzeżenie o czarnym obrazie (patrz `Stan.uwaga_obrazu`)
+    uwaga_obrazu: Option<String>,
     /// Kiedy i o czym był ostatni dymek o mikrofonie
     dymek_mikrofonu: Option<(Instant, String)>,
     /// Drogi przechwytywania, które zawiodły w tym uruchomieniu: (monitor, droga)
@@ -241,6 +260,9 @@ impl Rdzen {
             wznawianie: None,
             przelaczanie: BTreeMap::new(),
             uwaga_mikrofonu: None,
+            czarny_obraz: 0,
+            czarna_droga: None,
+            uwaga_obrazu: None,
             dymek_mikrofonu: None,
             odrzucone: HashSet::new(),
             lekki: false,
@@ -292,6 +314,7 @@ impl Rdzen {
             czeka_na_gre: w.czeka_na_gre,
             mikrofon: w.cfg.mikrofon,
             uwaga_mikrofonu: w.uwaga_mikrofonu.clone(),
+            uwaga_obrazu: w.uwaga_obrazu.clone().filter(|_| w.sesja.is_some() && !w.pauza),
             ramka: w.sesja.as_ref().is_some_and(|s| s.wideo.droga.z_ramka()),
             film: w.film.as_ref().map(Film::sekundy),
             film_zapis: w.zapis_filmu,
@@ -427,7 +450,17 @@ impl Rdzen {
             let mut odlozone = Vec::new();
             // Film zaczyna nowy segment od świeżych buforów (inaczej dostałby powtórzone pakiety)
             let zachowane = if w.film.is_some() { None } else { w.zachowane.take() };
-            let wynik = self.nowa_sesja(&cfg, pokolenie, &mut odrzucone, &chwilowo, tylko, lekki, &mut odlozone, zachowane.as_ref());
+            // Droga, która na tym monitorze dała czarny obraz, idzie po swoim zastępstwie
+            let unikaj = w.czarna_droga.as_ref().filter(|(m, _)| *m == monitor).map(|(_, d)| *d);
+            let wynik = self.nowa_sesja(
+                &cfg,
+                pokolenie,
+                Unikane { odrzucone: &mut odrzucone, chwilowo: &chwilowo, czarna: unikaj },
+                tylko,
+                lekki,
+                &mut odlozone,
+                zachowane.as_ref(),
+            );
             // Nowa sesja nagrywa do zachowanych buforów albo do własnych — wtedy stare przepadają.
             // Gdy sesja nie ruszyła, bufory czekają na następną próbę (i na Alt+F10 w międzyczasie).
             if wynik.is_err() {
@@ -631,24 +664,26 @@ impl Rdzen {
         &self,
         cfg: &Config,
         pokolenie: u64,
-        odrzucone: &mut HashSet<(String, Droga)>,
-        chwilowo: &HashSet<Droga>,
+        unikane: Unikane,
         tylko: Option<Droga>,
         lekki: bool,
         odlozone: &mut Vec<Droga>,
         zachowane: Option<&Zachowane>,
     ) -> Result<Sesja, String> {
+        let Unikane { odrzucone, chwilowo, czarna } = unikane;
         let monitor = cfg.aktywny_monitor().0.to_string();
         let zapamietana = crate::pamiec::pamiec().drogi.get(&monitor).and_then(|d| Droga::z_nazwy(d));
         let wszystkie = wideo::drogi(cfg);
+        let (wszystkie, czarna) = z_zastepstwem(wszystkie, czarna);
         let kolejnosc = kolejnosc_prob(
             wszystkie.clone(),
-            zapamietana.filter(|_| cfg.metoda_przechwytywania == "auto"),
+            zapamietana.filter(|_| cfg.metoda_przechwytywania == "auto" && czarna.is_none()),
             |d| d != Droga::Potok && (odrzucone.contains(&(monitor.clone(), d)) || chwilowo.contains(&d)),
             tylko,
         );
-        // Lepsza droga jest odrzucona tylko chwilowo — tej nie zapamiętujemy jako „działającej tutaj”
-        let zapamietaj_droge = !wszystkie.iter().any(|d| chwilowo.contains(d));
+        // Lepsza droga jest odrzucona tylko chwilowo — tej nie zapamiętujemy jako „działającej tutaj”.
+        // Zastępstwa za drogę z czarnym obrazem też nie (czarne klatki to zwykle chwilowy kłopot Windows).
+        let zapamietaj_droge = !wszystkie.iter().any(|d| chwilowo.contains(d)) && czarna.is_none();
         let mut ostatni_blad = String::new();
         let mut wideo_ = None;
         let mut ciag_dalszy = false;
@@ -1118,6 +1153,11 @@ impl Rdzen {
         self.zamek().gra_dzwieku = nazwa;
     }
 
+    /// Sesja działa, ale enkoder nie oddał jeszcze ani jednej klatki (rozruch).
+    fn czeka_na_pierwsza_klatke(&self) -> bool {
+        self.zamek().sesja.as_ref().is_some_and(|s| s.wideo.droga != Droga::Gfx && s.wideo.statystyki.pakiety.load(Ordering::Relaxed) == 0)
+    }
+
     /// Co nie działa w nagrywaniu obrazu (None = działa albo jest wstrzymane).
     fn problem_nagrywania(&self, po_uspieniu: bool) -> Option<String> {
         let w = self.zamek();
@@ -1143,13 +1183,19 @@ impl Rdzen {
             return Some(b.clone());
         }
         // Rozruch enkodera: nie oceniamy świeżo uruchomionej sesji
-        if w.start_sesji.is_some_and(|t| t.elapsed() < Duration::from_secs(4)) {
+        let wiek = w.start_sesji.map(|t| t.elapsed()).unwrap_or_default();
+        if wiek < Duration::from_secs(4) {
             return None;
         }
         // Windows Graphics Capture w ffmpeg nie daje klatek, gdy ekran się nie zmienia — wtedy brak
         // klatek to nie awaria (proces ffmpeg pilnuje wątek odczytu, który zgłosi jego koniec)
         if sesja.wideo.droga == Droga::Gfx {
             return None;
+        }
+        // Pierwsza klatka: tuż po starcie komputera AMF potrafi rozkręcać się dłużej niż 4 s. Dawniej
+        // strażnik zabijał go po 4 s, więc przez pół minuty nagrywanie restartowało się w kółko.
+        if sesja.wideo.statystyki.pakiety.load(Ordering::Relaxed) == 0 {
+            return (wiek >= PIERWSZA_KLATKA_DO).then(|| format!("enkoder nie dał ani jednej klatki przez {} s", wiek.as_secs()));
         }
         let ostatnia = sesja.bufor_wideo.zablokuj().ostatni_czas();
         let teraz = crate::bufor::teraz_100ns();
@@ -1221,6 +1267,9 @@ impl Rdzen {
                         }
                         r.wyslij_stan();
                     }
+                } else if r.czeka_na_pierwsza_klatke() {
+                    // Restart jeszcze nie dał obrazu: nie ogłaszamy „znów działa” (dawniej padało to po
+                    // sekundzie i zerowało odstęp między restartami, choć enkoder nic jeszcze nie zakodował)
                 } else {
                     if od_problemu.take().is_some() {
                         crate::dziennik::info("Strażnik: nagrywanie znów działa");
@@ -1233,6 +1282,7 @@ impl Rdzen {
                         r.wyslij_stan();
                     }
                     r.pilnuj_dzialajacej_sesji(obieg);
+                    r.pilnuj_czarnego_obrazu();
                 }
                 if obieg.is_multiple_of(5) {
                     r.pilnuj_filmu();
@@ -1424,6 +1474,73 @@ impl Rdzen {
         }
     }
 
+    /// Obraz z ekranu jest całkiem czarny (Windows oddaje puste klatki, choć enkoder pracuje normalnie —
+    /// strażnik patrzący tylko na enkoder tego nie widzi). Czarny ekran bywa też prawdziwy (ładowanie gry),
+    /// więc najpierw tylko ostrzeżenie, a ruchy dopiero później: patrz `krok_czarnego_obrazu`.
+    fn pilnuj_czarnego_obrazu(&self) {
+        let (krok, droga) = {
+            let mut w = self.zamek();
+            let Some(s) = &w.sesja else { return };
+            let (droga, monitor, obraz) = (s.wideo.droga, s.monitor.clone(), s.wideo.statystyki.obraz());
+            let krok = krok_czarnego_obrazu(obraz, w.czarny_obraz);
+            match krok {
+                KrokCzerni::Nic => return,
+                KrokCzerni::Wrocil => {
+                    w.czarny_obraz = 0;
+                    w.uwaga_obrazu = None;
+                }
+                KrokCzerni::Uwaga => {
+                    w.czarny_obraz = 1;
+                    w.uwaga_obrazu = Some(UWAGA_CZARNY_OBRAZ.into());
+                }
+                KrokCzerni::Restart => w.czarny_obraz = 2,
+                KrokCzerni::Zastepstwo => {
+                    w.czarny_obraz = 3;
+                    if droga.zapasowa().is_some() {
+                        w.czarna_droga = Some((monitor, droga));
+                    }
+                }
+            }
+            (krok, droga)
+        };
+        match krok {
+            KrokCzerni::Nic => {}
+            KrokCzerni::Wrocil => {
+                crate::dziennik::info("Strażnik: na nagrywanym obrazie znów coś widać");
+                (self.powiadom)(Zdarzenie::UwagaObrazu(None));
+                self.wyslij_stan();
+            }
+            KrokCzerni::Uwaga => {
+                crate::dziennik::blad(&format!(
+                    "Strażnik: obraz z ekranu jest całkiem czarny od {} s (droga „{}”) — ostrzegam, na razie bez zmian",
+                    CZARNY_OBRAZ_PO.as_secs(),
+                    droga.nazwa()
+                ));
+                (self.powiadom)(Zdarzenie::UwagaObrazu(Some(UWAGA_CZARNY_OBRAZ.into())));
+                self.wyslij_stan();
+            }
+            KrokCzerni::Restart => {
+                crate::dziennik::info(&format!(
+                    "Strażnik: obraz z ekranu jest całkiem czarny od {} s (droga „{}”) — uruchamiam przechwytywanie od nowa",
+                    CZARNY_RESTART_PO.as_secs(),
+                    droga.nazwa()
+                ));
+                self.uruchom();
+            }
+            KrokCzerni::Zastepstwo => match droga.zapasowa() {
+                Some(z) => {
+                    crate::dziennik::info(&format!(
+                        "Strażnik: po restarcie obraz dalej jest całkiem czarny (droga „{}”) — próbuję drogi „{}”",
+                        droga.nazwa(),
+                        z.nazwa()
+                    ));
+                    self.uruchom();
+                }
+                None => crate::dziennik::info("Strażnik: po restarcie obraz dalej jest całkiem czarny, a innej drogi nie ma"),
+            },
+        }
+    }
+
     /// Co minutę do dziennika: ile klatek zakodowano, ile powtórzono / pominięto / spóźniło się
     /// i ile procesora zużywa Clipeon z procesami ffmpeg.
     fn zapisz_statystyki(&self, pomiar: &mut crate::pomiar::Licznik, poprzednie: &mut Option<[u64; 6]>) {
@@ -1442,6 +1559,7 @@ impl Rdzen {
         // Nowa sesja ma liczniki od zera — wtedy różnicę policzymy dopiero za minutę
         let Some(p) = poprzednie.replace(teraz).filter(|p| p.iter().zip(&teraz).all(|(a, b)| b >= a)) else { return };
         let [przechwycone, pominiete, powtorzone, spoznione, pakiety, bajty] = std::array::from_fn(|i| teraz[i] - p[i]);
+        let obraz = self.zamek().sesja.as_ref().map(|s| s.wideo.statystyki.obraz());
         let mut t = format!(
             "Statystyki (60 s): droga {droga}, zakodowane klatki {pakiety} ({:.1}/s, {:.1} Mb/s)",
             pakiety as f64 / 60.0,
@@ -1451,6 +1569,9 @@ impl Rdzen {
             t.push_str(&format!(", z ekranu {przechwycone}, pominięte {pominiete}, powtórzone {powtorzone}"));
         }
         t.push_str(&format!(", spóźnione {spoznione}"));
+        if let Some(wideo::Obraz::Czarny(c)) = obraz {
+            t.push_str(&format!(", obraz całkiem czarny od {} s", c.as_secs()));
+        }
         if let Some(c) = cpu {
             t.push_str(&format!("; procesor: {c}"));
         }
@@ -1543,6 +1664,56 @@ fn brak_sesji(w: &Wnetrze, zeby: &str) -> String {
     } else {
         "Nagrywanie teraz nie działa — Clipeon próbuje je wznowić".to_string()
     }
+}
+
+/// Co strażnik robi z czarnym obrazem.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum KrokCzerni {
+    Nic,
+    /// Obraz wrócił: zdjąć ostrzeżenie
+    Wrocil,
+    /// Ostrzeżenie (dymek z dźwiękiem, żółty pasek), bez ruszania nagrywania
+    Uwaga,
+    /// Przechwytywanie od nowa
+    Restart,
+    /// Druga droga przez RAM
+    Zastepstwo,
+}
+
+/// `kroki` = co już zrobiono przy tej czerni (0 nic, 1 ostrzeżenie, 2 restart, 3 zastępstwo).
+/// Czas czerni liczy się od nowa w każdej sesji (restart zaczyna go od zera).
+fn krok_czarnego_obrazu(obraz: wideo::Obraz, kroki: u8) -> KrokCzerni {
+    match (obraz, kroki) {
+        (wideo::Obraz::Widac, 1..) => KrokCzerni::Wrocil,
+        (wideo::Obraz::Czarny(t), 0) if t >= CZARNY_OBRAZ_PO => KrokCzerni::Uwaga,
+        (wideo::Obraz::Czarny(t), 1) if t >= CZARNY_RESTART_PO => KrokCzerni::Restart,
+        (wideo::Obraz::Czarny(t), 2) if t >= CZARNY_OBRAZ_PO => KrokCzerni::Zastepstwo,
+        _ => KrokCzerni::Nic,
+    }
+}
+
+/// Drogi, których nowa sesja ma unikać.
+struct Unikane<'a> {
+    /// Drogi, które zawiodły w tym uruchomieniu: (monitor, droga)
+    odrzucone: &'a mut HashSet<(String, Droga)>,
+    /// Drogi odrzucone chwilowo, na które jeszcze nie pora wracać
+    chwilowo: &'a HashSet<Droga>,
+    /// Droga, która dała na tym monitorze całkiem czarny obraz
+    czarna: Option<Droga>,
+}
+
+/// Droga z czarnym obrazem idzie na koniec, a jej zastępstwo (druga droga przez RAM) na początek — także
+/// wtedy, gdy zwykle go nie bierzemy (Desktop Duplication w Clipeonie na Windows 11). Zwraca też drogę
+/// z czarnym obrazem, jeśli w ogóle jest na liście (inne ustawienia = inna lista).
+fn z_zastepstwem(mut drogi: Vec<Droga>, czarna: Option<Droga>) -> (Vec<Droga>, Option<Droga>) {
+    let Some(c) = czarna.filter(|c| drogi.contains(c)) else { return (drogi, None) };
+    drogi.retain(|d| *d != c);
+    if let Some(z) = c.zapasowa() {
+        drogi.retain(|d| *d != z);
+        drogi.insert(0, z);
+    }
+    drogi.push(c);
+    (drogi, Some(c))
 }
 
 /// Kolejność dróg do wypróbowania przy starcie sesji.
@@ -1694,6 +1865,40 @@ mod testy {
         // Tryb zgodności nie ma dokąd przejść
         assert_eq!(co_z_droga(Some(Droga::Potok), None, true, true, t0), Decyzja::Nic);
         assert_eq!(co_z_droga(None, None, false, false, t0), Decyzja::Nic);
+    }
+
+    #[test]
+    fn czarny_obraz_najpierw_ostrzezenie_potem_ruchy() {
+        use wideo::Obraz::*;
+        let s = Duration::from_secs;
+        // Krótka czerń (ładowanie gry): nic
+        assert_eq!(krok_czarnego_obrazu(Czarny(s(9)), 0), KrokCzerni::Nic);
+        assert_eq!(krok_czarnego_obrazu(Widac, 0), KrokCzerni::Nic);
+        // 10 s: tylko ostrzeżenie; restart dopiero po 20 s
+        assert_eq!(krok_czarnego_obrazu(Czarny(s(10)), 0), KrokCzerni::Uwaga);
+        assert_eq!(krok_czarnego_obrazu(Czarny(s(15)), 1), KrokCzerni::Nic);
+        assert_eq!(krok_czarnego_obrazu(Czarny(s(20)), 1), KrokCzerni::Restart);
+        // Nowa sesja liczy od zera: zastępstwo po jej 10 s czerni, potem już nic
+        assert_eq!(krok_czarnego_obrazu(Czarny(s(5)), 2), KrokCzerni::Nic);
+        assert_eq!(krok_czarnego_obrazu(Czarny(s(10)), 2), KrokCzerni::Zastepstwo);
+        assert_eq!(krok_czarnego_obrazu(Czarny(s(600)), 3), KrokCzerni::Nic);
+        // Obraz wrócił na każdym etapie: ostrzeżenie znika
+        for k in 1..=3 {
+            assert_eq!(krok_czarnego_obrazu(Widac, k), KrokCzerni::Wrocil);
+        }
+        assert_eq!(krok_czarnego_obrazu(Nieznany, 1), KrokCzerni::Nic);
+    }
+
+    #[test]
+    fn zastepstwo_za_czarny_obraz() {
+        use Droga::*;
+        // Windows 11 z h264_amf (tylko tryb zgodności): czarny obraz → najpierw DDA w Clipeonie, potok na końcu
+        assert_eq!(z_zastepstwem(vec![Potok], Some(Potok)), (vec![DdaRam, Potok], Some(Potok)));
+        // Zastępstwo idzie przed drogi w ffmpeg, a czarna droga na koniec
+        assert_eq!(z_zastepstwem(vec![Dda, DdaRam, Potok], Some(DdaRam)), (vec![Potok, Dda, DdaRam], Some(DdaRam)));
+        // Bez czarnej drogi (albo spoza listy, np. po zmianie ustawień) lista się nie zmienia
+        assert_eq!(z_zastepstwem(vec![Dda, Potok], None), (vec![Dda, Potok], None));
+        assert_eq!(z_zastepstwem(vec![Dda, Potok], Some(DdaRam)), (vec![Dda, Potok], None));
     }
 
     #[test]

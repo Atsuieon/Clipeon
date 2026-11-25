@@ -100,6 +100,9 @@ function udawanyTauri() {
     glos_usun: () => {
       window.__glosUsuniety = true;
     },
+    usun_klip: (a) => {
+      window.__usuniete = [...(window.__usuniete || []), a.sciezka];
+    },
     otworz_wsparcie: () => {
       window.__wsparcie = (window.__wsparcie || 0) + 1;
     },
@@ -108,6 +111,11 @@ function udawanyTauri() {
       stan.wybrana_gra = a.nazwa;
       window.__wybranaGra = a;
     },
+  };
+  // Tauri podmienia confirm() na asynchroniczne okno systemowe: zwraca obietnicę, a nie true/false
+  window.confirm = async (tekst) => {
+    window.__pytania = [...(window.__pytania || []), tekst];
+    return !!window.__odpowiedz;
   };
   window.__TAURI__ = {
     core: { invoke: async (k, a) => (odpowiedzi[k] ? odpowiedzi[k](a) : null), convertFileSrc: (x) => x },
@@ -168,6 +176,30 @@ await zrzut("0-mikrofon-uwaga");
 await strona.evaluate(() => pokazStan({ ...stan, uwaga_mikrofonu: null }));
 sprawdz(await strona.isHidden("#status-mik"), "żółty mikrofon został po zniknięciu uwagi");
 await strona.evaluate(() => pokazStan({ ...stan, tryb: "gra", pauza: false, czeka_na_gre: false, bledy: [], wznawianie: null, nagrywa: true, film: null, film_zapis: false, droga: "dda", ramka: false, skrot_filmu_blad: null }));
+
+// Czarny obraz (Windows oddaje puste klatki, 1.5.5): żółty pasek z wyjaśnieniem, nagrywanie dalej trwa
+await strona.evaluate(() => pokazStan({ ...stan, uwaga_obrazu: "Od kilkudziesięciu sekund Clipeon nagrywa sam czarny obraz." }));
+sprawdz(
+  (await strona.isVisible("#baner")) &&
+    (await strona.textContent("#baner-tytul")) === "Nagranie jest czarne" &&
+    (await strona.textContent("#baner-opis")).includes("czarny obraz") &&
+    (await strona.locator("#baner-kropka.wznawianie").count()) === 1,
+  "brak żółtego paska przy czarnym obrazie",
+);
+await zrzut("0-czarny-obraz");
+await strona.evaluate(() => pokazStan({ ...stan, uwaga_obrazu: null }));
+sprawdz(await strona.isHidden("#baner"), "pasek o czarnym obrazie został po powrocie obrazu");
+
+// Usuwanie klipu czeka na odpowiedź w okienku (1.5.5: bez await „Anuluj” nic nie dawało, klip szedł do Kosza)
+await strona.evaluate(() => usun({ nazwa: "klip.mp4", sciezka: "C:\\Klipy\\klip.mp4" }));
+await strona.waitForTimeout(100);
+sprawdz((await strona.evaluate(() => (window.__pytania || []).length)) === 1, "usuwanie klipu nie pyta o potwierdzenie");
+sprawdz((await strona.evaluate(() => window.__usuniete || [])).length === 0, "„Anuluj” przy usuwaniu klipu i tak przenosi go do Kosza");
+await strona.evaluate(() => (window.__odpowiedz = true));
+await strona.evaluate(() => usun({ nazwa: "klip.mp4", sciezka: "C:\\Klipy\\klip.mp4" }));
+await strona.waitForTimeout(100);
+sprawdz((await strona.evaluate(() => window.__usuniete || [])).length === 1, "„OK” przy usuwaniu klipu nie przenosi go do Kosza");
+await strona.evaluate(() => (window.__odpowiedz = false));
 
 // Windows zmienił urządzenie dźwięku (np. po zamknięciu gry): żółta kropka z napisem, bez paska z błędem
 await strona.evaluate(() => pokazStan({ ...stan, przelaczanie: "dźwięk" }));

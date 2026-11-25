@@ -68,6 +68,16 @@ impl Droga {
         }
     }
 
+    /// Druga droga przez RAM: zastępstwo, gdy ta daje całkiem czarny obraz (Windows Graphics Capture
+    /// i Desktop Duplication to osobne mechanizmy Windows — gdy jeden oddaje puste klatki, drugi zwykle nie).
+    pub fn zapasowa(self) -> Option<Droga> {
+        match self {
+            Droga::Potok => Some(Droga::DdaRam),
+            Droga::DdaRam => Some(Droga::Potok),
+            Droga::Dda | Droga::Gfx => None,
+        }
+    }
+
     /// Czy przechwytuje ffmpeg (a nie Clipeon).
     pub fn w_ffmpeg(self) -> bool {
         matches!(self, Droga::Dda | Droga::Gfx)
@@ -166,6 +176,21 @@ pub struct Statystyki {
     /// Zakodowane klatki odebrane z enkodera
     pub pakiety: AtomicU64,
     pub bajty: AtomicU64,
+    /// Ile razy wątek taktujący sprawdził jasność wysyłanego obrazu (0 = droga bez sprawdzania albo za wcześnie)
+    pub sprawdzenia_obrazu: AtomicU64,
+    /// Od ilu milisekund wysyłany obraz jest bez przerwy całkiem czarny (0 = coś na nim widać)
+    pub czarny_ms: AtomicU64,
+}
+
+/// Co widać w nagrywanym obrazie (sprawdza wątek taktujący dróg przez RAM).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Obraz {
+    /// Jeszcze nie sprawdzony albo droga w ffmpeg (obraz nie przechodzi przez Clipeona)
+    Nieznany,
+    /// Na obrazie coś widać
+    Widac,
+    /// Obraz jest całkiem czarny od tylu czasu
+    Czarny(Duration),
 }
 
 /// Dolicza do licznika statystyk (kolejność bez znaczenia — to tylko liczby do dziennika).
@@ -174,6 +199,17 @@ fn dolicz(licznik: &AtomicU64, ile: u64) {
 }
 
 impl Statystyki {
+    /// Co widać w obrazie według ostatniego sprawdzenia.
+    pub fn obraz(&self) -> Obraz {
+        if self.sprawdzenia_obrazu.load(Ordering::Relaxed) == 0 {
+            return Obraz::Nieznany;
+        }
+        match self.czarny_ms.load(Ordering::Relaxed) {
+            0 => Obraz::Widac,
+            ms => Obraz::Czarny(Duration::from_millis(ms)),
+        }
+    }
+
     /// Wartości liczników (do policzenia różnic co minutę).
     pub fn odczyt(&self) -> [u64; 6] {
         [&self.przechwycone, &self.pominiete, &self.powtorzone, &self.spoznione, &self.pakiety, &self.bajty]
@@ -893,6 +929,8 @@ fn watek_taktujacy(
             let (mut spoznione_w_oknie, mut zle_sekundy) = (0u32, 0u32);
             let czekanie = okres.mul_f64(CZEKANIE_NA_KLATKE);
             let mut zatrzymany = false;
+            let sprawdzaj_co = (fps / SPRAWDZENIA_OBRAZU_NA_S).max(1);
+            let mut czarny_od: Option<Instant> = None;
             while !stop.load(Ordering::SeqCst) {
                 let czekaj_do = Instant::now() + czekanie;
                 // „Nagrywaj tylko grę”: poza grą powtarzamy ostatnią klatkę gry (przyciemnioną)
@@ -921,6 +959,13 @@ fn watek_taktujacy(
                         }
                         std::thread::sleep(Duration::from_millis(1));
                     }
+                }
+                if n.is_multiple_of(sprawdzaj_co) {
+                    // Stojący obraz poza grą („Nagrywaj tylko grę”) to nasza przyciemniona klatka — nie oceniamy
+                    czarny_od = if zatrzymany || !klatka_czarna(&moja) { None } else { Some(czarny_od.unwrap_or_else(Instant::now)) };
+                    let ms = czarny_od.map_or(0, |t| (t.elapsed().as_millis() as u64).max(1));
+                    statystyki.czarny_ms.store(ms, Ordering::Relaxed);
+                    dolicz(&statystyki.sprawdzenia_obrazu, 1);
                 }
                 if wejscie.write_all(&moja).is_err() {
                     return; // ffmpeg nie żyje; wątek czytający zgłosi błąd
@@ -953,6 +998,19 @@ fn watek_taktujacy(
             }
         })
         .expect("wątek wideo-takt");
+}
+
+/// Ile razy na sekundę wątek taktujący sprawdza, czy obraz nie jest całkiem czarny. Pełne przejrzenie
+/// klatki 1080p to ok. 1 ms (i kończy się na pierwszym jaśniejszym pikselu), więc dwa razy na sekundę
+/// nic nie kosztuje.
+const SPRAWDZENIA_OBRAZU_NA_S: u32 = 2;
+
+/// Czy klatka BGRA jest całkiem czarna: każdy kanał koloru każdego piksela ≤ 3. Tak wygląda obraz,
+/// gdy Windows oddaje puste klatki (2026-11-23: sesja od startu komputera nagrała 9 h czerni, a enkoder
+/// pracował normalnie). Sprawdzamy każdy piksel, bo czarny ekran ładowania z małym kręciołkiem albo
+/// kursorem to już nie awaria. Kanał alfa pomijamy (bywa 0 albo 255).
+pub(crate) fn klatka_czarna(piksele: &[u8]) -> bool {
+    piksele.chunks_exact(4).all(|p| u32::from_le_bytes([p[0], p[1], p[2], p[3]]) & 0x00FC_FCFC == 0)
 }
 
 /// Przyciemnia klatkę BGRA do ok. 40% jasności — znak w nagraniu, że w tym miejscu gra była schowana.
@@ -1112,6 +1170,37 @@ mod testy {
         // Nieznane wyjście karty: zostaje dawna kolejność
         assert_eq!(kolejnosc_drog(&Warunki { wyjscie: false, ..win10 }), vec![Droga::Dda, Droga::Gfx, Droga::Potok]);
         assert!(!Droga::DdaRam.w_ffmpeg());
+    }
+
+    #[test]
+    fn czarna_klatka() {
+        // Puste klatki z Windows: same zera, alfa bez znaczenia
+        assert!(klatka_czarna(&[0u8; 16]));
+        assert!(klatka_czarna(&[0, 0, 0, 255, 3, 3, 3, 0]));
+        // Jeden jaśniejszy piksel (kursor, kręciołek ładowania) = obraz jest
+        let mut k = vec![0u8; 1920 * 1080 * 4];
+        assert!(klatka_czarna(&k));
+        k[1000 * 1920 * 4 + 2] = 4; // czerwony kanał jednego piksela
+        assert!(!klatka_czarna(&k));
+        // Ciemna scena gry to nie czerń
+        assert!(!klatka_czarna(&[8, 8, 8, 255]));
+    }
+
+    #[test]
+    fn obraz_ze_statystyk() {
+        let s = Statystyki::default();
+        assert_eq!(s.obraz(), Obraz::Nieznany);
+        s.sprawdzenia_obrazu.store(1, Ordering::Relaxed);
+        assert_eq!(s.obraz(), Obraz::Widac);
+        s.czarny_ms.store(12_000, Ordering::Relaxed);
+        assert_eq!(s.obraz(), Obraz::Czarny(Duration::from_secs(12)));
+    }
+
+    #[test]
+    fn zapasowe_drogi() {
+        assert_eq!(Droga::Potok.zapasowa(), Some(Droga::DdaRam));
+        assert_eq!(Droga::DdaRam.zapasowa(), Some(Droga::Potok));
+        assert_eq!(Droga::Dda.zapasowa(), None);
     }
 
     #[test]

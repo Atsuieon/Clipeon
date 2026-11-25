@@ -197,10 +197,15 @@ function pokazStan(s) {
                 ? `Nagrywa: ${s.gra}`
                 : "Nagrywa";
   // Pasek z wyjaśnieniem i przyciskami, gdy coś nie działa
-  const problem = s.bledy[0] || (s.wznawianie && `Wznawiam nagrywanie: ${s.wznawianie}`);
+  // Czarny obraz to ostrzeżenie (żółte): nagrywanie działa, ale Windows może oddawać puste klatki
+  const problem = s.bledy[0] || (s.wznawianie && `Wznawiam nagrywanie: ${s.wznawianie}`) || s.uwaga_obrazu;
   $("baner").hidden = !problem;
   if (problem) {
-    $("baner-tytul").textContent = s.bledy.length ? "Clipeon ma problem" : "Clipeon wznawia nagrywanie";
+    $("baner-tytul").textContent = s.bledy.length
+      ? "Clipeon ma problem"
+      : s.wznawianie
+        ? "Clipeon wznawia nagrywanie"
+        : "Nagranie jest czarne";
     $("baner-opis").textContent = problem;
     $("baner-kropka").className = "kropka " + (s.bledy.length ? "blad" : "wznawianie");
   }
@@ -638,7 +643,8 @@ $("odznacz").addEventListener("click", wyczyscZaznaczenie);
 $("usun-zaznaczone").addEventListener("click", async () => {
   const lista = [...zaznaczone];
   if (!lista.length) return;
-  if (!confirm(`Przenieść do Kosza: ${odmianaZaznaczonych(lista.length).replace(/ zaznacz\S+$/, "")}? Da się je przywrócić z Kosza.`)) return;
+  // Okno Tauri: confirm() zwraca obietnicę — bez await klip szedł do Kosza bez pytania
+  if (!(await confirm(`Przenieść do Kosza: ${odmianaZaznaczonych(lista.length).replace(/ zaznacz\S+$/, "")}? Da się je przywrócić z Kosza.`))) return;
   let bledy = 0;
   for (const sciezka of lista) {
     try {
@@ -1737,7 +1743,7 @@ async function pokazWFolderze(klip) {
 }
 
 async function usun(klip) {
-  if (!confirm(`Przenieść klip „${klip.nazwa}” do Kosza?`)) return;
+  if (!(await confirm(`Przenieść klip „${klip.nazwa}” do Kosza?`))) return;
   if (odtwarzany && odtwarzany.sciezka === klip.sciezka) zamknijOdtwarzacz();
   try {
     await invoke("usun_klip", { sciezka: klip.sciezka });
